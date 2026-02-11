@@ -245,6 +245,10 @@
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                             <span data-i18n="admin_nav_products">产品管理</span>
                         </button>
+                        <button class="admin-nav-item" data-tab="multimodal" onclick="switchAdminTab('multimodal')">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                            <span data-i18n="admin_nav_multimodal">多模态</span>
+                        </button>
                         <button class="admin-nav-item" data-tab="settings" onclick="switchAdminTab('settings')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                             <span data-i18n="admin_nav_settings">系统设置</span>
@@ -283,8 +287,8 @@
                                 <div id="admin-drop-zone" class="admin-drop-zone" onclick="document.getElementById('admin-file-input').click()">
                                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                     <p data-i18n="admin_doc_drop_text">拖拽文件到此处，或点击选择文件</p>
-                                    <span class="admin-drop-hint" data-i18n="admin_doc_drop_hint">支持 PDF、Word、Excel、PPT、Markdown 格式</span>
-                                    <input type="file" id="admin-file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.markdown" style="display:none" onchange="handleAdminFileUpload(this)">
+                                    <span class="admin-drop-hint" data-i18n="admin_doc_drop_hint">支持 PDF、Word、Excel、PPT、Markdown、视频格式</span>
+                                    <input type="file" id="admin-file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.markdown,.mp4,.avi,.mkv,.mov,.webm" style="display:none" onchange="handleAdminFileUpload(this)">
                                 </div>
                                 <div class="admin-url-input">
                                     <input type="text" id="admin-url-field" data-i18n-placeholder="admin_doc_url_placeholder" placeholder="输入文档URL地址">
@@ -660,6 +664,146 @@
                                         </table>
                                     </div>
                                 </fieldset>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Multimodal Tab (Video/Audio Processing) -->
+                    <div id="admin-tab-multimodal" class="admin-tab hidden">
+                        <div class="admin-tab-header">
+                            <h2 data-i18n="admin_multimodal_title">多模态配置</h2>
+                        </div>
+                        <div class="admin-tab-body">
+                            <div id="admin-multimodal-form" class="admin-settings-form">
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_multimodal_dep_status">依赖状态</legend>
+                                    <div id="multimodal-dep-status" class="admin-dep-status">
+                                        <div class="admin-dep-item">
+                                            <span class="admin-dep-icon" id="dep-ffmpeg-icon">⏳</span>
+                                            <span>FFmpeg</span>
+                                            <span class="admin-dep-label" id="dep-ffmpeg-label" data-i18n="admin_multimodal_checking">检测中...</span>
+                                        </div>
+                                        <div class="admin-dep-item">
+                                            <span class="admin-dep-icon" id="dep-whisper-icon">⏳</span>
+                                            <span>Whisper</span>
+                                            <span class="admin-dep-label" id="dep-whisper-label" data-i18n="admin_multimodal_checking">检测中...</span>
+                                        </div>
+                                    </div>
+                                    <div class="admin-form-row" style="margin-top:0.5rem;">
+                                        <button type="button" class="btn-secondary btn-sm" onclick="checkMultimodalDeps()" data-i18n="admin_multimodal_recheck">重新检测</button>
+                                    </div>
+                                </fieldset>
+
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_multimodal_ffmpeg">FFmpeg 配置</legend>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_multimodal_ffmpeg_path">FFmpeg 路径</label>
+                                        <input type="text" id="cfg-video-ffmpeg-path" placeholder="ffmpeg">
+                                        <span class="admin-form-hint" data-i18n="admin_multimodal_ffmpeg_path_hint">留空则使用系统 PATH 中的 ffmpeg，也可填写完整路径如 /usr/bin/ffmpeg</span>
+                                    </div>
+                                    <div class="admin-install-guide">
+                                        <details>
+                                            <summary data-i18n="admin_multimodal_ffmpeg_install">📦 FFmpeg 安装指南</summary>
+                                            <div class="admin-install-content">
+                                                <p data-i18n="admin_multimodal_ffmpeg_desc">FFmpeg 用于从视频中提取音频和关键帧图像。</p>
+                                                <div class="admin-install-os">
+                                                    <h4>Windows</h4>
+                                                    <ol>
+                                                        <li data-i18n="admin_multimodal_ffmpeg_win1">访问 <a href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" rel="noopener">gyan.dev/ffmpeg</a> 下载 release full 版本</li>
+                                                        <li data-i18n="admin_multimodal_ffmpeg_win2">解压到任意目录，如 <code>C:\ffmpeg</code></li>
+                                                        <li data-i18n="admin_multimodal_ffmpeg_win3">将 <code>C:\ffmpeg\bin</code> 添加到系统环境变量 PATH 中</li>
+                                                        <li data-i18n="admin_multimodal_ffmpeg_win4">或直接在上方填写完整路径：<code>C:\ffmpeg\bin\ffmpeg.exe</code></li>
+                                                    </ol>
+                                                    <p data-i18n="admin_multimodal_ffmpeg_win_alt">也可使用包管理器：<code>winget install ffmpeg</code> 或 <code>choco install ffmpeg</code></p>
+                                                </div>
+                                                <div class="admin-install-os">
+                                                    <h4>macOS</h4>
+                                                    <code class="admin-install-cmd">brew install ffmpeg</code>
+                                                </div>
+                                                <div class="admin-install-os">
+                                                    <h4>Linux (Ubuntu/Debian)</h4>
+                                                    <code class="admin-install-cmd">sudo apt update && sudo apt install ffmpeg</code>
+                                                </div>
+                                                <div class="admin-install-os">
+                                                    <h4>Linux (CentOS/RHEL)</h4>
+                                                    <code class="admin-install-cmd">sudo yum install ffmpeg</code>
+                                                </div>
+                                                <p data-i18n="admin_multimodal_ffmpeg_verify">安装后可在终端运行 <code>ffmpeg -version</code> 验证是否安装成功。</p>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </fieldset>
+
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_multimodal_whisper">Whisper 配置</legend>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_multimodal_whisper_path">Whisper 路径</label>
+                                        <input type="text" id="cfg-video-whisper-path" placeholder="whisper">
+                                        <span class="admin-form-hint" data-i18n="admin_multimodal_whisper_path_hint">留空则使用系统 PATH 中的 whisper，也可填写完整路径</span>
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_multimodal_whisper_model">Whisper 模型</label>
+                                        <select id="cfg-video-whisper-model">
+                                            <option value="tiny">tiny（最快，精度较低，~1GB 显存）</option>
+                                            <option value="base" selected>base（推荐，速度与精度平衡，~1GB 显存）</option>
+                                            <option value="small">small（较好精度，~2GB 显存）</option>
+                                            <option value="medium">medium（高精度，~5GB 显存）</option>
+                                            <option value="large">large（最高精度，~10GB 显存）</option>
+                                        </select>
+                                        <span class="admin-form-hint" data-i18n="admin_multimodal_whisper_model_hint">模型越大精度越高但速度越慢，首次使用会自动下载模型文件</span>
+                                    </div>
+                                    <div class="admin-install-guide">
+                                        <details>
+                                            <summary data-i18n="admin_multimodal_whisper_install">📦 Whisper 安装指南</summary>
+                                            <div class="admin-install-content">
+                                                <p data-i18n="admin_multimodal_whisper_desc">OpenAI Whisper 用于将视频中的语音转录为文字，需要 Python 3.8+ 环境。</p>
+                                                <div class="admin-install-os">
+                                                    <h4 data-i18n="admin_multimodal_whisper_step1_title">步骤 1：安装 Python</h4>
+                                                    <p data-i18n="admin_multimodal_whisper_step1_desc">确保系统已安装 Python 3.8 或更高版本。可运行 <code>python --version</code> 检查。</p>
+                                                    <p data-i18n="admin_multimodal_whisper_step1_download">如未安装，请从 <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org</a> 下载安装。</p>
+                                                </div>
+                                                <div class="admin-install-os">
+                                                    <h4 data-i18n="admin_multimodal_whisper_step2_title">步骤 2：安装 Whisper</h4>
+                                                    <code class="admin-install-cmd">pip install openai-whisper</code>
+                                                    <p data-i18n="admin_multimodal_whisper_step2_gpu">如有 NVIDIA GPU，建议先安装 CUDA 版 PyTorch 以获得 GPU 加速：</p>
+                                                    <code class="admin-install-cmd">pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121</code>
+                                                </div>
+                                                <div class="admin-install-os">
+                                                    <h4 data-i18n="admin_multimodal_whisper_step3_title">步骤 3：验证安装</h4>
+                                                    <code class="admin-install-cmd">whisper --help</code>
+                                                    <p data-i18n="admin_multimodal_whisper_step3_desc">如果显示帮助信息则安装成功。首次转录时会自动下载所选模型。</p>
+                                                </div>
+                                                <div class="admin-install-os">
+                                                    <h4 data-i18n="admin_multimodal_whisper_note_title">⚠️ 注意事项</h4>
+                                                    <ul>
+                                                        <li data-i18n="admin_multimodal_whisper_note1">Whisper 依赖 FFmpeg，请确保 FFmpeg 已安装</li>
+                                                        <li data-i18n="admin_multimodal_whisper_note2">无 GPU 时也可运行，但转录速度会较慢</li>
+                                                        <li data-i18n="admin_multimodal_whisper_note3">模型文件会缓存在 <code>~/.cache/whisper/</code> 目录</li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </fieldset>
+
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_multimodal_video">视频处理参数</legend>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_multimodal_keyframe_interval">关键帧抽取间隔（秒）</label>
+                                        <input type="number" id="cfg-video-keyframe-interval" min="1" max="300" placeholder="10">
+                                        <span class="admin-form-hint" data-i18n="admin_multimodal_keyframe_hint">每隔多少秒从视频中提取一帧图像用于图像检索，默认 10 秒</span>
+                                    </div>
+                                </fieldset>
+
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_multimodal_supported">支持的视频格式</legend>
+                                    <p class="admin-form-hint" style="margin:0;" data-i18n="admin_multimodal_formats">MP4、AVI、MKV、MOV、WebM</p>
+                                    <p class="admin-form-hint" style="margin-top:0.5rem;" data-i18n="admin_multimodal_workflow">上传视频后，系统将自动：1) 使用 FFmpeg 提取音频和关键帧 → 2) 使用 Whisper 将语音转为文字 → 3) 对文字和图像分别生成向量嵌入 → 4) 存入知识库供检索</p>
+                                </fieldset>
+
+                                <div class="admin-form-actions">
+                                    <button class="btn-primary" onclick="saveMultimodalSettings()" data-i18n="admin_multimodal_save">保存多模态设置</button>
+                                </div>
                             </div>
                         </div>
                     </div>

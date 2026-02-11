@@ -909,9 +909,32 @@
 
         // Display images from sources inline
         if (msg.sources && msg.sources.length > 0) {
+            var videoShown = {};
             for (var k = 0; k < msg.sources.length; k++) {
-                if (msg.sources[k].image_url) {
-                    html += '<div class="chat-msg-image"><img src="' + escapeHtml(msg.sources[k].image_url) + '" alt="' + escapeHtml(msg.sources[k].document_name || 'image') + '" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;cursor:pointer;" onclick="window.open(this.src,\'_blank\')" /></div>';
+                var s = msg.sources[k];
+                if (s.image_url) {
+                    html += '<div class="chat-msg-image"><img src="' + escapeHtml(s.image_url) + '" alt="' + escapeHtml(s.document_name || 'image') + '" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;cursor:pointer;" onclick="window.open(this.src,\'_blank\')" /></div>';
+                }
+                // Render video/audio player for video-type documents (one per document)
+                if (s.document_type === 'video' && s.document_id && !videoShown[s.document_id]) {
+                    videoShown[s.document_id] = true;
+                    var mediaUrl = '/api/media/' + encodeURIComponent(s.document_id);
+                    var startSec = s.start_time || 0;
+                    var playerId = 'media-' + msg.timestamp + '-' + k;
+                    var ext = (s.document_name || '').split('.').pop().toLowerCase();
+                    var isAudio = (ext === 'mp3' || ext === 'wav' || ext === 'ogg' || ext === 'flac');
+                    html += '<div class="chat-media-player">';
+                    html += '<div class="chat-media-label">🎬 ' + escapeHtml(s.document_name || 'video');
+                    if (startSec > 0) {
+                        html += ' <span class="chat-media-time" onclick="seekMedia(\'' + playerId + '\',' + startSec + ')" title="' + i18n.t('chat_media_seek_hint') + '">⏱ ' + formatMediaTime(startSec) + '</span>';
+                    }
+                    html += '</div>';
+                    if (isAudio) {
+                        html += '<audio id="' + playerId + '" controls preload="metadata" class="chat-audio-element"' + (startSec > 0 ? ' onloadedmetadata="this.currentTime=' + startSec + '"' : '') + '><source src="' + mediaUrl + '"></audio>';
+                    } else {
+                        html += '<video id="' + playerId + '" controls preload="metadata" class="chat-video-element"' + (startSec > 0 ? ' onloadedmetadata="this.currentTime=' + startSec + '"' : '') + '><source src="' + mediaUrl + '"></video>';
+                    }
+                    html += '</div>';
                 }
             }
         }
@@ -929,6 +952,13 @@
                 var src = msg.sources[j];
                 html += '<li class="chat-source-item">';
                 html += '<span class="chat-source-name">' + escapeHtml(src.document_name || i18n.t('chat_source_unknown')) + '</span>';
+                if (src.start_time > 0 || src.end_time > 0) {
+                    var timeLabel = formatMediaTime(src.start_time || 0);
+                    if (src.end_time > 0 && src.end_time !== src.start_time) {
+                        timeLabel += ' - ' + formatMediaTime(src.end_time);
+                    }
+                    html += '<span class="chat-source-time">⏱ ' + timeLabel + '</span>';
+                }
                 if (src.snippet) {
                     html += '<span class="chat-source-snippet">' + escapeHtml(src.snippet) + '</span>';
                 }
@@ -1020,6 +1050,28 @@
         var m = d.getMinutes().toString().padStart(2, '0');
         return h + ':' + m;
     }
+
+    // Format seconds into MM:SS or HH:MM:SS for media time display
+    function formatMediaTime(seconds) {
+        if (!seconds || seconds < 0) return '0:00';
+        var s = Math.floor(seconds);
+        var h = Math.floor(s / 3600);
+        var m = Math.floor((s % 3600) / 60);
+        var sec = s % 60;
+        if (h > 0) {
+            return h + ':' + m.toString().padStart(2, '0') + ':' + sec.toString().padStart(2, '0');
+        }
+        return m + ':' + sec.toString().padStart(2, '0');
+    }
+
+    // Seek a video/audio element to a specific time
+    window.seekMedia = function(playerId, seconds) {
+        var el = document.getElementById(playerId);
+        if (el) {
+            el.currentTime = seconds;
+            el.play();
+        }
+    };
 
     function escapeHtml(str) {
         if (!str) return '';
@@ -1394,6 +1446,7 @@
         if (tab === 'pending') loadPendingQuestions();
         if (tab === 'knowledge') loadAdminProductSelectors();
         if (tab === 'settings') loadAdminSettings();
+        if (tab === 'multimodal') loadMultimodalSettings();
         if (tab === 'users') { loadAdminUsers(); loadProductCheckboxes(); }
         if (tab === 'products') loadProducts();
     };
@@ -2388,6 +2441,83 @@
             if (!res.ok) throw new Error(i18n.t('admin_settings_save_failed'));
             showAdminToast(i18n.t('admin_settings_saved'), 'success');
             loadAdminSettings();
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || i18n.t('admin_settings_save_failed'), 'error');
+        });
+    };
+
+    // --- Multimodal Settings ---
+
+    function loadMultimodalSettings() {
+        adminFetch('/api/config')
+            .then(function (res) {
+                if (!res.ok) throw new Error('load failed');
+                return res.json();
+            })
+            .then(function (cfg) {
+                var video = cfg.video || {};
+                setVal('cfg-video-ffmpeg-path', video.ffmpeg_path || '');
+                setVal('cfg-video-whisper-path', video.whisper_path || '');
+                setVal('cfg-video-keyframe-interval', video.keyframe_interval || 10);
+                var modelSelect = document.getElementById('cfg-video-whisper-model');
+                if (modelSelect) modelSelect.value = video.whisper_model || 'base';
+                checkMultimodalDeps();
+            })
+            .catch(function () {
+                showAdminToast(i18n.t('admin_settings_load_failed'), 'error');
+            });
+    }
+
+    window.checkMultimodalDeps = function () {
+        var ffmpegIcon = document.getElementById('dep-ffmpeg-icon');
+        var ffmpegLabel = document.getElementById('dep-ffmpeg-label');
+        var whisperIcon = document.getElementById('dep-whisper-icon');
+        var whisperLabel = document.getElementById('dep-whisper-label');
+        if (ffmpegIcon) ffmpegIcon.textContent = '⏳';
+        if (ffmpegLabel) ffmpegLabel.textContent = i18n.t('admin_multimodal_checking');
+        if (whisperIcon) whisperIcon.textContent = '⏳';
+        if (whisperLabel) whisperLabel.textContent = i18n.t('admin_multimodal_checking');
+
+        adminFetch('/api/video/check-deps')
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (ffmpegIcon) ffmpegIcon.textContent = data.ffmpeg_ok ? '✅' : '❌';
+                if (ffmpegLabel) ffmpegLabel.textContent = data.ffmpeg_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
+                if (ffmpegLabel) ffmpegLabel.style.color = data.ffmpeg_ok ? '#38a169' : '#e53e3e';
+                if (whisperIcon) whisperIcon.textContent = data.whisper_ok ? '✅' : '❌';
+                if (whisperLabel) whisperLabel.textContent = data.whisper_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
+                if (whisperLabel) whisperLabel.style.color = data.whisper_ok ? '#38a169' : '#e53e3e';
+            })
+            .catch(function () {
+                if (ffmpegIcon) ffmpegIcon.textContent = '❓';
+                if (ffmpegLabel) ffmpegLabel.textContent = i18n.t('admin_multimodal_check_failed');
+                if (whisperIcon) whisperIcon.textContent = '❓';
+                if (whisperLabel) whisperLabel.textContent = i18n.t('admin_multimodal_check_failed');
+            });
+    };
+
+    window.saveMultimodalSettings = function () {
+        var updates = {};
+        var ffmpegPath = getVal('cfg-video-ffmpeg-path');
+        var whisperPath = getVal('cfg-video-whisper-path');
+        var keyframeInterval = getVal('cfg-video-keyframe-interval');
+        var whisperModel = getVal('cfg-video-whisper-model');
+
+        updates['video.ffmpeg_path'] = ffmpegPath;
+        updates['video.whisper_path'] = whisperPath;
+        if (keyframeInterval !== '') updates['video.keyframe_interval'] = parseInt(keyframeInterval, 10);
+        if (whisperModel) updates['video.whisper_model'] = whisperModel;
+
+        adminFetch('/api/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates)
+        })
+        .then(function (res) {
+            if (!res.ok) throw new Error(i18n.t('admin_settings_save_failed'));
+            showAdminToast(i18n.t('admin_settings_saved'), 'success');
+            loadMultimodalSettings();
         })
         .catch(function (err) {
             showAdminToast(err.message || i18n.t('admin_settings_save_failed'), 'error');

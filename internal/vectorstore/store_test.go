@@ -54,9 +54,6 @@ func TestNewSQLiteVectorStore(t *testing.T) {
 	if store == nil {
 		t.Fatal("expected non-nil store")
 	}
-	if store.db != db {
-		t.Fatal("store.db should match provided db")
-	}
 }
 
 func TestStoreAndRetrieve(t *testing.T) {
@@ -73,7 +70,6 @@ func TestStoreAndRetrieve(t *testing.T) {
 		t.Fatalf("Store failed: %v", err)
 	}
 
-	// Verify rows exist
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM chunks WHERE document_id = ?", "doc1").Scan(&count); err != nil {
 		t.Fatalf("count query failed: %v", err)
@@ -82,7 +78,6 @@ func TestStoreAndRetrieve(t *testing.T) {
 		t.Errorf("expected 2 chunks, got %d", count)
 	}
 
-	// Verify chunk IDs
 	var id string
 	db.QueryRow("SELECT id FROM chunks WHERE chunk_index = 0 AND document_id = ?", "doc1").Scan(&id)
 	if id != "doc1-0" {
@@ -178,7 +173,6 @@ func TestSearchThresholdFiltering(t *testing.T) {
 		}
 	}
 
-	// Only the exact match should pass threshold 0.5
 	if len(results) != 1 {
 		t.Errorf("expected 1 result above threshold, got %d", len(results))
 	}
@@ -239,7 +233,6 @@ func TestDeleteByDocID(t *testing.T) {
 	defer cleanup()
 	store := NewSQLiteVectorStore(db)
 
-	// Store two documents
 	store.Store("doc1", []VectorChunk{
 		{ChunkText: "doc1 chunk", ChunkIndex: 0, DocumentID: "doc1", DocumentName: "a.pdf", Vector: []float64{1.0, 0.0}},
 	})
@@ -251,14 +244,12 @@ func TestDeleteByDocID(t *testing.T) {
 		t.Fatalf("DeleteByDocID failed: %v", err)
 	}
 
-	// doc1 should be gone
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM chunks WHERE document_id = ?", "doc1").Scan(&count)
 	if count != 0 {
 		t.Errorf("expected 0 chunks for doc1 after delete, got %d", count)
 	}
 
-	// doc2 should still exist
 	db.QueryRow("SELECT COUNT(*) FROM chunks WHERE document_id = ?", "doc2").Scan(&count)
 	if count != 1 {
 		t.Errorf("expected 1 chunk for doc2, got %d", count)
@@ -270,7 +261,6 @@ func TestDeleteByDocIDNonExistent(t *testing.T) {
 	defer cleanup()
 	store := NewSQLiteVectorStore(db)
 
-	// Deleting a non-existent doc should not error
 	if err := store.DeleteByDocID("nonexistent"); err != nil {
 		t.Fatalf("DeleteByDocID for non-existent doc should not fail: %v", err)
 	}
@@ -280,7 +270,6 @@ func TestStorePersistence(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "persist.db")
 
-	// Open, create table, store data, close
 	db1, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("open db1: %v", err)
@@ -296,7 +285,6 @@ func TestStorePersistence(t *testing.T) {
 	})
 	db1.Close()
 
-	// Reopen and verify data persists
 	db2, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("open db2: %v", err)
@@ -316,12 +304,7 @@ func TestStorePersistence(t *testing.T) {
 	}
 }
 
-// TestProperty8_ProductIsolationSearch verifies that when searching with a productID,
-// results only contain chunks matching that productID or the public library (empty productID).
-// Chunks belonging to other products must never appear.
-//
-// **Feature: multi-product-support, Property 8: 产品隔离检索**
-// **Validates: Requirements 8.1, 8.2, 8.3**
+// TestProperty8_ProductIsolationSearch verifies product isolation in search.
 func TestProperty8_ProductIsolationSearch(t *testing.T) {
 	counter := 0
 	f := func(seed uint8) bool {
@@ -331,13 +314,10 @@ func TestProperty8_ProductIsolationSearch(t *testing.T) {
 
 		counter++
 
-		// Create chunks for 3 products + public library
 		productA := fmt.Sprintf("product-a-%d", counter)
 		productB := fmt.Sprintf("product-b-%d", counter)
 		productC := fmt.Sprintf("product-c-%d", counter)
 
-		// Use a simple 3D vector space; all vectors point in similar directions
-		// so they'll all be returned (above threshold 0)
 		chunksA := []VectorChunk{
 			{ChunkText: "chunk A1", ChunkIndex: 0, DocumentID: "docA", DocumentName: "a.pdf", Vector: []float64{1.0, 0.1, 0.0}, ProductID: productA},
 			{ChunkText: "chunk A2", ChunkIndex: 1, DocumentID: "docA", DocumentName: "a.pdf", Vector: []float64{0.9, 0.2, 0.0}, ProductID: productA},
@@ -367,7 +347,6 @@ func TestProperty8_ProductIsolationSearch(t *testing.T) {
 			}
 		}
 
-		// Search with productA scope - should only get productA + public
 		query := []float64{1.0, 0.0, 0.0}
 		results, err := store.Search(query, 100, 0.0, productA)
 		if err != nil {
@@ -381,7 +360,6 @@ func TestProperty8_ProductIsolationSearch(t *testing.T) {
 			}
 		}
 
-		// Search with productB scope - should only get productB + public
 		results, err = store.Search(query, 100, 0.0, productB)
 		if err != nil {
 			t.Logf("Search(productB) failed: %v", err)
@@ -394,7 +372,6 @@ func TestProperty8_ProductIsolationSearch(t *testing.T) {
 			}
 		}
 
-		// TextSearch with productA scope - same isolation
 		textResults, err := store.TextSearch("chunk", 100, 0.0, productA)
 		if err != nil {
 			t.Logf("TextSearch failed: %v", err)
@@ -407,7 +384,6 @@ func TestProperty8_ProductIsolationSearch(t *testing.T) {
 			}
 		}
 
-		// Search with empty productID - should return ALL chunks
 		allResults, err := store.Search(query, 100, 0.0, "")
 		if err != nil {
 			t.Logf("Search(empty) failed: %v", err)

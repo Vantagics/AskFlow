@@ -29,14 +29,17 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 ## Features
 
 - **Smart Q&A**: Intent classification → vector retrieval → LLM answer generation with source citations
+- **Multimodal Retrieval**: Vectorize and search text, images, and video content with cross-modal matching
+- **Video Search**: Upload videos for automatic audio transcription and keyframe extraction, with precise timestamp localization in search results
+- **Image Q&A**: Users can paste images with questions; the system uses vision LLM combined with the knowledge base to generate answers
 - **Multi-Product Support**: Manage multiple product lines, each with its own knowledge base, plus a shared Public Library accessible across all products
-- **Multi-format Documents**: Upload and parse PDF, Word, Excel, PPT, and Markdown files
+- **Multi-format Documents**: Upload and parse PDF, Word, Excel, PPT, Markdown, and video files (MP4/AVI/MKV/MOV/WebM)
 - **URL Import**: Fetch and index web page content via URL
 - **Batch Import**: CLI recursive directory scan for bulk document import, with optional product targeting
-- **Multimodal Retrieval**: Vectorize and search both text and images
 - **Knowledge Entries**: Admins can directly add text + image knowledge entries, categorized by product
 - **Product-Scoped Search**: User queries search only within the selected product's knowledge base and the Public Library, ensuring accurate answers
 - **Content Deduplication**: Document-level SHA-256 hash dedup + chunk-level embedding reuse to prevent duplicate imports and redundant API calls
+- **3-Level Text Matching**: Level 1 text matching (zero API cost) → Level 2 vector confirmation + cache reuse (Embedding only) → Level 3 full RAG (Embedding + LLM), progressively escalating to save API costs
 - **Pending Questions**: Unanswered questions are automatically queued with product association; admin answers are auto-indexed
 - **User Authentication**: OAuth 2.0 (Google / Apple / Amazon / Facebook) + email/password registration
 - **Admin Hierarchy**: Super admin + sub-admins (editor role) with per-product permission assignment
@@ -69,9 +72,17 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 │  ┌─────────┐ ┌────▼─────┐ ┌──▼─────┐ ┌───────────┐ │
 │  │ Parser  │ │ Chunker  │ │Embedding│ │   LLM     │ │
 │  │(PDF/Word│ │(512/128) │ │ Service │ │  Service  │ │
-│  │Excel/PPT│ │          │ │         │ │           │ │
+│  ┌─────────┐ ┌────▼─────┐ ┌──▼─────┐ ┌───────────┐ │
+│  │ Parser  │ │ Chunker  │ │Embedding│ │   LLM     │ │
+│  │(PDF/Word│ │(512/128) │ │ Service │ │  Service  │ │
+│  │Excel/PPT│ │          │ │(txt+img)│ │ (vision)  │ │
 │  └─────────┘ └──────────┘ └────┬────┘ └───────────┘ │
-│                                │                      │
+│  ┌─────────┐                   │                      │
+│  │ Video   │                   │                      │
+│  │ Parser  │                   │                      │
+│  │(ffmpeg+ │                   │                      │
+│  │whisper) │                   │                      │
+│  └─────────┘                   │                      │
 │              ┌─────────────────▼──────────────────┐  │
 │              │     SQLite + Vector Store           │  │
 │              │  (WAL mode + in-memory cache +      │  │
@@ -90,9 +101,10 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 | Backend | Go 1.25+ |
 | Database | SQLite (WAL mode, foreign keys) |
 | Vector Store | SQLite persistence + in-memory cache, concurrent cosine similarity search |
-| LLM | OpenAI-compatible Chat Completion API (default: VolcEngine ARK) |
-| Embedding | OpenAI-compatible Embedding API (multimodal support) |
+| LLM | OpenAI-compatible Chat Completion API (supports vision models) |
+| Embedding | OpenAI-compatible Embedding API (multimodal: text + image) |
 | Document Parsing | GoPDF2, GoWord, GoExcel, GoPPT |
+| Video Processing | ffmpeg (audio extraction + keyframe sampling) + whisper (speech transcription) |
 | Frontend | SPA (compiled assets in frontend/dist) |
 | Authentication | OAuth 2.0 + bcrypt + Session |
 | Encryption | AES-256-GCM |
@@ -138,6 +150,8 @@ askflow/
 │   │   └── service.go           # Product management (CRUD, admin-product assignment)
 │   ├── backup/
 │   │   └── backup.go            # Data backup & restore (full/incremental)
+│   ├── video/
+│   │   └── parser.go            # Video parsing (ffmpeg keyframes + whisper transcription)
 │   └── email/
 │       └── service.go           # SMTP email sending (verification/test)
 │
@@ -301,6 +315,25 @@ Supported providers: `google`, `apple`, `amazon`, `facebook`.
 | `admin.login_route` | Admin login route, default `/admin` |
 | `product_intro` | Global product introduction text (used for intent classification context). Each product can have its own `welcome_message` set via product management, which takes priority over this global setting |
 
+### Video Processing
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `video.ffmpeg_path` | — | ffmpeg executable path; empty disables video support |
+| `video.whisper_path` | — | whisper CLI executable path; empty skips speech transcription |
+| `video.keyframe_interval` | `10` | Keyframe sampling interval in seconds |
+| `video.whisper_model` | `base` | whisper model name |
+
+Video features require external tools. With only `ffmpeg_path` configured, only keyframe extraction is performed. Adding `whisper_path` enables speech transcription as well.
+
+### Advanced Vector Search Options
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `vector.content_priority` | `image_text` | Result ordering: `image_text` prioritizes image-containing results, `text_only` prioritizes pure text |
+| `vector.text_match_enabled` | `true` | Enable 3-level text matching to reduce API calls via local text matching and cache reuse |
+| `vector.debug_mode` | `false` | When enabled, query responses include search diagnostic information |
+
 ### Environment Variables
 
 | Variable | Description |
@@ -333,7 +366,7 @@ askflow import --product <product_id> ./docs
 
 When `--product` is omitted, documents are imported into the Public Library. If the specified product ID does not exist, the system reports an error and aborts.
 
-Supported file extensions: `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown`
+Supported file extensions: `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown` `.mp4` `.avi` `.mkv` `.mov` `.webm`
 
 ### Data Backup & Restore
 
@@ -475,19 +508,34 @@ All APIs return JSON. Authenticated endpoints require `Authorization: Bearer <se
 ## RAG Workflow
 
 ```
-User Question
+User Question (text / text+image)
    │
    ▼
-Intent Classification (LLM)
+Intent Classification (LLM) — skipped when image is attached
    │
    ├── greeting → Return friendly greeting
    ├── irrelevant → Prompt user to ask product-related questions
    └── product ──▼
                   │
-            Vectorize Question (Embedding API)
+            ┌─────┴─────┐
+            │           │
+         Text query  Image query (if any)
+            │           │
+            ▼           ▼
+      Embed question  Embed image
+      (Embedding)    (Multimodal Embedding)
+            │           │
+            ▼           ▼
+      Vector search  Vector search (lower threshold)
+      (Top-K)       (threshold × 0.6)
+            │           │
+            └─────┬─────┘
                   │
-                  ▼
-            Vector Similarity Search (Top-K, cosine similarity ≥ threshold)
+            Merge & deduplicate results
+                  │
+            Reorder by content_priority
+                  │
+            Enrich with video timestamps
                   │
            ┌──────┴──────┐
            │             │
@@ -496,10 +544,34 @@ Intent Classification (LLM)
            ▼             ▼
      Build context   Create pending question
      Call LLM        Notify user to wait
-     Generate answer
+     (Vision LLM
+      if image)
            │
            ▼
-     Return answer + source citations
+     Return answer + source citations + video timestamps
+```
+
+### 3-Level Text Matching (API Cost Optimization)
+
+```
+User Question
+   │
+   ▼
+Level 1: Local text matching (zero API cost)
+   │  Character bigram similarity search against chunk cache
+   │
+   ├── Hit + cached answer → Return immediately (zero cost)
+   └── Hit but no cache ──▼
+                           │
+Level 2: Vector confirmation + cache reuse (Embedding API only)
+   │  Call Embedding API for vector, search to confirm
+   │
+   ├── Confirmed + cached answer → Return (Embedding cost only)
+   └── No cached answer ──▼
+                           │
+Level 3: Full RAG (Embedding + LLM)
+   │  Vector search → Build context → Call LLM to generate answer
+   └── Return answer (full cost)
 ```
 
 ### Document Processing Pipeline
@@ -508,24 +580,40 @@ Intent Classification (LLM)
 File Upload / URL Import / CLI Batch Import
    │
    ▼
-Document Parsing (PDF/Word/Excel/PPT/Markdown)
+File Type Detection
    │
-   ▼
-Content Dedup Check (SHA-256 hash against existing documents)
+   ├── Documents (PDF/Word/Excel/PPT/Markdown/HTML)
+   │     │
+   │     ▼
+   │   Parse document (extract text + images)
+   │     │
+   │     ▼
+   │   Content dedup check (SHA-256 hash)
+   │     │
+   │     ├── Duplicate → Reject import
+   │     └── New content ──▼
+   │                        │
+   │                  Text chunking + chunk-level dedup
+   │                        │
+   │                        ▼
+   │                  Text embedding + image multimodal embedding
+   │                        │
+   │                        ▼
+   │                  Store in SQLite + in-memory cache
    │
-   ├── Duplicate → Reject import, return existing document ID
-   └── New content ──▼
-                      │
-                Text Chunking (512 chars, 128 char overlap)
-                      │
-                      ▼
-                Chunk-level Dedup (reuse embeddings for identical text)
-                      │
-                      ▼
-                Call Embedding API only for new chunks
-                      │
-                      ▼
-                Store in SQLite + In-memory Cache
+   └── Video (MP4/AVI/MKV/MOV/WebM)
+         │
+         ├── ffmpeg extract audio → whisper transcription
+         │     │
+         │     ▼
+         │   Chunk transcript text → embed → store
+         │   Create video_segments records (with time ranges)
+         │
+         └── ffmpeg extract keyframes at intervals
+               │
+               ▼
+             Keyframes → multimodal embedding → store
+             Create video_segments records (with timestamps)
 ```
 
 ---
@@ -601,9 +689,10 @@ askflow restore ./backups/helpdesk_full_myserver_20260212-143000.tar.gz
 |-------|-------------|
 | `products` | Product information (ID, name, description, welcome_message, created_at, updated_at) |
 | `admin_user_products` | Admin-product junction table (admin_user_id, product_id, composite primary key) |
-| `documents` | Document metadata (ID, name, type, status, content hash, product_id, created_at) |
-| `chunks` | Document chunks (text, vector, parent document, image URL, product_id) |
-| `pending_questions` | Pending questions (question, status, answer, user ID, product_id) |
+| `documents` | Document metadata (ID, name, type, status, content hash, product_id, created_at). Types include pdf/word/excel/ppt/markdown/html/video/url |
+| `chunks` | Document chunks (text, vector, parent document, image URL, product_id). Video keyframe image_url stores base64 data |
+| `video_segments` | Video segment timeline (document_id, segment_type, start_time, end_time, content, chunk_id). segment_type is "transcript" or "keyframe" |
+| `pending_questions` | Pending questions (question, status, answer, user ID, image data, product_id) |
 | `users` | Registered users (email, password hash, verification status) |
 | `sessions` | User sessions (session ID, user ID, expiry) |
 | `email_tokens` | Email verification tokens |

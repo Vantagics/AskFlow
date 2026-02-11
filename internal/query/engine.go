@@ -55,13 +55,16 @@ type DebugInfo struct {
 
 // SourceRef represents a reference to a source document chunk.
 type SourceRef struct {
+	DocumentID   string  `json:"document_id,omitempty"`
 	DocumentName string  `json:"document_name"`
+	DocumentType string  `json:"document_type,omitempty"`
 	ChunkIndex   int     `json:"chunk_index"`
 	Snippet      string  `json:"snippet"`
 	ImageURL     string  `json:"image_url,omitempty"`
 	StartTime    float64 `json:"start_time,omitempty"` // 视频起始时间（秒）
 	EndTime      float64 `json:"end_time,omitempty"`   // 视频结束时间（秒）
 }
+
 
 // DebugSearchHit holds a single search result's diagnostic info.
 type DebugSearchHit struct {
@@ -361,21 +364,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 					dbg.Steps = append(dbg.Steps, "TextMatch: Level 1 returning cached answer — zero API cost")
 				}
 				textResults = qe.enrichVideoTimeInfo(textResults)
-				sources := make([]SourceRef, 0, len(textResults))
-				for _, r := range textResults {
-					snippet := r.ChunkText
-					if len(snippet) > 100 {
-						snippet = snippet[:100]
-					}
-					sources = append(sources, SourceRef{
-						DocumentName: r.DocumentName,
-						ChunkIndex:   r.ChunkIndex,
-						Snippet:      snippet,
-						ImageURL:     r.ImageURL,
-						StartTime:    r.StartTime,
-						EndTime:      r.EndTime,
-					})
-				}
+				sources := qe.buildSourceRefs(textResults)
 				return &QueryResponse{Answer: cachedAnswer, Sources: sources, DebugInfo: dbg}, nil
 			}
 
@@ -402,21 +391,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 							dbg.Steps = append(dbg.Steps, "TextMatch: Level 2 returning cached answer — no LLM cost")
 						}
 						vecResults = qe.enrichVideoTimeInfo(vecResults)
-						sources := make([]SourceRef, 0, len(vecResults))
-						for _, r := range vecResults {
-							snippet := r.ChunkText
-							if len(snippet) > 100 {
-								snippet = snippet[:100]
-							}
-							sources = append(sources, SourceRef{
-								DocumentName: r.DocumentName,
-								ChunkIndex:   r.ChunkIndex,
-								Snippet:      snippet,
-								ImageURL:     r.ImageURL,
-								StartTime:    r.StartTime,
-								EndTime:      r.EndTime,
-							})
-						}
+						sources := qe.buildSourceRefs(vecResults)
 						return &QueryResponse{Answer: cachedAnswer, Sources: sources, DebugInfo: dbg}, nil
 					}
 				}
@@ -675,21 +650,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	}
 
 	// Step 6: Build source references
-	sources := make([]SourceRef, len(results))
-	for i, r := range results {
-		snippet := r.ChunkText
-		if len(snippet) > 100 {
-			snippet = snippet[:100]
-		}
-		sources[i] = SourceRef{
-			DocumentName: r.DocumentName,
-			ChunkIndex:   r.ChunkIndex,
-			Snippet:      snippet,
-			ImageURL:     r.ImageURL,
-			StartTime:    r.StartTime,
-			EndTime:      r.EndTime,
-		}
-	}
+	sources := qe.buildSourceRefs(results)
 
 	// Append document images that weren't already in search results
 	for _, img := range docImages {
@@ -992,3 +953,70 @@ func (qe *QueryEngine) enrichVideoTimeInfo(results []vectorstore.SearchResult) [
 }
 
 
+
+// lookupDocumentTypes queries the documents table to get the type for each unique document ID.
+// Returns a map from document_id to document type (e.g., "video", "pdf", "word").
+func (qe *QueryEngine) lookupDocumentTypes(docIDs []string) map[string]string {
+	result := make(map[string]string)
+	if qe.db == nil || len(docIDs) == 0 {
+		return result
+	}
+	// Deduplicate
+	unique := make(map[string]bool)
+	var ids []string
+	for _, id := range docIDs {
+		if !unique[id] {
+			unique[id] = true
+			ids = append(ids, id)
+		}
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	q := `SELECT id, type FROM documents WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := qe.db.Query(q, args...)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, docType string
+		if err := rows.Scan(&id, &docType); err != nil {
+			continue
+		}
+		result[id] = docType
+	}
+	return result
+}
+
+// buildSourceRefs converts search results into SourceRef slice, enriching with document type info.
+func (qe *QueryEngine) buildSourceRefs(results []vectorstore.SearchResult) []SourceRef {
+	// Collect document IDs
+	docIDs := make([]string, 0, len(results))
+	for _, r := range results {
+		docIDs = append(docIDs, r.DocumentID)
+	}
+	docTypes := qe.lookupDocumentTypes(docIDs)
+
+	sources := make([]SourceRef, len(results))
+	for i, r := range results {
+		snippet := r.ChunkText
+		if len(snippet) > 100 {
+			snippet = snippet[:100]
+		}
+		sources[i] = SourceRef{
+			DocumentID:   r.DocumentID,
+			DocumentName: r.DocumentName,
+			DocumentType: docTypes[r.DocumentID],
+			ChunkIndex:   r.ChunkIndex,
+			Snippet:      snippet,
+			ImageURL:     r.ImageURL,
+			StartTime:    r.StartTime,
+			EndTime:      r.EndTime,
+		}
+	}
+	return sources
+}

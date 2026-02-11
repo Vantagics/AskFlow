@@ -29,14 +29,17 @@ Go 单二进制部署，SQLite 存储，开箱即用。
 ## 功能特性
 
 - **智能问答**：意图分类 → 向量检索 → LLM 生成回答，附带来源引用
+- **多模态检索**：支持文本、图片和视频内容的向量化与跨模态检索
+- **视频检索**：上传视频后自动提取音频转录和关键帧，支持语义检索并返回精确时间定位
+- **图片问答**：用户可粘贴图片提问，系统通过视觉 LLM 结合知识库生成回答
 - **多产品支持**：管理多个产品线，每个产品拥有独立知识库，支持公共知识库跨产品共享
-- **多格式文档**：支持 PDF、Word、Excel、PPT、Markdown 上传与解析
+- **多格式文档**：支持 PDF、Word、Excel、PPT、Markdown、视频（MP4/AVI/MKV/MOV/WebM）上传与解析
 - **URL 导入**：通过 URL 抓取网页内容入库
 - **批量导入**：命令行递归扫描目录，批量导入文档，支持指定目标产品
-- **多模态检索**：支持文本和图片的向量化与检索
 - **知识条目**：管理员可直接添加文本 + 图片知识条目，按产品分类
 - **产品隔离检索**：用户提问时仅在所选产品知识库和公共库中检索，确保回答准确性
 - **内容去重**：文档级 SHA-256 哈希去重 + 分块级向量复用，避免重复导入和冗余 API 调用
+- **3 级文本匹配**：Level 1 文本匹配（零 API 开销）→ Level 2 向量确认 + 缓存复用（仅 Embedding）→ Level 3 完整 RAG（Embedding + LLM），逐级递进节省 API 成本
 - **待处理问题**：无法回答的问题自动排队并标记所属产品，管理员回答后自动入库
 - **用户认证**：OAuth 2.0（Google / Apple / Amazon / Facebook）+ 邮箱密码注册
 - **管理员体系**：超级管理员 + 子管理员（编辑角色），支持按产品分配管理权限
@@ -69,9 +72,14 @@ Go 单二进制部署，SQLite 存储，开箱即用。
 │  ┌─────────┐ ┌────▼─────┐ ┌──▼─────┐ ┌───────────┐ │
 │  │ Parser  │ │ Chunker  │ │Embedding│ │   LLM     │ │
 │  │(PDF/Word│ │(512/128) │ │ Service │ │  Service  │ │
-│  │Excel/PPT│ │          │ │         │ │           │ │
+│  │Excel/PPT│ │          │ │(文本+图片)│ │(含视觉模型)│ │
 │  └─────────┘ └──────────┘ └────┬────┘ └───────────┘ │
-│                                │                      │
+│  ┌─────────┐                   │                      │
+│  │ Video   │                   │                      │
+│  │ Parser  │                   │                      │
+│  │(ffmpeg+ │                   │                      │
+│  │whisper) │                   │                      │
+│  └─────────┘                   │                      │
 │              ┌─────────────────▼──────────────────┐  │
 │              │     SQLite + Vector Store           │  │
 │              │  (WAL 模式 + 内存缓存 + 余弦相似度)  │  │
@@ -89,9 +97,10 @@ Go 单二进制部署，SQLite 存储，开箱即用。
 | 后端 | Go 1.25+ |
 | 数据库 | SQLite（WAL 模式，外键约束） |
 | 向量存储 | SQLite 持久化 + 内存缓存，并发余弦相似度检索 |
-| LLM | OpenAI 兼容 Chat Completion API（默认火山引擎 ARK） |
-| Embedding | OpenAI 兼容 Embedding API（支持多模态） |
+| LLM | OpenAI 兼容 Chat Completion API（支持视觉模型） |
+| Embedding | OpenAI 兼容 Embedding API（支持多模态：文本 + 图片） |
 | 文档解析 | GoPDF2、GoWord、GoExcel、GoPPT |
+| 视频处理 | ffmpeg（音频提取 + 关键帧抽取）+ whisper（语音转录） |
 | 前端 | SPA 单页应用（编译产物位于 frontend/dist） |
 | 认证 | OAuth 2.0 + bcrypt + Session |
 | 加密 | AES-256-GCM |
@@ -137,6 +146,8 @@ askflow/
 │   │   └── service.go           # 产品管理（CRUD、管理员产品分配）
 │   ├── backup/
 │   │   └── backup.go            # 数据备份与恢复（全量/增量）
+│   ├── video/
+│   │   └── parser.go            # 视频解析（ffmpeg 关键帧 + whisper 语音转录）
 │   └── email/
 │       └── service.go           # SMTP 邮件发送（验证/测试）
 │
@@ -300,6 +311,25 @@ curl -X POST http://localhost:8080/api/query \
 | `admin.login_route` | 管理员登录路由，默认 `/admin` |
 | `product_intro` | 全局产品介绍文本，用于意图分类上下文。各产品可在产品管理中设置独立的 `welcome_message`，优先级高于此全局配置 |
 
+### 视频处理
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `video.ffmpeg_path` | — | ffmpeg 可执行文件路径，为空则不支持视频 |
+| `video.whisper_path` | — | whisper CLI 可执行文件路径，为空则跳过语音转录 |
+| `video.keyframe_interval` | `10` | 关键帧抽样间隔（秒） |
+| `video.whisper_model` | `base` | whisper 模型名称 |
+
+视频功能需要外部工具支持。仅配置 `ffmpeg_path` 时只提取关键帧；同时配置 `whisper_path` 后还会进行语音转录。
+
+### 向量检索高级选项
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `vector.content_priority` | `image_text` | 检索结果排序优先级：`image_text` 优先展示含图片的结果，`text_only` 优先展示纯文本结果 |
+| `vector.text_match_enabled` | `true` | 启用 3 级文本匹配，通过本地文本匹配和缓存复用减少 API 调用 |
+| `vector.debug_mode` | `false` | 启用后查询响应中包含检索诊断信息 |
+
 ### 环境变量
 
 | 变量 | 说明 |
@@ -332,7 +362,7 @@ askflow import --product <product_id> ./docs
 
 不指定 `--product` 时，文档将导入到公共库。若指定的产品 ID 不存在，系统将报错并中止导入。
 
-支持的文件扩展名：`.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown`
+支持的文件扩展名：`.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown` `.mp4` `.avi` `.mkv` `.mov` `.webm`
 
 ### 数据备份与恢复
 
@@ -474,19 +504,34 @@ sqlite3 ./data/helpdesk.db < ./data/db_delta.sql
 ## RAG 工作流程
 
 ```
-用户提问
+用户提问（文本 / 文本+图片）
    │
    ▼
-意图分类（LLM）
+意图分类（LLM）── 附带图片时跳过，直接进入检索
    │
    ├── greeting → 返回问候回复
    ├── irrelevant → 提示提问产品相关问题
    └── product ──▼
                   │
-            问题向量化（Embedding API）
+            ┌─────┴─────┐
+            │           │
+         文本查询    图片查询（如有）
+            │           │
+            ▼           ▼
+      问题向量化    图片向量化
+      (Embedding)  (多模态 Embedding)
+            │           │
+            ▼           ▼
+      向量检索       向量检索（低阈值）
+      (Top-K)       (阈值 × 0.6)
+            │           │
+            └─────┬─────┘
                   │
-                  ▼
-            向量相似度检索（Top-K, 余弦相似度 ≥ threshold）
+            合并去重结果
+                  │
+            按 content_priority 排序
+                  │
+            补充视频时间定位信息
                   │
            ┌──────┴──────┐
            │             │
@@ -495,10 +540,34 @@ sqlite3 ./data/helpdesk.db < ./data/db_delta.sql
            ▼             ▼
      构建上下文      创建待处理问题
      调用 LLM       通知用户等待
-     生成回答
+     (视觉 LLM
+      如有图片)
            │
            ▼
-     返回回答 + 来源引用
+     返回回答 + 来源引用 + 视频时间戳
+```
+
+### 3 级文本匹配（API 成本优化）
+
+```
+用户提问
+   │
+   ▼
+Level 1: 本地文本匹配（零 API 开销）
+   │  使用字符 bigram 相似度在分块缓存中搜索
+   │
+   ├── 命中 + 有缓存回答 → 直接返回（零成本）
+   └── 命中但无缓存 ──▼
+                       │
+Level 2: 向量确认 + 缓存复用（仅 Embedding API）
+   │  调用 Embedding API 生成向量，搜索确认
+   │
+   ├── 确认 + 有缓存回答 → 返回（仅 Embedding 成本）
+   └── 无缓存回答 ──▼
+                     │
+Level 3: 完整 RAG（Embedding + LLM）
+   │  向量检索 → 构建上下文 → 调用 LLM 生成回答
+   └── 返回回答（完整成本）
 ```
 
 ### 文档处理流程
@@ -507,24 +576,40 @@ sqlite3 ./data/helpdesk.db < ./data/db_delta.sql
 文件上传 / URL 导入 / 命令行批量导入
    │
    ▼
-文档解析（PDF/Word/Excel/PPT/Markdown）
+文件类型识别
    │
-   ▼
-内容去重检查（SHA-256 哈希比对已有文档）
+   ├── 文档（PDF/Word/Excel/PPT/Markdown/HTML）
+   │     │
+   │     ▼
+   │   文档解析（提取文本 + 图片）
+   │     │
+   │     ▼
+   │   内容去重检查（SHA-256 哈希）
+   │     │
+   │     ├── 重复 → 拒绝导入
+   │     └── 不重复 ──▼
+   │                   │
+   │             文本分块 + 分块级去重
+   │                   │
+   │                   ▼
+   │             文本嵌入 + 图片多模态嵌入
+   │                   │
+   │                   ▼
+   │             存储到 SQLite + 内存缓存
    │
-   ├── 重复 → 拒绝导入，返回已有文档 ID
-   └── 不重复 ──▼
-                 │
-           文本分块（512 字符，128 字符重叠）
-                 │
-                 ▼
-           分块级去重（复用已有相同文本的向量）
-                 │
-                 ▼
-           仅对新分块调用 Embedding API
-                 │
-                 ▼
-           存储到 SQLite + 内存缓存
+   └── 视频（MP4/AVI/MKV/MOV/WebM）
+         │
+         ├── ffmpeg 提取音频 → whisper 语音转录
+         │     │
+         │     ▼
+         │   转录文本分块 → 嵌入 → 存储
+         │   创建 video_segments 记录（含时间区间）
+         │
+         └── ffmpeg 按间隔抽取关键帧
+               │
+               ▼
+             关键帧 → 多模态嵌入 → 存储
+             创建 video_segments 记录（含时间戳）
 ```
 
 ---
@@ -600,9 +685,10 @@ askflow restore ./backups/helpdesk_full_myserver_20260212-143000.tar.gz
 |------|------|
 | `products` | 产品信息（ID、名称、描述、欢迎信息、创建/更新时间） |
 | `admin_user_products` | 管理员-产品关联表（admin_user_id、product_id，联合主键） |
-| `documents` | 文档元数据（ID、名称、类型、状态、内容哈希、product_id、创建时间） |
-| `chunks` | 文档分块（文本、向量、所属文档、图片 URL、product_id） |
-| `pending_questions` | 待处理问题（问题、状态、回答、用户 ID、product_id） |
+| `documents` | 文档元数据（ID、名称、类型、状态、内容哈希、product_id、创建时间）。类型包括 pdf/word/excel/ppt/markdown/html/video/url |
+| `chunks` | 文档分块（文本、向量、所属文档、图片 URL、product_id）。视频关键帧的 image_url 存储 base64 数据 |
+| `video_segments` | 视频片段时间轴（document_id、segment_type、start_time、end_time、content、chunk_id）。segment_type 为 "transcript" 或 "keyframe" |
+| `pending_questions` | 待处理问题（问题、状态、回答、用户 ID、图片数据、product_id） |
 | `users` | 注册用户（邮箱、密码哈希、验证状态） |
 | `sessions` | 用户会话（Session ID、用户 ID、过期时间） |
 | `email_tokens` | 邮箱验证令牌 |

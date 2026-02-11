@@ -60,6 +60,7 @@ func main() {
 
 	// 3. Create service instances
 	vs := vectorstore.NewSQLiteVectorStore(database)
+	log.Printf("[SIMD] Vector acceleration: %s", vectorstore.SIMDCapability())
 	tc := &chunker.TextChunker{ChunkSize: cfg.Vector.ChunkSize, Overlap: cfg.Vector.Overlap}
 	dp := &parser.DocumentParser{}
 	es := embedding.NewAPIEmbeddingService(cfg.Embedding.Endpoint, cfg.Embedding.APIKey, cfg.Embedding.ModelName, cfg.Embedding.UseMultimodal)
@@ -552,6 +553,9 @@ func registerAPIHandlers(app *App) {
 	// Email test
 	http.HandleFunc("/api/email/test", secureAPI(handleEmailTest(app)))
 
+	// Video dependency check
+	http.HandleFunc("/api/video/check-deps", secureAPI(handleVideoCheckDeps(app)))
+
 	// Admin sub-accounts
 	http.HandleFunc("/api/admin/users", secureAPI(handleAdminUsers(app)))
 	http.HandleFunc("/api/admin/users/", secureAPI(handleAdminUserByID(app)))
@@ -570,6 +574,9 @@ func registerAPIHandlers(app *App) {
 
 	// Serve uploaded images
 	http.Handle("/api/images/", http.StripPrefix("/api/images/", http.FileServer(http.Dir("./data/images"))))
+
+	// Public media streaming endpoint for video/audio playback in chat
+	http.HandleFunc("/api/media/", secureAPI(handleMediaStream(app)))
 }
 
 // --- JSON helpers ---
@@ -1277,6 +1284,65 @@ func handleEmailTest(app *App) http.HandlerFunc {
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "测试邮件已发送"})
+	}
+}
+
+// --- Video dependency check handler ---
+
+func handleVideoCheckDeps(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		cfg := app.configManager.Get()
+		if cfg == nil {
+			writeJSON(w, http.StatusOK, map[string]bool{"ffmpeg_ok": false, "whisper_ok": false})
+			return
+		}
+		vp := video.NewParser(cfg.Video)
+		ffmpegOK, whisperOK := vp.CheckDependencies()
+		writeJSON(w, http.StatusOK, map[string]bool{"ffmpeg_ok": ffmpegOK, "whisper_ok": whisperOK})
+	}
+}
+
+// handleMediaStream serves video/audio files for playback in the chat frontend.
+// URL format: /api/media/{document_id}
+// Supports HTTP Range requests for seeking in video/audio players.
+func handleMediaStream(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		docID := strings.TrimPrefix(r.URL.Path, "/api/media/")
+		if docID == "" || docID == r.URL.Path {
+			writeError(w, http.StatusBadRequest, "missing document ID")
+			return
+		}
+		filePath, fileName, err := app.docManager.GetFilePath(docID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "media not found")
+			return
+		}
+		// Set appropriate content type based on extension
+		ext := strings.ToLower(filepath.Ext(fileName))
+		contentTypes := map[string]string{
+			".mp4":  "video/mp4",
+			".webm": "video/webm",
+			".avi":  "video/x-msvideo",
+			".mkv":  "video/x-matroska",
+			".mov":  "video/quicktime",
+			".mp3":  "audio/mpeg",
+			".wav":  "audio/wav",
+			".ogg":  "audio/ogg",
+			".flac": "audio/flac",
+		}
+		if ct, ok := contentTypes[ext]; ok {
+			w.Header().Set("Content-Type", ct)
+		}
+		// ServeFile handles Range requests automatically for seeking
+		http.ServeFile(w, r, filePath)
 	}
 }
 

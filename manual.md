@@ -46,7 +46,7 @@ helpdesk import --product <product_id> ./docs
 
 使用 `--product` 参数可将导入的文档关联到指定产品。不指定时，文档将导入到公共库。若指定的产品 ID 不存在，系统将报错并中止导入。
 
-支持的文件格式：`.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown`
+支持的文件格式：`.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown` `.mp4` `.avi` `.mkv` `.mov` `.webm`
 
 ---
 
@@ -108,6 +108,40 @@ API Key 在保存时会自动使用 AES-256-GCM 加密，加密密钥通过环�
 
 配置完成后可通过 `POST /api/email/test` 发送测试邮件验证配置是否正确。
 
+### 2.4 视频处理配置
+
+如需启用视频检索功能，需配置外部工具路径：
+
+| 配置项 | 说明 |
+|--------|------|
+| `video.ffmpeg_path` | ffmpeg 可执行文件路径（必需，为空则不支持视频） |
+| `video.whisper_path` | whisper CLI 可执行文件路径（可选，为空则跳过语音转录） |
+| `video.keyframe_interval` | 关键帧抽样间隔，默认 10 秒 |
+| `video.whisper_model` | whisper 模型名称，默认 "base" |
+
+配置示例：
+```json
+{
+  "video": {
+    "ffmpeg_path": "/usr/bin/ffmpeg",
+    "whisper_path": "/usr/local/bin/whisper",
+    "keyframe_interval": 10,
+    "whisper_model": "base"
+  }
+}
+```
+
+仅配置 `ffmpeg_path` 时，系统只提取关键帧进行视觉检索；同时配置 `whisper_path` 后还会进行语音转录，支持基于语音内容的文本检索。
+
+### 2.5 多模态与检索优化配置
+
+| 配置项 | 说明 |
+|--------|------|
+| `embedding.use_multimodal` | 是否启用多模态 Embedding（图片向量化），默认 true |
+| `vector.content_priority` | 检索结果排序：`image_text`（默认，优先含图片结果）或 `text_only`（优先纯文本） |
+| `vector.text_match_enabled` | 启用 3 级文本匹配优化，默认 true。通过本地文本匹配和缓存复用减少 API 调用 |
+| `vector.debug_mode` | 启用后查询响应中包含完整的检索诊断信息（意图、向量维度、各步骤耗时等） |
+
 ---
 
 ## 3. 文档管理
@@ -124,7 +158,14 @@ file: <文件>
 product_id: <产品ID>（可选，留空则导入到公共库）
 ```
 
-支持格式：PDF、Word、Excel、PPT、Markdown。上传后系统自动完成解析、去重检查、分块、向量化和存储。
+支持格式：PDF、Word、Excel、PPT、Markdown、视频（MP4、AVI、MKV、MOV、WebM）。上传后系统自动完成解析、去重检查、分块、向量化和存储。
+
+视频文件上传后，系统会：
+- 调用 ffmpeg 提取音频，再通过 whisper 进行语音转录，转录文本分块后嵌入向量库
+- 调用 ffmpeg 按配置间隔抽取关键帧，通过多模态 Embedding 嵌入向量库
+- 在 video_segments 表中记录每个分块对应的视频时间区间，检索时返回精确时间定位
+
+视频功能需要在配置中设置 `video.ffmpeg_path`（必需）和 `video.whisper_path`（可选，不配置则跳过语音转录）。
 
 系统会自动进行内容去重：
 - **文档级去重**：解析后计算内容 SHA-256 哈希，若已有相同内容的文档则拒绝导入并提示已有文档 ID
@@ -184,17 +225,53 @@ Content-Type: application/json
 }
 ```
 
-`image_data` 为可选字段，支持传入 base64 格式的图片数据进行多模态查询。`product_id` 为可选字段，指定后系统仅在该产品知识库和公共库中检索，不指定则在所有产品中检索。
+`image_data` 为可选字段，支持传入 base64 格式的图片数据（如 `data:image/png;base64,...`）进行多模态查询。附带图片时，系统会：
+- 跳过意图分类（图片可能包含产品信息）
+- 同时进行文本向量检索和图片向量检索（图片使用较低阈值 × 0.6）
+- 合并去重两路检索结果
+- 使用视觉 LLM（GenerateWithImage）结合图片和知识库生成回答
+
+`product_id` 为可选字段，指定后系统仅在该产品知识库和公共库中检索，不指定则在所有产品中检索。
 
 ### 4.2 回答流程
 
-1. 系统对问题进行意图分类：
-   - `greeting`：问候语，直接返回友好回复
-   - `product`：产品相关问题，进入 RAG 检索流程
-   - `irrelevant`：无关问题，提示用户提问产品相关内容
-2. 将问题向量化，在知识库中检索 Top-K 相关片段
-3. 将检索结果作为上下文，调用 LLM 生成回答
-4. 若无匹配结果，创建待处理问题
+系统采用多级递进策略处理查询，在保证回答质量的同时尽量减少 API 调用成本。
+
+#### 4.2.1 意图分类
+
+- 附带图片的查询跳过意图分类，直接进入检索流程（图片可能包含产品信息）
+- 纯文本查询先经过 LLM 意图分类：
+  - `greeting`：问候语，返回产品介绍（自动翻译为用户语言）
+  - `irrelevant`：无关问题，提示用户提问产品相关内容
+  - `product`：产品相关问题，进入检索流程
+
+#### 4.2.2 3 级文本匹配（仅纯文本查询）
+
+启用 `vector.text_match_enabled` 后，系统在调用完整 RAG 之前先尝试低成本匹配：
+
+1. **Level 1 — 本地文本匹配（零 API 开销）**：使用字符 bigram 相似度在分块缓存中搜索，命中且有缓存回答时直接返回
+2. **Level 2 — 向量确认 + 缓存复用（仅 Embedding API）**：调用 Embedding API 生成向量进行搜索确认，命中且有缓存回答时返回
+3. **Level 3 — 完整 RAG（Embedding + LLM）**：前两级未命中时进入完整流程
+
+#### 4.2.3 向量检索
+
+- **文本检索**：将问题向量化，在知识库中检索 Top-K 相关片段
+- **图片检索**（附带图片时）：将图片通过多模态 Embedding 向量化，使用较低阈值（`threshold × 0.6`）进行检索，与文本检索结果合并去重
+- **宽松检索**：若标准检索无结果，降低阈值重试（接受 score ≥ 0.3 的结果）
+
+#### 4.2.4 结果后处理
+
+1. **内容优先级排序**：根据 `vector.content_priority` 配置调整结果顺序（`image_text` 优先含图片结果，`text_only` 优先纯文本结果）
+2. **视频时间定位**：查询 `video_segments` 表，为来自视频的分块补充 `start_time` / `end_time` 信息
+3. **关联图片补充**：查找同一文档中的图片分块，附加到检索结果中
+
+#### 4.2.5 回答生成
+
+- 有检索结果时：构建上下文调用 LLM 生成回答。附带图片的查询使用视觉 LLM（`GenerateWithImage`）
+- 无检索结果时：创建待处理问题，通知用户等待人工回复
+- LLM 回答被判定为"无法回答"时：同样创建待处理问题
+
+回答自动使用与用户提问相同的语言。
 
 ### 4.3 响应格式
 
@@ -205,12 +282,25 @@ Content-Type: application/json
     {
       "document_name": "安装指南.pdf",
       "chunk_index": 3,
-      "snippet": "第一步：下载安装包..."
+      "snippet": "第一步：下载安装包...",
+      "image_url": "",
+      "start_time": 0,
+      "end_time": 0
+    },
+    {
+      "document_name": "产品演示.mp4",
+      "chunk_index": 5,
+      "snippet": "[视频关键帧: 30.0s]",
+      "image_url": "data:image/jpeg;base64,...",
+      "start_time": 30.0,
+      "end_time": 30.0
     }
   ],
   "is_pending": false
 }
 ```
+
+当检索结果来源于视频文档时，`start_time` 和 `end_time` 字段包含视频中的时间位置（秒）。对于转录文本分块，这是一个时间区间；对于关键帧，两者相等。
 
 ---
 

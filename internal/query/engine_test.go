@@ -10,6 +10,7 @@ import (
 	"helpdesk/internal/vectorstore"
 
 	_ "github.com/mattn/go-sqlite3"
+	"pgregory.net/rapid"
 )
 
 // --- Mock implementations ---
