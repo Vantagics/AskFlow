@@ -1167,6 +1167,24 @@ body {
 
 .admin-form-row-half > div { flex: 1; }
 
+.input-with-btn {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.input-with-btn input {
+    flex: 1;
+}
+
+.input-with-btn .btn-sm {
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
 .admin-form-actions {
     margin-top: 1rem;
 }
