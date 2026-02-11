@@ -39,22 +39,22 @@ func (m *mockEmbeddingService) EmbedImageURL(imageURL string) ([]float64, error)
 }
 
 type mockVectorStore struct {
-	searchFn func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error)
+	searchFn func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error)
 }
 
 func (m *mockVectorStore) Store(docID string, chunks []vectorstore.VectorChunk) error {
 	return nil
 }
 
-func (m *mockVectorStore) Search(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
-	return m.searchFn(queryVector, topK, threshold)
+func (m *mockVectorStore) Search(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
+	return m.searchFn(queryVector, topK, threshold, productID)
 }
 
 func (m *mockVectorStore) DeleteByDocID(docID string) error {
 	return nil
 }
 
-func (m *mockVectorStore) TextSearch(query string, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+func (m *mockVectorStore) TextSearch(query string, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 	return nil, nil
 }
 
@@ -86,6 +86,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		answer TEXT,
 		llm_answer TEXT,
 		image_data TEXT,
+		product_id TEXT DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		answered_at DATETIME
 	)`)
@@ -116,7 +117,7 @@ func TestQuery_SuccessfulAnswer(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return []vectorstore.SearchResult{
 				{ChunkText: "Go is a statically typed language.", ChunkIndex: 0, DocumentID: "doc1", DocumentName: "go-intro.pdf", Score: 0.95},
 				{ChunkText: "Go supports concurrency with goroutines.", ChunkIndex: 1, DocumentID: "doc1", DocumentName: "go-intro.pdf", Score: 0.85},
@@ -161,7 +162,7 @@ func TestQuery_PendingWhenNoResults(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return []vectorstore.SearchResult{}, nil
 		},
 	}
@@ -215,7 +216,7 @@ func TestQuery_SnippetTruncation(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return []vectorstore.SearchResult{
 				{ChunkText: longText, ChunkIndex: 0, DocumentID: "doc1", DocumentName: "doc.pdf", Score: 0.9},
 			}, nil
@@ -248,7 +249,7 @@ func TestQuery_SnippetShortText(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return []vectorstore.SearchResult{
 				{ChunkText: shortText, ChunkIndex: 0, DocumentID: "doc1", DocumentName: "doc.pdf", Score: 0.9},
 			}, nil
@@ -280,7 +281,7 @@ func TestQuery_EmbeddingError(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return nil, nil
 		},
 	}
@@ -309,7 +310,7 @@ func TestQuery_VectorSearchError(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -338,7 +339,7 @@ func TestQuery_LLMError(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return []vectorstore.SearchResult{
 				{ChunkText: "some text", ChunkIndex: 0, DocumentID: "doc1", DocumentName: "doc.pdf", Score: 0.9},
 			}, nil
@@ -373,7 +374,7 @@ func TestQuery_UsesConfigTopKAndThreshold(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			if firstCall {
 				capturedTopK = topK
 				capturedThreshold = threshold
@@ -418,7 +419,7 @@ func TestQuery_ContextPassedToLLM(t *testing.T) {
 		},
 	}
 	vs := &mockVectorStore{
-		searchFn: func(queryVector []float64, topK int, threshold float64) ([]vectorstore.SearchResult, error) {
+		searchFn: func(queryVector []float64, topK int, threshold float64, productID string) ([]vectorstore.SearchResult, error) {
 			return []vectorstore.SearchResult{
 				{ChunkText: "chunk1 text", ChunkIndex: 0, DocumentID: "doc1", DocumentName: "doc.pdf", Score: 0.9},
 				{ChunkText: "chunk2 text", ChunkIndex: 1, DocumentID: "doc1", DocumentName: "doc.pdf", Score: 0.8},

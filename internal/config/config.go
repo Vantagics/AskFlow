@@ -40,8 +40,11 @@ type Config struct {
 
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
-	Port int `json:"port"`
+	Port    int    `json:"port"`
+	SSLCert string `json:"ssl_cert"` // path to SSL certificate file (PEM)
+	SSLKey  string `json:"ssl_key"`  // path to SSL private key file (PEM)
 }
+
 
 // LLMConfig holds LLM service configuration.
 type LLMConfig struct {
@@ -536,6 +539,18 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 			return errors.New("port must be between 1 and 65535")
 		}
 		cm.config.Server.Port = n
+	case "server.ssl_cert":
+		s, ok := val.(string)
+		if !ok {
+			return errors.New("expected string")
+		}
+		cm.config.Server.SSLCert = s
+	case "server.ssl_key":
+		s, ok := val.(string)
+		if !ok {
+			return errors.New("expected string")
+		}
+		cm.config.Server.SSLKey = s
 
 	default:
 		// Handle OAuth provider config: oauth.providers.<name>.<field>
@@ -624,7 +639,9 @@ func (cm *ConfigManager) applyDefaults(cfg *Config) {
 	if cfg.LLM.ModelName == "" {
 		cfg.LLM.ModelName = defaults.LLM.ModelName
 	}
-	if cfg.LLM.Temperature == 0 {
+	// Temperature 0 is valid (deterministic output), only default if negative (impossible from JSON).
+	// For fresh configs, DefaultConfig() already sets 0.3.
+	if cfg.LLM.Temperature < 0 {
 		cfg.LLM.Temperature = defaults.LLM.Temperature
 	}
 	if cfg.LLM.MaxTokens == 0 {

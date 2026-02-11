@@ -12,12 +12,13 @@ func TestParse_SupportedTypes(t *testing.T) {
 	// We can't easily create valid file bytes for each format in a unit test,
 	// but we can verify that supported types are dispatched (they'll fail on invalid data,
 	// not on "unsupported format").
-	supportedTypes := []string{"pdf", "word", "excel", "ppt", "html"}
+	supportedTypes := []string{"pdf", "word", "excel", "ppt", "html", "markdown"}
 	for _, ft := range supportedTypes {
 		_, err := dp.Parse([]byte("invalid"), ft)
 		// HTML parser can succeed on plain text (it's valid HTML), so skip nil-error check for html
+		// Markdown parser succeeds on any non-empty text, so skip nil-error check for markdown
 		if err == nil {
-			if ft != "html" {
+			if ft != "html" && ft != "markdown" {
 				t.Errorf("expected error for invalid %s data, got nil", ft)
 			}
 			continue
@@ -30,7 +31,7 @@ func TestParse_SupportedTypes(t *testing.T) {
 
 func TestParse_SupportedTypesCaseInsensitive(t *testing.T) {
 	dp := &DocumentParser{}
-	variants := []string{"PDF", "Pdf", "WORD", "Word", "EXCEL", "Excel", "PPT", "Ppt", "HTML", "Html"}
+	variants := []string{"PDF", "Pdf", "WORD", "Word", "EXCEL", "Excel", "PPT", "Ppt", "HTML", "Html", "MARKDOWN", "Markdown"}
 	for _, ft := range variants {
 		_, err := dp.Parse([]byte("invalid"), ft)
 		if err == nil {

@@ -185,7 +185,40 @@
 
     window.loadLoginCaptcha = function () {
         loadCaptcha('user-login-captcha-question', 'login');
+        loadLoginProducts();
     };
+
+    function loadLoginProducts() {
+        var selector = document.getElementById('login-product-selector');
+        var select = document.getElementById('user-login-product');
+        if (!selector || !select) return;
+
+        fetch('/api/products')
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                var products = data.products || [];
+                if (products.length === 0) {
+                    selector.classList.add('hidden');
+                    return;
+                }
+                // Clear existing options except the first placeholder
+                select.innerHTML = '<option value="">' + i18n.t('login_select_product') + '</option>';
+                for (var i = 0; i < products.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = products[i].id;
+                    opt.textContent = products[i].name;
+                    select.appendChild(opt);
+                }
+                // Auto-select if only one product
+                if (products.length === 1) {
+                    select.value = products[0].id;
+                }
+                selector.classList.remove('hidden');
+            })
+            .catch(function () {
+                selector.classList.add('hidden');
+            });
+    }
 
     window.loadRegisterCaptcha = function () {
         loadCaptcha('user-register-captcha-question', 'register');
@@ -227,6 +260,7 @@
         var emailInput = document.getElementById('user-login-email');
         var passwordInput = document.getElementById('user-login-password');
         var captchaInput = document.getElementById('user-login-captcha');
+        var productSelect = document.getElementById('user-login-product');
         var errorEl = document.getElementById('user-login-error');
         var submitBtn = document.querySelector('#user-login-form .admin-submit-btn');
 
@@ -234,6 +268,17 @@
         var email = emailInput.value.trim();
         var password = passwordInput.value;
         var captchaAnswer = captchaInput ? parseInt(captchaInput.value.trim(), 10) : 0;
+
+        // Validate product selection if selector is visible
+        var selectedProductId = '';
+        var selectorVisible = document.getElementById('login-product-selector') && !document.getElementById('login-product-selector').classList.contains('hidden');
+        if (selectorVisible && productSelect) {
+            selectedProductId = productSelect.value;
+            if (!selectedProductId) {
+                if (errorEl) { errorEl.textContent = i18n.t('login_error_select_product'); errorEl.classList.remove('hidden'); }
+                return;
+            }
+        }
 
         if (!email || !password) {
             if (errorEl) { errorEl.textContent = i18n.t('login_error_email_password'); errorEl.classList.remove('hidden'); }
@@ -258,6 +303,18 @@
         .then(function (data) {
             if (data.session) {
                 saveSession(data.session, data.user);
+                // Store selected product
+                if (selectedProductId) {
+                    localStorage.setItem('helpdesk_product_id', selectedProductId);
+                    // Also store product name for display
+                    if (productSelect) {
+                        var selectedOption = productSelect.options[productSelect.selectedIndex];
+                        if (selectedOption) localStorage.setItem('helpdesk_product_name', selectedOption.textContent);
+                    }
+                } else {
+                    localStorage.removeItem('helpdesk_product_id');
+                    localStorage.removeItem('helpdesk_product_name');
+                }
                 navigate('/chat');
             }
         })
@@ -568,7 +625,9 @@
 
         // Load product intro as welcome message if no messages yet
         if (chatMessages.length === 0) {
-            fetch('/api/product-intro')
+            var productId = localStorage.getItem('helpdesk_product_id') || '';
+            var introUrl = '/api/product-intro' + (productId ? '?product_id=' + encodeURIComponent(productId) : '');
+            fetch(introUrl)
                 .then(function (res) { return res.json(); })
                 .then(function (data) {
                     if (data.product_intro) {
@@ -775,7 +834,7 @@
         if (msg.isPending) {
             html += '<span class="pending-icon">⏳</span>';
         }
-        html += linkifyText(escapeHtml(msg.content));
+        html += renderMarkdown(msg.content);
 
         // Display images from sources inline
         if (msg.sources && msg.sources.length > 0) {
@@ -902,6 +961,96 @@
         return str.replace(/(https?:\/\/[^\s<&]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
     }
 
+    // Lightweight markdown renderer for chat messages
+    function renderMarkdown(str) {
+        if (!str) return '';
+        var text = escapeHtml(str);
+
+        // Code blocks (``` ... ```)
+        text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function (m, lang, code) {
+            return '<pre class="md-code-block"><code>' + code.replace(/\n$/, '') + '</code></pre>';
+        });
+
+        // Inline code
+        text = text.replace(/`([^`\n]+)`/g, '<code class="md-code-inline">$1</code>');
+
+        // Headers (###### to #, most specific first)
+        text = text.replace(/^###### (.+)$/gm, '<strong>$1</strong>');
+        text = text.replace(/^##### (.+)$/gm, '<strong>$1</strong>');
+        text = text.replace(/^#### (.+)$/gm, '<strong style="font-size:1.02em;">$1</strong>');
+        text = text.replace(/^### (.+)$/gm, '<strong style="font-size:1.05em;">$1</strong>');
+        text = text.replace(/^## (.+)$/gm, '<strong style="font-size:1.1em;">$1</strong>');
+        text = text.replace(/^# (.+)$/gm, '<strong style="font-size:1.15em;">$1</strong>');
+
+        // Bold **text** or __text__
+        text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+
+        // Italic *text* or _text_ (but not inside words with underscores)
+        text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+        // Horizontal rule
+        text = text.replace(/^---+$/gm, '<hr style="border:none;border-top:1px solid #e5e7eb;margin:8px 0;">');
+
+        // Tables: detect lines with | separators
+        text = text.replace(/((?:^\|.+\|$\n?)+)/gm, function (block) {
+            var rows = block.trim().split('\n');
+            if (rows.length < 2) return block;
+            var html = '<table class="md-table">';
+            for (var r = 0; r < rows.length; r++) {
+                var row = rows[r].trim();
+                if (!row) continue;
+                // Skip separator row (|---|---|)
+                if (/^\|[\s\-:|]+\|$/.test(row)) continue;
+                var cells = row.split('|').filter(function (c, idx, arr) { return idx > 0 && idx < arr.length - 1; });
+                var tag = r === 0 ? 'th' : 'td';
+                html += '<tr>';
+                for (var c = 0; c < cells.length; c++) {
+                    html += '<' + tag + '>' + cells[c].trim() + '</' + tag + '>';
+                }
+                html += '</tr>';
+            }
+            html += '</table>';
+            return html;
+        });
+
+        // Unordered lists (- item or * item)
+        text = text.replace(/^(\s*[-*] .+(\n|$))+/gm, function (block) {
+            var items = block.trim().split('\n');
+            var html = '<ul class="md-list">';
+            for (var li = 0; li < items.length; li++) {
+                html += '<li>' + items[li].replace(/^\s*[-*] /, '') + '</li>';
+            }
+            html += '</ul>';
+            return html;
+        });
+
+        // Ordered lists (1. item)
+        text = text.replace(/^(\s*\d+\. .+(\n|$))+/gm, function (block) {
+            var items = block.trim().split('\n');
+            var html = '<ol class="md-list">';
+            for (var li = 0; li < items.length; li++) {
+                html += '<li>' + items[li].replace(/^\s*\d+\. /, '') + '</li>';
+            }
+            html += '</ol>';
+            return html;
+        });
+
+        // Linkify URLs
+        text = text.replace(/(https?:\/\/[^\s<&]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+
+        // Line breaks (preserve newlines outside of block elements)
+        text = text.replace(/\n/g, '<br>');
+        // Clean up extra <br> after block elements
+        text = text.replace(/(<\/pre>)<br>/g, '$1');
+        text = text.replace(/(<\/table>)<br>/g, '$1');
+        text = text.replace(/(<\/ul>)<br>/g, '$1');
+        text = text.replace(/(<\/ol>)<br>/g, '$1');
+        text = text.replace(/(<hr[^>]*>)<br>/g, '$1');
+
+        return text;
+    }
+
 
     window.toggleSources = function (id, btn) {
         var list = document.getElementById(id);
@@ -945,7 +1094,8 @@
             var token = getChatToken();
             var reqBody = {
                 question: userMsg.content,
-                user_id: getChatUserID()
+                user_id: getChatUserID(),
+                product_id: localStorage.getItem('helpdesk_product_id') || ''
             };
             if (userMsg.imageUrl) {
                 reqBody.image_data = userMsg.imageUrl;
@@ -1049,7 +1199,8 @@
         // Build request body
         var reqBody = {
             question: question,
-            user_id: getChatUserID()
+            user_id: getChatUserID(),
+            product_id: localStorage.getItem('helpdesk_product_id') || ''
         };
         if (imageData) {
             reqBody.image_data = imageData;
@@ -1171,7 +1322,8 @@
         if (tab === 'documents') loadDocumentList();
         if (tab === 'pending') loadPendingQuestions();
         if (tab === 'settings') loadAdminSettings();
-        if (tab === 'users') loadAdminUsers();
+        if (tab === 'users') { loadAdminUsers(); loadProductCheckboxes(); }
+        if (tab === 'products') loadProducts();
     };
 
     function initAdmin() {
@@ -1194,15 +1346,18 @@
     }
 
     function applyAdminRoleVisibility() {
-        // Hide settings and users tabs for non-super_admin
+        // Hide settings, users, and products tabs for non-super_admin
         var settingsNav = document.querySelector('.admin-nav-item[data-tab="settings"]');
         var usersNav = document.querySelector('.admin-nav-item[data-tab="users"]');
+        var productsNav = document.querySelector('.admin-nav-item[data-tab="products"]');
         if (adminRole !== 'super_admin') {
             if (settingsNav) settingsNav.style.display = 'none';
             if (usersNav) usersNav.style.display = 'none';
+            if (productsNav) productsNav.style.display = 'none';
         } else {
             if (settingsNav) settingsNav.style.display = '';
             if (usersNav) usersNav.style.display = '';
+            if (productsNav) productsNav.style.display = '';
         }
     }
 
@@ -1881,13 +2036,23 @@
             return;
         }
 
+        // Send current form SMTP params so testing works before save
+        var host = getVal('cfg-smtp-host');
+        var port = parseInt(getVal('cfg-smtp-port')) || 0;
+        var username = getVal('cfg-smtp-username');
+        var password = getVal('cfg-smtp-password');
+        var fromAddr = getVal('cfg-smtp-from-addr');
+        var fromName = getVal('cfg-smtp-from-name');
+        var tlsSelect = document.getElementById('cfg-smtp-tls');
+        var useTLS = tlsSelect ? tlsSelect.value !== 'false' : true;
+
         if (btn) btn.disabled = true;
         if (resultEl) { resultEl.textContent = i18n.t('admin_settings_smtp_test_sending'); resultEl.className = ''; resultEl.classList.remove('hidden'); }
 
         adminFetch('/api/email/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email })
+            body: JSON.stringify({ email: email, host: host, port: port, username: username, password: password, from_addr: fromAddr, from_name: fromName, use_tls: useTLS })
         })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_settings_smtp_test_failed')); });
@@ -1914,7 +2079,10 @@
         var temperature = parseFloat(getVal('cfg-llm-temperature')) || 0.3;
         var maxTokens = parseInt(getVal('cfg-llm-maxtokens')) || 64;
 
-        if (!endpoint || !apiKey || !model) {
+        // Allow empty apiKey — backend will fall back to saved config
+        var apiKeyEl = document.getElementById('cfg-llm-apikey');
+        var hasSavedKey = apiKeyEl && apiKeyEl.placeholder && apiKeyEl.placeholder.indexOf('***') !== -1;
+        if (!endpoint || (!apiKey && !hasSavedKey) || !model) {
             if (result) { result.textContent = i18n.t('admin_settings_test_missing_fields'); result.style.color = '#e53e3e'; result.classList.remove('hidden'); }
             return;
         }
@@ -1953,7 +2121,10 @@
         var multimodal = document.getElementById('cfg-emb-multimodal');
         var useMultimodal = multimodal ? multimodal.value === 'true' : false;
 
-        if (!endpoint || !apiKey || !model) {
+        // Allow empty apiKey — backend will fall back to saved config
+        var apiKeyEl = document.getElementById('cfg-emb-apikey');
+        var hasSavedKey = apiKeyEl && apiKeyEl.placeholder && apiKeyEl.placeholder.indexOf('***') !== -1;
+        if (!endpoint || (!apiKey && !hasSavedKey) || !model) {
             if (result) { result.textContent = i18n.t('admin_settings_test_missing_fields'); result.style.color = '#e53e3e'; result.classList.remove('hidden'); }
             return;
         }
@@ -2493,6 +2664,130 @@
         });
     };
 
+    // --- Product Management ---
+
+    function loadProducts() {
+        adminFetch('/api/products')
+            .then(function (res) {
+                if (!res.ok) throw new Error('load failed');
+                return res.json();
+            })
+            .then(function (data) {
+                renderProducts(data.products || []);
+            })
+            .catch(function () {
+                renderProducts([]);
+            });
+    }
+
+    function renderProducts(products) {
+        var tbody = document.getElementById('admin-products-tbody');
+        if (!tbody) return;
+
+        if (!products || products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="admin-table-empty">' + i18n.t('admin_products_empty') + '</td></tr>';
+            return;
+        }
+
+        var html = '';
+        for (var i = 0; i < products.length; i++) {
+            var p = products[i];
+            var createdAt = p.created_at ? new Date(p.created_at).toLocaleString() : '-';
+            html += '<tr>' +
+                '<td>' + escapeHtml(p.name) + '</td>' +
+                '<td>' + escapeHtml(p.description || '-') + '</td>' +
+                '<td>' + escapeHtml(createdAt) + '</td>' +
+                '<td><button class="btn-danger btn-sm" onclick="deleteProduct(\'' + escapeHtml(p.id) + '\', \'' + escapeHtml(p.name) + '\')">' + i18n.t('admin_products_delete_btn') + '</button></td>' +
+            '</tr>';
+        }
+        tbody.innerHTML = html;
+    }
+
+    window.createProduct = function () {
+        var name = (document.getElementById('product-new-name') || {}).value || '';
+        var desc = (document.getElementById('product-new-desc') || {}).value || '';
+        var welcome = (document.getElementById('product-new-welcome') || {}).value || '';
+
+        if (!name.trim()) {
+            showAdminToast(i18n.t('admin_products_name_required'), 'error');
+            return;
+        }
+
+        adminFetch('/api/products', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), description: desc.trim(), welcome_message: welcome.trim() })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_products_create_failed')); });
+            return res.json();
+        })
+        .then(function () {
+            showAdminToast(i18n.t('admin_products_created'), 'success');
+            if (document.getElementById('product-new-name')) document.getElementById('product-new-name').value = '';
+            if (document.getElementById('product-new-desc')) document.getElementById('product-new-desc').value = '';
+            if (document.getElementById('product-new-welcome')) document.getElementById('product-new-welcome').value = '';
+            loadProducts();
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || i18n.t('admin_products_create_failed'), 'error');
+        });
+    };
+
+    window.deleteProduct = function (id, name) {
+        if (!confirm(i18n.t('admin_products_delete_confirm', { name: name }))) return;
+
+        adminFetch('/api/products/' + encodeURIComponent(id) + '?confirm=true', {
+            method: 'DELETE'
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_delete_failed')); });
+            showAdminToast(i18n.t('admin_products_deleted'), 'success');
+            loadProducts();
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || i18n.t('admin_delete_failed'), 'error');
+        });
+    };
+
+    // Load product checkboxes for admin user creation form
+    function loadProductCheckboxes() {
+        var container = document.getElementById('admin-new-products-checkboxes');
+        if (!container) return;
+
+        adminFetch('/api/products')
+            .then(function (res) {
+                if (!res.ok) throw new Error('load failed');
+                return res.json();
+            })
+            .then(function (data) {
+                var products = data.products || [];
+                if (products.length === 0) {
+                    container.innerHTML = '<span class="admin-form-hint">' + i18n.t('admin_products_empty') + '</span>';
+                    return;
+                }
+                var html = '';
+                for (var i = 0; i < products.length; i++) {
+                    var p = products[i];
+                    html += '<label class="admin-checkbox-label">' +
+                        '<input type="checkbox" name="admin-new-product" value="' + escapeHtml(p.id) + '"> ' +
+                        escapeHtml(p.name) +
+                    '</label>';
+                }
+                container.innerHTML = html;
+            })
+            .catch(function () {
+                container.innerHTML = '<span class="admin-form-hint">' + i18n.t('admin_products_load_failed') + '</span>';
+            });
+    }
+
+    function getSelectedProductIDs() {
+        var checkboxes = document.querySelectorAll('input[name="admin-new-product"]:checked');
+        var ids = [];
+        checkboxes.forEach(function (cb) { ids.push(cb.value); });
+        return ids;
+    }
+
     // --- Admin User Management ---
 
     function loadAdminUsers() {
@@ -2536,6 +2831,7 @@
         var username = (document.getElementById('admin-new-username') || {}).value || '';
         var password = (document.getElementById('admin-new-password') || {}).value || '';
         var role = (document.getElementById('admin-new-role') || {}).value || 'editor';
+        var productIDs = getSelectedProductIDs();
 
         if (!username.trim() || !password) {
             showAdminToast(i18n.t('admin_users_create_empty'), 'error');
@@ -2549,7 +2845,7 @@
         adminFetch('/api/admin/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: username.trim(), password: password, role: role })
+            body: JSON.stringify({ username: username.trim(), password: password, role: role, product_ids: productIDs })
         })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_users_create_failed')); });
@@ -2589,6 +2885,8 @@
         chatLoading = false;
         adminRole = '';
         localStorage.removeItem('admin_role');
+        localStorage.removeItem('helpdesk_product_id');
+        localStorage.removeItem('helpdesk_product_name');
         clearSession();
         navigate('/login');
     };

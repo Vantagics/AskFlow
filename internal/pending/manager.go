@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"helpdesk/internal/chunker"
@@ -17,14 +18,17 @@ import (
 
 // PendingQuestion represents a user question awaiting admin response.
 type PendingQuestion struct {
-	ID        string    `json:"id"`
-	Question  string    `json:"question"`
-	UserID    string    `json:"user_id"`
-	Status    string    `json:"status"` // "pending", "answered"
-	Answer    string    `json:"answer,omitempty"`
-	ImageData string    `json:"image_data,omitempty"` // base64 data URL of attached image
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	Question    string    `json:"question"`
+	UserID      string    `json:"user_id"`
+	Status      string    `json:"status"` // "pending", "answered"
+	Answer      string    `json:"answer,omitempty"`
+	ImageData   string    `json:"image_data,omitempty"` // base64 data URL of attached image
+	ProductID   string    `json:"product_id"`
+	ProductName string    `json:"product_name"`
+	CreatedAt   time.Time `json:"created_at"`
 }
+
 
 
 // AdminAnswerRequest represents an admin's answer to a pending question.
@@ -39,6 +43,7 @@ type AdminAnswerRequest struct {
 
 // PendingQuestionManager handles the lifecycle of pending questions.
 type PendingQuestionManager struct {
+	mu               sync.RWMutex
 	db               *sql.DB
 	chunker          *chunker.TextChunker
 	embeddingService embedding.EmbeddingService
@@ -65,6 +70,8 @@ func NewPendingQuestionManager(
 
 // UpdateServices replaces the embedding and LLM services (used after config change).
 func (pm *PendingQuestionManager) UpdateServices(es embedding.EmbeddingService, ls llm.LLMService) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 	pm.embeddingService = es
 	pm.llmService = ls
 }
@@ -79,7 +86,7 @@ func generateID() (string, error) {
 }
 
 // CreatePending inserts a new pending question record with status="pending".
-func (pm *PendingQuestionManager) CreatePending(question string, userID string, imageData string) (*PendingQuestion, error) {
+func (pm *PendingQuestionManager) CreatePending(question string, userID string, imageData string, productID string) (*PendingQuestion, error) {
 	id, err := generateID()
 	if err != nil {
 		return nil, err
@@ -87,8 +94,8 @@ func (pm *PendingQuestionManager) CreatePending(question string, userID string, 
 
 	now := time.Now().UTC()
 	_, err = pm.db.Exec(
-		`INSERT INTO pending_questions (id, question, user_id, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, question, userID, "pending", imageData, now,
+		`INSERT INTO pending_questions (id, question, user_id, status, image_data, product_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, question, userID, "pending", imageData, productID, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert pending question: %w", err)
@@ -100,6 +107,7 @@ func (pm *PendingQuestionManager) CreatePending(question string, userID string, 
 		UserID:    userID,
 		Status:    "pending",
 		ImageData: imageData,
+		ProductID: productID,
 		CreatedAt: now,
 	}, nil
 }
@@ -130,22 +138,40 @@ func (pm *PendingQuestionManager) DeletePending(id string) error {
 	return nil
 }
 
-// ListPending returns pending questions filtered by status (or all if status is empty),
-// ordered by created_at DESC.
-func (pm *PendingQuestionManager) ListPending(status string) ([]PendingQuestion, error) {
+// ListPending returns pending questions filtered by status and/or productID,
+// ordered by created_at DESC. When productID is non-empty, only questions matching
+// that product or the public library (empty product_id) are returned.
+// Product names are resolved via LEFT JOIN with the products table.
+func (pm *PendingQuestionManager) ListPending(status string, productID string) ([]PendingQuestion, error) {
 	var rows *sql.Rows
 	var err error
 
-	if status == "" {
-		rows, err = pm.db.Query(
-			`SELECT id, question, user_id, status, answer, image_data, created_at FROM pending_questions ORDER BY created_at DESC`,
-		)
-	} else {
-		rows, err = pm.db.Query(
-			`SELECT id, question, user_id, status, answer, image_data, created_at FROM pending_questions WHERE status = ? ORDER BY created_at DESC`,
-			status,
-		)
+	baseSelect := `SELECT pq.id, pq.question, pq.user_id, pq.status, pq.answer, pq.image_data, pq.product_id, COALESCE(p.name, '') AS product_name, pq.created_at
+		FROM pending_questions pq
+		LEFT JOIN products p ON pq.product_id = p.id`
+
+	var conditions []string
+	var args []interface{}
+
+	if status != "" {
+		conditions = append(conditions, "pq.status = ?")
+		args = append(args, status)
 	}
+	if productID != "" {
+		conditions = append(conditions, "(pq.product_id = ? OR pq.product_id = '')")
+		args = append(args, productID)
+	}
+
+	query := baseSelect
+	if len(conditions) > 0 {
+		query += " WHERE " + conditions[0]
+		for i := 1; i < len(conditions); i++ {
+			query += " AND " + conditions[i]
+		}
+	}
+	query += " ORDER BY pq.created_at DESC"
+
+	rows, err = pm.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query pending questions: %w", err)
 	}
@@ -156,8 +182,9 @@ func (pm *PendingQuestionManager) ListPending(status string) ([]PendingQuestion,
 		var q PendingQuestion
 		var answer sql.NullString
 		var imageData sql.NullString
+		var productName sql.NullString
 		var createdAt sql.NullTime
-		if err := rows.Scan(&q.ID, &q.Question, &q.UserID, &q.Status, &answer, &imageData, &createdAt); err != nil {
+		if err := rows.Scan(&q.ID, &q.Question, &q.UserID, &q.Status, &answer, &imageData, &q.ProductID, &productName, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan pending question row: %w", err)
 		}
 		if answer.Valid {
@@ -168,6 +195,11 @@ func (pm *PendingQuestionManager) ListPending(status string) ([]PendingQuestion,
 		}
 		if createdAt.Valid {
 			q.CreatedAt = createdAt.Time
+		}
+		if q.ProductID == "" {
+			q.ProductName = "公共库"
+		} else if productName.Valid && productName.String != "" {
+			q.ProductName = productName.String
 		}
 		questions = append(questions, q)
 	}

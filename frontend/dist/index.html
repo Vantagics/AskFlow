@@ -48,6 +48,13 @@
                     <div id="user-login-form" class="admin-login-form">
                         <p class="login-subtitle" style="text-align:center;margin-bottom:1rem;" data-i18n="login_subtitle">登录您的账号</p>
 
+                        <!-- Product Selector -->
+                        <div id="login-product-selector" class="login-product-selector hidden">
+                            <select id="user-login-product" class="login-product-select">
+                                <option value="" data-i18n="login_select_product">请选择产品</option>
+                            </select>
+                        </div>
+
                         <!-- OAuth Buttons (dynamically populated) -->
                         <div id="oauth-login-buttons" class="oauth-buttons hidden"></div>
                         <div id="oauth-login-divider" class="login-divider hidden"><span data-i18n="login_divider_or">或</span></div>
@@ -233,6 +240,10 @@
                         <button class="admin-nav-item" data-tab="knowledge" onclick="switchAdminTab('knowledge')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                             <span data-i18n="admin_nav_knowledge">知识录入</span>
+                        </button>
+                        <button class="admin-nav-item" data-tab="products" onclick="switchAdminTab('products')">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                            <span data-i18n="admin_nav_products">产品管理</span>
                         </button>
                         <button class="admin-nav-item" data-tab="settings" onclick="switchAdminTab('settings')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -592,6 +603,53 @@
                         </div>
                     </div>
 
+                    <!-- Products Tab -->
+                    <div id="admin-tab-products" class="admin-tab hidden">
+                        <div class="admin-tab-header">
+                            <h2 data-i18n="admin_products_title">产品管理</h2>
+                        </div>
+                        <div class="admin-tab-body">
+                            <div class="admin-settings-form">
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_products_add_legend">添加产品</legend>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_products_name">产品名称</label>
+                                        <input type="text" id="product-new-name" data-i18n-placeholder="admin_products_name_placeholder" placeholder="输入产品名称">
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_products_desc">产品描述</label>
+                                        <input type="text" id="product-new-desc" data-i18n-placeholder="admin_products_desc_placeholder" placeholder="输入产品描述（可选）">
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_products_welcome">欢迎消息</label>
+                                        <textarea id="product-new-welcome" rows="3" data-i18n-placeholder="admin_products_welcome_placeholder" placeholder="用户选择该产品后显示的欢迎消息（可选）"></textarea>
+                                    </div>
+                                    <div class="admin-form-actions">
+                                        <button class="btn-primary" onclick="createProduct()" data-i18n="admin_products_add_btn">添加产品</button>
+                                    </div>
+                                </fieldset>
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_products_list_legend">产品列表</legend>
+                                    <div id="admin-products-table-wrap">
+                                        <table class="admin-table">
+                                            <thead>
+                                                <tr>
+                                                    <th data-i18n="admin_products_th_name">名称</th>
+                                                    <th data-i18n="admin_products_th_desc">描述</th>
+                                                    <th data-i18n="admin_products_th_time">创建时间</th>
+                                                    <th data-i18n="admin_products_th_action">操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="admin-products-tbody">
+                                                <tr><td colspan="4" class="admin-table-empty" data-i18n="admin_products_empty">暂无产品</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </fieldset>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Admin Users Tab -->
                     <div id="admin-tab-users" class="admin-tab hidden">
                         <div class="admin-tab-header">
@@ -616,6 +674,13 @@
                                             <option value="super_admin" data-i18n="admin_users_role_super">超级管理员（全部权限）</option>
                                         </select>
                                         <span class="admin-form-hint" data-i18n="admin_users_role_hint">编辑员仅可管理文档、回答问题和录入知识，不能修改系统设置和管理用户</span>
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_users_products">关联产品</label>
+                                        <div id="admin-new-products-checkboxes" class="admin-checkbox-group">
+                                            <span class="admin-form-hint" data-i18n="admin_users_products_loading">加载中...</span>
+                                        </div>
+                                        <span class="admin-form-hint" data-i18n="admin_users_products_hint">选择该用户可管理的产品，不选则可管理所有产品</span>
                                     </div>
                                     <div class="admin-form-actions">
                                         <button class="btn-primary" onclick="createAdminUser()" data-i18n="admin_users_add_btn">添加用户</button>

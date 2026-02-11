@@ -18,8 +18,8 @@ import (
 // VectorStore defines the interface for storing and searching document embeddings.
 type VectorStore interface {
 	Store(docID string, chunks []VectorChunk) error
-	Search(queryVector []float64, topK int, threshold float64) ([]SearchResult, error)
-	TextSearch(query string, topK int, threshold float64) ([]SearchResult, error)
+	Search(queryVector []float64, topK int, threshold float64, productID string) ([]SearchResult, error)
+	TextSearch(query string, topK int, threshold float64, productID string) ([]SearchResult, error)
 	DeleteByDocID(docID string) error
 }
 
@@ -31,7 +31,9 @@ type VectorChunk struct {
 	DocumentName string    `json:"document_name"`
 	Vector       []float64 `json:"vector"`
 	ImageURL     string    `json:"image_url,omitempty"`
+	ProductID    string    `json:"product_id"`
 }
+
 
 // SearchResult represents a search result with similarity score.
 type SearchResult struct {
@@ -41,7 +43,9 @@ type SearchResult struct {
 	DocumentName string  `json:"document_name"`
 	Score        float64 `json:"score"`
 	ImageURL     string  `json:"image_url,omitempty"`
+	ProductID    string  `json:"product_id"`
 }
+
 
 // cachedChunk holds a chunk's metadata and pre-computed norm for fast similarity.
 type cachedChunk struct {
@@ -52,7 +56,9 @@ type cachedChunk struct {
 	vector       []float64
 	norm         float64
 	imageURL     string
+	productID    string
 }
+
 
 // SQLiteVectorStore implements VectorStore using SQLite for persistence
 // with an in-memory vector cache for fast similarity search.
@@ -71,7 +77,7 @@ func NewSQLiteVectorStore(db *sql.DB) *SQLiteVectorStore {
 // loadCache reads all chunks from the database into memory.
 // Must be called with mu held for writing.
 func (s *SQLiteVectorStore) loadCache() error {
-	rows, err := s.db.Query(`SELECT document_id, document_name, chunk_index, chunk_text, embedding, COALESCE(image_url,'') FROM chunks`)
+	rows, err := s.db.Query(`SELECT document_id, document_name, chunk_index, chunk_text, embedding, COALESCE(image_url,''), COALESCE(product_id,'') FROM chunks`)
 	if err != nil {
 		return fmt.Errorf("failed to query chunks: %w", err)
 	}
@@ -79,11 +85,11 @@ func (s *SQLiteVectorStore) loadCache() error {
 
 	var cache []cachedChunk
 	for rows.Next() {
-		var docID, docName, chunkText, imageURL string
+		var docID, docName, chunkText, imageURL, productID string
 		var chunkIndex int
 		var embeddingBytes []byte
 
-		if err := rows.Scan(&docID, &docName, &chunkIndex, &chunkText, &embeddingBytes, &imageURL); err != nil {
+		if err := rows.Scan(&docID, &docName, &chunkIndex, &chunkText, &embeddingBytes, &imageURL, &productID); err != nil {
 			return fmt.Errorf("failed to scan row: %w", err)
 		}
 
@@ -96,6 +102,7 @@ func (s *SQLiteVectorStore) loadCache() error {
 			vector:       vec,
 			norm:         vectorNorm(vec),
 			imageURL:     imageURL,
+			productID:    productID,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -134,8 +141,8 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	stmt, err := tx.Prepare(`INSERT INTO chunks (id, document_id, document_name, chunk_index, chunk_text, embedding, image_url)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO chunks (id, document_id, document_name, chunk_index, chunk_text, embedding, image_url, product_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -147,7 +154,7 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 		chunkID := fmt.Sprintf("%s-%d", docID, chunk.ChunkIndex)
 		embeddingBytes := SerializeVector(chunk.Vector)
 
-		_, err := stmt.Exec(chunkID, docID, chunk.DocumentName, chunk.ChunkIndex, chunk.ChunkText, embeddingBytes, chunk.ImageURL)
+		_, err := stmt.Exec(chunkID, docID, chunk.DocumentName, chunk.ChunkIndex, chunk.ChunkText, embeddingBytes, chunk.ImageURL, chunk.ProductID)
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("failed to insert chunk %s: %w", chunkID, err)
@@ -161,6 +168,7 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 			vector:       chunk.Vector,
 			norm:         vectorNorm(chunk.Vector),
 			imageURL:     chunk.ImageURL,
+			productID:    chunk.ProductID,
 		})
 	}
 
@@ -183,14 +191,15 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 
 // Search uses the in-memory cache with concurrent cosine similarity computation.
 // It partitions the cache across goroutines, filters by threshold, and returns top-K.
-func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold float64) ([]SearchResult, error) {
+// When productID is non-empty, only chunks matching that productID or the public library (empty productID) are returned.
+func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold float64, productID string) ([]SearchResult, error) {
 	// Ensure cache is loaded
 	s.mu.Lock()
 	if err := s.ensureCache(); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
-	// Downgrade: copy cache reference under write lock, then release
+	// Copy cache reference under lock, then release
 	cache := s.cache
 	s.mu.Unlock()
 
@@ -229,6 +238,10 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 			var local []SearchResult
 			for i := range items {
 				c := &items[i]
+				// Product isolation: skip chunks not matching the requested product
+				if productID != "" && c.productID != productID && c.productID != "" {
+					continue
+				}
 				if c.norm == 0 || len(c.vector) != len(queryVector) {
 					continue
 				}
@@ -246,6 +259,7 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 						DocumentName: c.documentName,
 						Score:        score,
 						ImageURL:     c.imageURL,
+						ProductID:    c.productID,
 					})
 				}
 			}
@@ -276,7 +290,8 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 // This is Level 1 of the 3-level matching: zero API cost.
 // Returns results sorted by text similarity score descending.
 // Uses concurrent workers for large caches.
-func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64) ([]SearchResult, error) {
+// When productID is non-empty, only chunks matching that productID or the public library (empty productID) are returned.
+func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64, productID string) ([]SearchResult, error) {
 	s.mu.Lock()
 	if err := s.ensureCache(); err != nil {
 		s.mu.Unlock()
@@ -323,6 +338,10 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 			var local []scored
 			for i := range items {
 				c := &items[i]
+				// Product isolation: skip chunks not matching the requested product
+				if productID != "" && c.productID != productID && c.productID != "" {
+					continue
+				}
 				chunkLower := strings.ToLower(c.chunkText)
 
 				kwScore := keywordOverlap(queryKeywords, chunkLower)
@@ -361,6 +380,7 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 			DocumentName: c.documentName,
 			Score:        h.score,
 			ImageURL:     c.imageURL,
+			ProductID:    c.productID,
 		}
 	}
 	return results, nil

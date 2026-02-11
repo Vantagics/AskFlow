@@ -7,7 +7,12 @@ helpdesk
 data/uploads/
 data/helpdesk.db
 data/encryption.key
+data/config.json
+data/images/
 internal/document/data/uploads/
 
 # IDE
 .vscode/
+
+# Kiro
+.kiro/

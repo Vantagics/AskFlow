@@ -211,28 +211,73 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 	}, nil
 }
 
+// Pre-compiled regexes for CleanText to avoid recompilation on every call.
+var (
+	controlCharRe    = regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+	multiSpaceRe     = regexp.MustCompile(`[ \t]+`)
+	multiNewlineRe   = regexp.MustCompile(`\n{3,}`)
+)
+
+// Pre-compiled regexes for parseMarkdown.
+var (
+	mdImgRe        = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	mdHeadingRe    = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	mdBoldRe       = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	mdUnderBoldRe  = regexp.MustCompile(`__(.+?)__`)
+	mdItalicRe     = regexp.MustCompile(`\*(.+?)\*`)
+	mdUnderItalicRe = regexp.MustCompile(`_(.+?)_`)
+	mdCodeRe       = regexp.MustCompile("`([^`]+)`")
+	mdLinkRe       = regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`)
+)
+
+// Pre-compiled regexes for parseHTML.
+var (
+	htmlBaseRe    = regexp.MustCompile(`(?i)<base[^>]+href\s*=\s*["']([^"']+)["']`)
+	htmlImgRe     = regexp.MustCompile(`(?i)<img[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>`)
+	htmlAltRe     = regexp.MustCompile(`(?i)\balt\s*=\s*["']([^"']*)["']`)
+	htmlScriptRe  = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	htmlStyleRe   = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	htmlCommentRe = regexp.MustCompile(`(?s)<!--.*?-->`)
+	htmlBrRe      = regexp.MustCompile(`(?i)<br\s*/?\s*>`)
+	htmlTdRe      = regexp.MustCompile(`(?i)<t[dh][^>]*>`)
+	htmlTagRe     = regexp.MustCompile(`<[^>]+>`)
+)
+
+// Pre-compiled block tag regexes for parseHTML.
+var blockTags = []string{"div", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
+	"li", "tr", "blockquote", "pre", "section", "article", "header", "footer", "nav", "main"}
+
+var (
+	blockOpenRe  = make(map[string]*regexp.Regexp)
+	blockCloseRe = make(map[string]*regexp.Regexp)
+)
+
+func init() {
+	for _, tag := range blockTags {
+		blockOpenRe[tag] = regexp.MustCompile(`(?i)<` + tag + `[^>]*>`)
+		blockCloseRe[tag] = regexp.MustCompile(`(?i)</` + tag + `\s*>`)
+	}
+}
+
 // CleanText removes excessive whitespace and meaningless special characters from text.
 // It trims leading/trailing whitespace, collapses multiple spaces into one,
 // and removes control characters (except newlines and tabs).
 func CleanText(text string) string {
 	// Remove control characters except \n and \t
-	controlRe := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
-	text = controlRe.ReplaceAllString(text, "")
+	text = controlCharRe.ReplaceAllString(text, "")
 
 	// Collapse multiple spaces/tabs into a single space (per line)
 	lines := strings.Split(text, "\n")
 	var cleaned []string
-	spaceRe := regexp.MustCompile(`[ \t]+`)
 	for _, line := range lines {
-		line = spaceRe.ReplaceAllString(line, " ")
+		line = multiSpaceRe.ReplaceAllString(line, " ")
 		line = strings.TrimSpace(line)
 		cleaned = append(cleaned, line)
 	}
 	text = strings.Join(cleaned, "\n")
 
 	// Collapse 3+ consecutive newlines into 2
-	nlRe := regexp.MustCompile(`\n{3,}`)
-	text = nlRe.ReplaceAllString(text, "\n\n")
+	text = multiNewlineRe.ReplaceAllString(text, "\n\n")
 
 	return strings.TrimSpace(text)
 }
@@ -246,8 +291,7 @@ func (dp *DocumentParser) parseMarkdown(data []byte) (*ParseResult, error) {
 	}
 
 	// Extract image references before stripping markdown
-	reImg := regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
-	imgMatches := reImg.FindAllStringSubmatch(text, -1)
+	imgMatches := mdImgRe.FindAllStringSubmatch(text, -1)
 	var images []ImageRef
 	for _, m := range imgMatches {
 		if len(m) >= 3 {
@@ -256,23 +300,18 @@ func (dp *DocumentParser) parseMarkdown(data []byte) (*ParseResult, error) {
 	}
 
 	// Strip common markdown syntax for cleaner text
-	re := regexp.MustCompile(`(?m)^#{1,6}\s+`)
-	text = re.ReplaceAllString(text, "")
+	text = mdHeadingRe.ReplaceAllString(text, "")
+	text = mdBoldRe.ReplaceAllString(text, "$1")
+	text = mdUnderBoldRe.ReplaceAllString(text, "$1")
+	text = mdItalicRe.ReplaceAllString(text, "$1")
+	text = mdUnderItalicRe.ReplaceAllString(text, "$1")
+	text = mdCodeRe.ReplaceAllString(text, "$1")
+	text = mdLinkRe.ReplaceAllString(text, "$1")
 
-	text = strings.ReplaceAll(text, "**", "")
-	text = strings.ReplaceAll(text, "__", "")
-	text = strings.ReplaceAll(text, "*", "")
-	text = strings.ReplaceAll(text, "_", "")
-	text = strings.ReplaceAll(text, "`", "")
+	// Replace image syntax with alt text
+	text = mdImgRe.ReplaceAllString(text, "$1")
 
-	reLink := regexp.MustCompile(`\[([^\]]+)\]\([^)]+\)`)
-	text = reLink.ReplaceAllString(text, "$1")
-
-	// Replace image syntax with alt text + image marker
-	text = reImg.ReplaceAllString(text, "$1")
-
-	reBlank := regexp.MustCompile(`\n{3,}`)
-	text = reBlank.ReplaceAllString(text, "\n\n")
+	text = multiNewlineRe.ReplaceAllString(text, "\n\n")
 
 	return &ParseResult{
 		Text:     strings.TrimSpace(text),
@@ -302,8 +341,7 @@ func (dp *DocumentParser) parseHTML(data []byte, baseURL string) (*ParseResult, 
 
 	// Also check for <base href="..."> in the HTML
 	if base == nil {
-		reBase := regexp.MustCompile(`(?i)<base[^>]+href\s*=\s*["']([^"']+)["']`)
-		if m := reBase.FindStringSubmatch(html); len(m) >= 2 {
+		if m := htmlBaseRe.FindStringSubmatch(html); len(m) >= 2 {
 			if parsed, err := url.Parse(m[1]); err == nil {
 				base = parsed
 			}
@@ -312,9 +350,7 @@ func (dp *DocumentParser) parseHTML(data []byte, baseURL string) (*ParseResult, 
 
 	// Extract images from <img> tags before stripping HTML
 	var images []ImageRef
-	reImg := regexp.MustCompile(`(?i)<img[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>`)
-	reAlt := regexp.MustCompile(`(?i)\balt\s*=\s*["']([^"']*)["']`)
-	for _, m := range reImg.FindAllStringSubmatch(html, -1) {
+	for _, m := range htmlImgRe.FindAllStringSubmatch(html, -1) {
 		if len(m) < 2 {
 			continue
 		}
@@ -332,7 +368,7 @@ func (dp *DocumentParser) parseHTML(data []byte, baseURL string) (*ParseResult, 
 		imgSrc = resolveURL(imgSrc, base)
 
 		alt := ""
-		if altMatch := reAlt.FindStringSubmatch(m[0]); len(altMatch) >= 2 {
+		if altMatch := htmlAltRe.FindStringSubmatch(m[0]); len(altMatch) >= 2 {
 			alt = altMatch[1]
 		}
 		images = append(images, ImageRef{Alt: alt, URL: imgSrc})
@@ -341,36 +377,26 @@ func (dp *DocumentParser) parseHTML(data []byte, baseURL string) (*ParseResult, 
 	// --- Strip HTML to extract text ---
 
 	// Remove <script> and <style> blocks entirely
-	reScript := regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	html = reScript.ReplaceAllString(html, "")
-	reStyle := regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
-	html = reStyle.ReplaceAllString(html, "")
+	html = htmlScriptRe.ReplaceAllString(html, "")
+	html = htmlStyleRe.ReplaceAllString(html, "")
 
 	// Remove HTML comments
-	reComment := regexp.MustCompile(`(?s)<!--.*?-->`)
-	html = reComment.ReplaceAllString(html, "")
+	html = htmlCommentRe.ReplaceAllString(html, "")
 
 	// Replace block-level tags with newlines for structure preservation
-	blockTags := []string{"div", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
-		"li", "tr", "blockquote", "pre", "section", "article", "header", "footer", "nav", "main"}
 	for _, tag := range blockTags {
-		reOpen := regexp.MustCompile(`(?i)<` + tag + `[^>]*>`)
-		html = reOpen.ReplaceAllString(html, "\n")
-		reClose := regexp.MustCompile(`(?i)</` + tag + `\s*>`)
-		html = reClose.ReplaceAllString(html, "\n")
+		html = blockOpenRe[tag].ReplaceAllString(html, "\n")
+		html = blockCloseRe[tag].ReplaceAllString(html, "\n")
 	}
 
 	// Replace <br> variants
-	reBr := regexp.MustCompile(`(?i)<br\s*/?\s*>`)
-	html = reBr.ReplaceAllString(html, "\n")
+	html = htmlBrRe.ReplaceAllString(html, "\n")
 
 	// Replace <td>/<th> with tab for table structure
-	reTd := regexp.MustCompile(`(?i)<t[dh][^>]*>`)
-	html = reTd.ReplaceAllString(html, "\t")
+	html = htmlTdRe.ReplaceAllString(html, "\t")
 
 	// Strip all remaining HTML tags
-	reTag := regexp.MustCompile(`<[^>]+>`)
-	html = reTag.ReplaceAllString(html, "")
+	html = htmlTagRe.ReplaceAllString(html, "")
 
 	// Decode common HTML entities
 	html = decodeHTMLEntities(html)
@@ -411,6 +437,12 @@ func resolveURL(src string, base *url.URL) string {
 	return base.ResolveReference(ref).String()
 }
 
+// Pre-compiled regexes for decodeHTMLEntities.
+var (
+	reNumericEntity = regexp.MustCompile(`&#(\d+);`)
+	reHexEntity     = regexp.MustCompile(`(?i)&#x([0-9a-f]+);`)
+)
+
 // decodeHTMLEntities decodes common HTML entities to their text equivalents.
 func decodeHTMLEntities(s string) string {
 	replacer := strings.NewReplacer(
@@ -431,8 +463,7 @@ func decodeHTMLEntities(s string) string {
 		"&raquo;", "»",
 	)
 	// Also handle numeric entities like &#123; and &#x1F;
-	reNumeric := regexp.MustCompile(`&#(\d+);`)
-	s = reNumeric.ReplaceAllStringFunc(s, func(match string) string {
+	s = reNumericEntity.ReplaceAllStringFunc(s, func(match string) string {
 		var n int
 		fmt.Sscanf(match, "&#%d;", &n)
 		if n > 0 && n < 0x110000 {
@@ -440,8 +471,7 @@ func decodeHTMLEntities(s string) string {
 		}
 		return match
 	})
-	reHex := regexp.MustCompile(`(?i)&#x([0-9a-f]+);`)
-	s = reHex.ReplaceAllStringFunc(s, func(match string) string {
+	s = reHexEntity.ReplaceAllStringFunc(s, func(match string) string {
 		var n int
 		fmt.Sscanf(strings.ToLower(match), "&#x%x;", &n)
 		if n > 0 && n < 0x110000 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"testing/quick"
 	"time"
 
 	"helpdesk/internal/chunker"
@@ -92,7 +93,7 @@ func TestCreatePending_Success(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, err := pm.CreatePending("How do I reset my password?", "user-123", "")
+	pq, err := pm.CreatePending("How do I reset my password?", "user-123", "", "")
 	if err != nil {
 		t.Fatalf("CreatePending failed: %v", err)
 	}
@@ -124,11 +125,11 @@ func TestCreatePending_MultipleQuestions(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq1, err := pm.CreatePending("Question 1", "user-1", "")
+	pq1, err := pm.CreatePending("Question 1", "user-1", "", "")
 	if err != nil {
 		t.Fatalf("CreatePending 1 failed: %v", err)
 	}
-	pq2, err := pm.CreatePending("Question 2", "user-2", "")
+	pq2, err := pm.CreatePending("Question 2", "user-2", "", "")
 	if err != nil {
 		t.Fatalf("CreatePending 2 failed: %v", err)
 	}
@@ -144,7 +145,7 @@ func TestListPending_Empty(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	questions, err := pm.ListPending("")
+	questions, err := pm.ListPending("", "")
 	if err != nil {
 		t.Fatalf("ListPending failed: %v", err)
 	}
@@ -159,10 +160,10 @@ func TestListPending_AllStatuses(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pm.CreatePending("Q1", "user-1", "")
-	pm.CreatePending("Q2", "user-2", "")
+	pm.CreatePending("Q1", "user-1", "", "")
+	pm.CreatePending("Q2", "user-2", "", "")
 
-	questions, err := pm.ListPending("")
+	questions, err := pm.ListPending("", "")
 	if err != nil {
 		t.Fatalf("ListPending failed: %v", err)
 	}
@@ -177,8 +178,8 @@ func TestListPending_FilterByStatus(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("Q1", "user-1", "")
-	pm.CreatePending("Q2", "user-2", "")
+	pq, _ := pm.CreatePending("Q1", "user-1", "", "")
+	pm.CreatePending("Q2", "user-2", "", "")
 
 	// Answer Q1 to change its status
 	pm.AnswerQuestion(AdminAnswerRequest{
@@ -186,7 +187,7 @@ func TestListPending_FilterByStatus(t *testing.T) {
 		Text:       "Here is the answer",
 	})
 
-	pending, err := pm.ListPending("pending")
+	pending, err := pm.ListPending("pending", "")
 	if err != nil {
 		t.Fatalf("ListPending(pending) failed: %v", err)
 	}
@@ -194,7 +195,7 @@ func TestListPending_FilterByStatus(t *testing.T) {
 		t.Errorf("expected 1 pending question, got %d", len(pending))
 	}
 
-	answered, err := pm.ListPending("answered")
+	answered, err := pm.ListPending("answered", "")
 	if err != nil {
 		t.Fatalf("ListPending(answered) failed: %v", err)
 	}
@@ -224,7 +225,7 @@ func TestListPending_OrderByCreatedAtDesc(t *testing.T) {
 		"id-mid", "Mid question", "user-3", "pending", now.Add(-1*time.Hour),
 	)
 
-	questions, err := pm.ListPending("")
+	questions, err := pm.ListPending("", "")
 	if err != nil {
 		t.Fatalf("ListPending failed: %v", err)
 	}
@@ -262,7 +263,7 @@ func TestAnswerQuestion_Success(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, ls)
 
-	pq, _ := pm.CreatePending("How do I reset my password?", "user-123", "")
+	pq, _ := pm.CreatePending("How do I reset my password?", "user-123", "", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{
 		QuestionID: pq.ID,
@@ -312,7 +313,7 @@ func TestAnswerQuestion_StoresInVectorStore(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("How to configure email?", "user-456", "")
+	pq, _ := pm.CreatePending("How to configure email?", "user-456", "", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{
 		QuestionID: pq.ID,
@@ -352,7 +353,7 @@ func TestAnswerQuestion_AlreadyAnswered(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("Q1", "user-1", "")
+	pq, _ := pm.CreatePending("Q1", "user-1", "", "")
 	pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Answer 1"})
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Answer 2"})
@@ -373,7 +374,7 @@ func TestAnswerQuestion_EmbeddingError(t *testing.T) {
 
 	pm := newTestManager(t, database, es, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("Q1", "user-1", "")
+	pq, _ := pm.CreatePending("Q1", "user-1", "", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Some answer text"})
 	if err == nil {
@@ -393,7 +394,7 @@ func TestAnswerQuestion_LLMError(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, ls)
 
-	pq, _ := pm.CreatePending("Q1", "user-1", "")
+	pq, _ := pm.CreatePending("Q1", "user-1", "", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Some answer"})
 	if err == nil {
@@ -419,5 +420,125 @@ func TestTruncate(t *testing.T) {
 		if result != tt.expected {
 			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.maxLen, result, tt.expected)
 		}
+	}
+}
+
+
+// TestProperty10_PendingQuestionProductAssociationAndFiltering verifies that:
+// - Pending questions created with a product_id retain that product_id and resolve the product name
+// - Filtering by product_id returns only matching questions + public library questions
+// - Public library questions show product_name as "公共库"
+//
+// **Feature: multi-product-support, Property 10: 待处理问题产品关联与过滤**
+// **Validates: Requirements 7.1, 7.2, 7.3, 9.5, 10.6**
+func TestProperty10_PendingQuestionProductAssociationAndFiltering(t *testing.T) {
+	counter := 0
+	f := func(seed uint8) bool {
+		database, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		counter++
+		pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
+
+		// Create a product in the products table for name resolution
+		productID := fmt.Sprintf("prod-%d", counter)
+		productName := fmt.Sprintf("TestProduct_%d", counter)
+		_, err := database.Exec(
+			"INSERT INTO products (id, name, description, welcome_message) VALUES (?, ?, '', '')",
+			productID, productName,
+		)
+		if err != nil {
+			t.Logf("Insert product failed: %v", err)
+			return false
+		}
+
+		// Create a question with product_id
+		pq1, err := pm.CreatePending(fmt.Sprintf("Question for product %d", counter), "user-1", "", productID)
+		if err != nil {
+			t.Logf("CreatePending with productID failed: %v", err)
+			return false
+		}
+		if pq1.ProductID != productID {
+			t.Logf("Created question product_id=%q, want %q", pq1.ProductID, productID)
+			return false
+		}
+
+		// Create a public library question
+		pq2, err := pm.CreatePending(fmt.Sprintf("Public question %d", counter), "user-2", "", "")
+		if err != nil {
+			t.Logf("CreatePending public failed: %v", err)
+			return false
+		}
+		if pq2.ProductID != "" {
+			t.Logf("Public question product_id=%q, want empty", pq2.ProductID)
+			return false
+		}
+
+		// Create a question for a different product
+		otherProductID := fmt.Sprintf("other-prod-%d", counter)
+		otherProductName := fmt.Sprintf("OtherProduct_%d", counter)
+		_, err = database.Exec(
+			"INSERT INTO products (id, name, description, welcome_message) VALUES (?, ?, '', '')",
+			otherProductID, otherProductName,
+		)
+		if err != nil {
+			t.Logf("Insert other product failed: %v", err)
+			return false
+		}
+		_, err = pm.CreatePending(fmt.Sprintf("Other product question %d", counter), "user-3", "", otherProductID)
+		if err != nil {
+			t.Logf("CreatePending other product failed: %v", err)
+			return false
+		}
+
+		// List all - should return 3
+		all, err := pm.ListPending("", "")
+		if err != nil {
+			t.Logf("ListPending all failed: %v", err)
+			return false
+		}
+		if len(all) != 3 {
+			t.Logf("Expected 3 questions, got %d", len(all))
+			return false
+		}
+
+		// Verify product name resolution
+		for _, q := range all {
+			if q.ProductID == productID && q.ProductName != productName {
+				t.Logf("Question %s: product_name=%q, want %q", q.ID, q.ProductName, productName)
+				return false
+			}
+			if q.ProductID == "" && q.ProductName != "公共库" {
+				t.Logf("Public question %s: product_name=%q, want '公共库'", q.ID, q.ProductName)
+				return false
+			}
+			if q.ProductID == otherProductID && q.ProductName != otherProductName {
+				t.Logf("Other question %s: product_name=%q, want %q", q.ID, q.ProductName, otherProductName)
+				return false
+			}
+		}
+
+		// Filter by productID - should return product questions + public
+		filtered, err := pm.ListPending("", productID)
+		if err != nil {
+			t.Logf("ListPending filtered failed: %v", err)
+			return false
+		}
+		if len(filtered) != 2 {
+			t.Logf("Filtered by productID: expected 2 (product + public), got %d", len(filtered))
+			return false
+		}
+		for _, q := range filtered {
+			if q.ProductID != productID && q.ProductID != "" {
+				t.Logf("Filtered question product_id=%q, expected %q or empty", q.ProductID, productID)
+				return false
+			}
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, &quick.Config{MaxCount: 100}); err != nil {
+		t.Error(err)
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"helpdesk/internal/llm"
 	"helpdesk/internal/parser"
 	"helpdesk/internal/pending"
+	"helpdesk/internal/product"
 	"helpdesk/internal/query"
 	"helpdesk/internal/vectorstore"
 )
@@ -61,12 +62,13 @@ func main() {
 	es := embedding.NewAPIEmbeddingService(cfg.Embedding.Endpoint, cfg.Embedding.APIKey, cfg.Embedding.ModelName, cfg.Embedding.UseMultimodal)
 	ls := llm.NewAPILLMService(cfg.LLM.Endpoint, cfg.LLM.APIKey, cfg.LLM.ModelName, cfg.LLM.Temperature, cfg.LLM.MaxTokens)
 	dm := document.NewDocumentManager(dp, tc, es, vs, database)
+	ps := product.NewProductService(database)
 
 	// Check for CLI subcommands
 	if len(os.Args) >= 2 {
 		switch os.Args[1] {
 		case "import":
-			runBatchImport(os.Args[2:], dm)
+			runBatchImport(os.Args[2:], dm, ps)
 			return
 		case "help", "-h", "--help":
 			printUsage()
@@ -85,7 +87,7 @@ func main() {
 	})
 
 	// 4. Create App
-	app := NewApp(database, qe, dm, pm, oc, sm, cm, emailSvc)
+	app := NewApp(database, qe, dm, pm, oc, sm, cm, emailSvc, ps)
 
 	// 5. Register HTTP API handlers
 	registerAPIHandlers(app)
@@ -126,9 +128,16 @@ func main() {
 		}
 	}()
 
-	fmt.Printf("Helpdesk system starting on http://%s\n", addr)
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("HTTP server error: %v", err)
+	if cfg.Server.SSLCert != "" && cfg.Server.SSLKey != "" {
+		fmt.Printf("Helpdesk system starting on https://%s\n", addr)
+		if err := server.ListenAndServeTLS(cfg.Server.SSLCert, cfg.Server.SSLKey); err != http.ErrServerClosed {
+			log.Fatalf("HTTPS server error: %v", err)
+		}
+	} else {
+		fmt.Printf("Helpdesk system starting on http://%s\n", addr)
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatalf("HTTP server error: %v", err)
+		}
 	}
 	log.Println("Server stopped")
 }
@@ -136,20 +145,26 @@ func main() {
 // printUsage prints CLI usage information.
 func printUsage() {
 	fmt.Println(`用法:
-  helpdesk                     启动 HTTP 服务（默认端口 8080）
-  helpdesk import <目录> [...]  批量导入目录下的文档到知识库
-  helpdesk help                显示此帮助信息
+  helpdesk                                        启动 HTTP 服务（默认端口 8080）
+  helpdesk import [--product <product_id>] <目录> [...]  批量导入目录下的文档到知识库
+  helpdesk help                                   显示此帮助信息
 
 import 命令:
   递归扫描指定目录及子目录，将支持的文件（PDF、Word、Excel、PPT、Markdown、HTML）
   解析后存入向量数据库。可同时指定多个目录。
 
+  选项:
+    --product <product_id>  指定目标产品 ID，导入的文档将关联到该产品。
+                            如果不指定，文档将导入到公共库。
+
   支持的文件格式: .pdf .doc .docx .xls .xlsx .ppt .pptx .md .markdown .html .htm
 
   示例:
     helpdesk import ./docs
-    helpdesk import ./docs ./manuals /path/to/files`)
+    helpdesk import ./docs ./manuals /path/to/files
+    helpdesk import --product abc123 ./docs`)
 }
+
 
 // supportedExtensions lists file extensions that can be imported.
 var supportedExtensions = map[string]string{
@@ -167,16 +182,45 @@ var supportedExtensions = map[string]string{
 }
 
 // runBatchImport scans directories and imports supported files.
-func runBatchImport(args []string, dm *document.DocumentManager) {
-	if len(args) == 0 {
+func runBatchImport(args []string, dm *document.DocumentManager, ps *product.ProductService) {
+	// Parse --product flag
+	var productID string
+	var dirs []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--product" {
+			if i+1 >= len(args) {
+				fmt.Println("错误: --product 参数需要指定产品 ID")
+				fmt.Println("用法: helpdesk import [--product <product_id>] <目录> [...]")
+				os.Exit(1)
+			}
+			productID = args[i+1]
+			i++ // skip the value
+		} else {
+			dirs = append(dirs, args[i])
+		}
+	}
+
+	if len(dirs) == 0 {
 		fmt.Println("错误: 请指定至少一个目录路径")
-		fmt.Println("用法: helpdesk import <目录> [...]")
+		fmt.Println("用法: helpdesk import [--product <product_id>] <目录> [...]")
 		os.Exit(1)
+	}
+
+	// Validate product ID if provided
+	if productID != "" {
+		p, err := ps.GetByID(productID)
+		if err != nil || p == nil {
+			fmt.Printf("错误: 指定的产品不存在 (ID: %s)\n", productID)
+			os.Exit(1)
+		}
+		fmt.Printf("目标产品: %s (%s)\n", p.Name, p.ID)
+	} else {
+		fmt.Println("目标: 公共库")
 	}
 
 	// Collect all files to import
 	var files []string
-	for _, dir := range args {
+	for _, dir := range dirs {
 		info, err := os.Stat(dir)
 		if err != nil {
 			fmt.Printf("警告: 无法访问 %s: %v\n", dir, err)
@@ -231,9 +275,10 @@ func runBatchImport(args []string, dm *document.DocumentManager) {
 		}
 
 		req := document.UploadFileRequest{
-			FileName: fileName,
-			FileData: fileData,
-			FileType: fileType,
+			FileName:  fileName,
+			FileData:  fileData,
+			FileType:  fileType,
+			ProductID: productID,
 		}
 		doc, err := dm.UploadFile(req)
 		if err != nil {
@@ -253,6 +298,7 @@ func runBatchImport(args []string, dm *document.DocumentManager) {
 
 	fmt.Printf("\n导入完成: 成功 %d, 失败 %d, 共 %d\n", success, failed, len(files))
 }
+
 
 func registerAPIHandlers(app *App) {
 	// Wrap all API handlers with security headers
@@ -330,6 +376,11 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/admin/users", secureAPI(handleAdminUsers(app)))
 	http.HandleFunc("/api/admin/users/", secureAPI(handleAdminUserByID(app)))
 	http.HandleFunc("/api/admin/role", secureAPI(handleAdminRole(app)))
+
+	// Products — register /my before / to avoid prefix matching issues
+	http.HandleFunc("/api/products/my", secureAPI(handleMyProducts(app)))
+	http.HandleFunc("/api/products/", secureAPI(handleProductByID(app)))
+	http.HandleFunc("/api/products", secureAPI(handleProducts(app)))
 
 	// Knowledge entry
 	http.HandleFunc("/api/knowledge", secureAPI(handleKnowledgeEntry(app)))
@@ -609,6 +660,14 @@ func handleProductIntro(app *App) http.HandlerFunc {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		productID := r.URL.Query().Get("product_id")
+		if productID != "" {
+			p, err := app.GetProduct(productID)
+			if err == nil && p != nil && p.WelcomeMessage != "" {
+				writeJSON(w, http.StatusOK, map[string]string{"product_intro": p.WelcomeMessage})
+				return
+			}
+		}
 		cfg := app.configManager.Get()
 		writeJSON(w, http.StatusOK, map[string]string{"product_intro": cfg.ProductIntro})
 	}
@@ -673,6 +732,10 @@ func handleQuery(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
+		if strings.TrimSpace(req.Question) == "" {
+			writeError(w, http.StatusBadRequest, "question is required")
+			return
+		}
 		resp, err := app.queryEngine.Query(req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -690,7 +753,14 @@ func handleDocuments(app *App) http.HandlerFunc {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		docs, err := app.ListDocuments()
+		// Require admin session for document listing
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		productID := r.URL.Query().Get("product_id")
+		docs, err := app.ListDocuments(productID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -706,6 +776,13 @@ func handleDocumentUpload(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		// Require admin session
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
 
@@ -732,9 +809,10 @@ func handleDocumentUpload(app *App) http.HandlerFunc {
 		fileType := detectFileType(header.Filename)
 
 		req := document.UploadFileRequest{
-			FileName: header.Filename,
-			FileData: fileData,
-			FileType: fileType,
+			FileName:  header.Filename,
+			FileData:  fileData,
+			FileType:  fileType,
+			ProductID: r.FormValue("product_id"),
 		}
 		doc, err := app.UploadFile(req)
 		if err != nil {
@@ -778,6 +856,12 @@ func handleDocumentURL(app *App) http.HandlerFunc {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		// Require admin session
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
 		var req document.UploadURLRequest
 		if err := readJSONBody(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -808,6 +892,12 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 				writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 				return
 			}
+			// Require admin session for downloads
+			_, _, err := getAdminSession(app, r)
+			if err != nil {
+				writeError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
 			filePath, fileName, err := app.docManager.GetFilePath(docID)
 			if err != nil {
 				writeError(w, http.StatusNotFound, err.Error())
@@ -829,6 +919,13 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 			return
 		}
 
+		// Require admin session for deletion
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
 		if err := app.DeleteDocument(docID); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -845,8 +942,15 @@ func handlePending(app *App) http.HandlerFunc {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		// Require admin session for pending questions listing
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
 		status := r.URL.Query().Get("status")
-		questions, err := app.ListPendingQuestions(status)
+		productID := r.URL.Query().Get("product_id")
+		questions, err := app.ListPendingQuestions(status, productID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -862,6 +966,12 @@ func handlePendingAnswer(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		// Require admin session
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
 		var req pending.AdminAnswerRequest
@@ -887,6 +997,7 @@ func handlePendingCreate(app *App) http.HandlerFunc {
 			Question  string `json:"question"`
 			UserID    string `json:"user_id"`
 			ImageData string `json:"image_data,omitempty"`
+			ProductID string `json:"product_id"`
 		}
 		if err := readJSONBody(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -896,7 +1007,7 @@ func handlePendingCreate(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "question is required")
 			return
 		}
-		pq, err := app.CreatePendingQuestion(req.Question, req.UserID, req.ImageData)
+		pq, err := app.CreatePendingQuestion(req.Question, req.UserID, req.ImageData, req.ProductID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -908,12 +1019,18 @@ func handlePendingCreate(app *App) http.HandlerFunc {
 func handlePendingByID(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimPrefix(r.URL.Path, "/api/pending/")
-		if id == "" || id == "answer" {
+		if id == "" || id == "answer" || id == "create" {
 			writeError(w, http.StatusBadRequest, "missing question ID")
 			return
 		}
 		if r.Method != http.MethodDelete {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		// Require admin session
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
 		if err := app.DeletePendingQuestion(id); err != nil {
@@ -933,15 +1050,51 @@ func handleEmailTest(app *App) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Email string `json:"email"`
+			Email    string `json:"email"`
+			Host     string `json:"host"`
+			Port     int    `json:"port"`
+			Username string `json:"username"`
+			Password string `json:"password"`
+			FromAddr string `json:"from_addr"`
+			FromName string `json:"from_name"`
+			UseTLS   *bool  `json:"use_tls"`
 		}
 		if err := readJSONBody(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		if err := app.TestEmail(req.Email); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+		// If SMTP params provided in request, use them for testing (allows testing before save)
+		if req.Host != "" {
+			smtpCfg := config.SMTPConfig{
+				Host:     req.Host,
+				Port:     req.Port,
+				Username: req.Username,
+				Password: req.Password,
+				FromAddr: req.FromAddr,
+				FromName: req.FromName,
+			}
+			if req.UseTLS != nil {
+				smtpCfg.UseTLS = *req.UseTLS
+			} else {
+				smtpCfg.UseTLS = true
+			}
+			// Fall back to saved password if not provided
+			if smtpCfg.Password == "" {
+				cfg := app.configManager.Get()
+				if cfg != nil {
+					smtpCfg.Password = cfg.SMTP.Password
+				}
+			}
+			svc := email.NewService(func() config.SMTPConfig { return smtpCfg })
+			if err := svc.SendTest(req.Email); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		} else {
+			if err := app.TestEmail(req.Email); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "测试邮件已发送"})
 	}
@@ -1002,9 +1155,10 @@ func handleAdminUsers(app *App) http.HandlerFunc {
 				return
 			}
 			var req struct {
-				Username string `json:"username"`
-				Password string `json:"password"`
-				Role     string `json:"role"`
+				Username   string   `json:"username"`
+				Password   string   `json:"password"`
+				Role       string   `json:"role"`
+				ProductIDs []string `json:"product_ids"`
 			}
 			if err := readJSONBody(r, &req); err != nil {
 				writeError(w, http.StatusBadRequest, "invalid request body")
@@ -1014,6 +1168,12 @@ func handleAdminUsers(app *App) http.HandlerFunc {
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
+			}
+			if len(req.ProductIDs) > 0 {
+				if err := app.AssignProductsToAdminUser(user.ID, req.ProductIDs); err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
 			}
 			writeJSON(w, http.StatusOK, user)
 
@@ -1134,6 +1294,149 @@ func handleImageUpload(app *App) http.HandlerFunc {
 	}
 }
 
+// --- Product handlers ---
+
+func handleProducts(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			products, err := app.ListProducts()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if products == nil {
+				products = []product.Product{}
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"products": products})
+
+		case http.MethodPost:
+			_, role, err := getAdminSession(app, r)
+			if err != nil {
+				writeError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+			if role != "super_admin" {
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				return
+			}
+			var req struct {
+				Name           string `json:"name"`
+				Description    string `json:"description"`
+				WelcomeMessage string `json:"welcome_message"`
+			}
+			if err := readJSONBody(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body")
+				return
+			}
+			p, err := app.CreateProduct(req.Name, req.Description, req.WelcomeMessage)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, p)
+
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	}
+}
+
+func handleProductByID(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/products/")
+		if id == "" || id == r.URL.Path {
+			writeError(w, http.StatusBadRequest, "missing product ID")
+			return
+		}
+
+		switch r.Method {
+		case http.MethodPut:
+			_, role, err := getAdminSession(app, r)
+			if err != nil {
+				writeError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+			if role != "super_admin" {
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				return
+			}
+			var req struct {
+				Name           string `json:"name"`
+				Description    string `json:"description"`
+				WelcomeMessage string `json:"welcome_message"`
+			}
+			if err := readJSONBody(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body")
+				return
+			}
+			p, err := app.UpdateProduct(id, req.Name, req.Description, req.WelcomeMessage)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, p)
+
+		case http.MethodDelete:
+			_, role, err := getAdminSession(app, r)
+			if err != nil {
+				writeError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+			if role != "super_admin" {
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				return
+			}
+			confirm := r.URL.Query().Get("confirm")
+			if confirm != "true" {
+				hasData, err := app.HasProductDocumentsOrKnowledge(id)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				if hasData {
+					writeJSON(w, http.StatusConflict, map[string]interface{}{
+						"warning":  "该产品下存在关联的文档或知识条目，确认删除？",
+						"has_data": true,
+					})
+					return
+				}
+			}
+			if err := app.DeleteProduct(id); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	}
+}
+
+func handleMyProducts(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		userID, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		products, err := app.GetProductsByAdminUserID(userID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if products == nil {
+			products = []product.Product{}
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"products": products})
+	}
+}
+
 func handleKnowledgeEntry(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1167,6 +1470,15 @@ func handleSystemStatus(app *App) http.HandlerFunc {
 			return
 		}
 		ready := app.configManager.IsReady()
+		if ready {
+			hasProducts, err := app.productService.HasProducts()
+			if err != nil {
+				log.Printf("Failed to check products: %v", err)
+				ready = false
+			} else if !hasProducts {
+				ready = false
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"ready": ready,
 		})
@@ -1197,6 +1509,13 @@ func handleTestLLM(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
+		// If API key is empty, fall back to saved config (user didn't re-enter it)
+		if req.APIKey == "" {
+			cfg := app.configManager.Get()
+			if cfg != nil {
+				req.APIKey = cfg.LLM.APIKey
+			}
+		}
 		if req.Endpoint == "" || req.APIKey == "" || req.ModelName == "" {
 			writeError(w, http.StatusBadRequest, "endpoint, api_key, model_name are required")
 			return
@@ -1216,6 +1535,7 @@ func handleTestLLM(app *App) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "reply": answer})
 	}
 }
+
 
 // --- Embedding test handler (admin only) ---
 
@@ -1240,6 +1560,13 @@ func handleTestEmbedding(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
+		// If API key is empty, fall back to saved config (user didn't re-enter it)
+		if req.APIKey == "" {
+			cfg := app.configManager.Get()
+			if cfg != nil {
+				req.APIKey = cfg.Embedding.APIKey
+			}
+		}
 		if req.Endpoint == "" || req.APIKey == "" || req.ModelName == "" {
 			writeError(w, http.StatusBadRequest, "endpoint, api_key, model_name are required")
 			return
@@ -1253,6 +1580,7 @@ func handleTestEmbedding(app *App) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "dimensions": len(vec)})
 	}
 }
+
 
 // --- Config handler with role check ---
 
@@ -1290,32 +1618,6 @@ func handleConfigWithRole(app *App) http.HandlerFunc {
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
-	}
-}
-
-// handleServerRestart restarts the server process (super_admin only).
-func handleServerRestart(app *App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
-		_, role, err := getAdminSession(app, r)
-		if err != nil {
-			writeError(w, http.StatusUnauthorized, err.Error())
-			return
-		}
-		if role != "super_admin" {
-			writeError(w, http.StatusForbidden, "仅超级管理员可重启服务")
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "restarting"})
-
-		// Gracefully exit so the process supervisor (systemd, etc.) restarts us
-		go func() {
-			time.Sleep(500 * time.Millisecond)
-			os.Exit(0)
-		}()
 	}
 }
 

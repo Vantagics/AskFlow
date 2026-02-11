@@ -246,12 +246,17 @@ func (s *APILLMService) GenerateWithImage(prompt string, context []string, quest
 	if err == nil {
 		return answer, nil
 	}
+	log.Printf("LLM vision API first attempt failed: %v", err)
+
+	// Brief delay before retry
+	time.Sleep(500 * time.Millisecond)
 
 	// Retry once
 	answer, err = s.callAPI(messages)
 	if err == nil {
 		return answer, nil
 	}
+	log.Printf("LLM vision API retry failed, falling back to text-only: %v", err)
 
 	// Fall back to text-only if vision fails
 	return s.Generate(prompt, context, question)

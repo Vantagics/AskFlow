@@ -2,10 +2,12 @@ package vectorstore
 
 import (
 	"database/sql"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/quick"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -29,6 +31,7 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 		chunk_text    TEXT NOT NULL,
 		embedding     BLOB NOT NULL,
 		image_url     TEXT DEFAULT '',
+		product_id    TEXT DEFAULT '',
 		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
 	if err != nil {
@@ -118,7 +121,7 @@ func TestSearchReturnsTopK(t *testing.T) {
 	}
 
 	query := []float64{1.0, 0.0, 0.0}
-	results, err := store.Search(query, 2, 0.0)
+	results, err := store.Search(query, 2, 0.0, "")
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -140,7 +143,7 @@ func TestSearchSortedDescending(t *testing.T) {
 	}
 	store.Store("doc1", chunks)
 
-	results, err := store.Search([]float64{1.0, 0.0, 0.0}, 10, 0.0)
+	results, err := store.Search([]float64{1.0, 0.0, 0.0}, 10, 0.0, "")
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -164,7 +167,7 @@ func TestSearchThresholdFiltering(t *testing.T) {
 	}
 	store.Store("doc1", chunks)
 
-	results, err := store.Search([]float64{1.0, 0.0}, 10, 0.5)
+	results, err := store.Search([]float64{1.0, 0.0}, 10, 0.5, "")
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -186,7 +189,7 @@ func TestSearchEmptyStore(t *testing.T) {
 	defer cleanup()
 	store := NewSQLiteVectorStore(db)
 
-	results, err := store.Search([]float64{1.0, 0.0, 0.0}, 5, 0.0)
+	results, err := store.Search([]float64{1.0, 0.0, 0.0}, 5, 0.0, "")
 	if err != nil {
 		t.Fatalf("Search on empty store failed: %v", err)
 	}
@@ -205,7 +208,7 @@ func TestSearchResultFields(t *testing.T) {
 	}
 	store.Store("doc-abc", chunks)
 
-	results, err := store.Search([]float64{1.0, 0.0}, 5, 0.0)
+	results, err := store.Search([]float64{1.0, 0.0}, 5, 0.0, "")
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -285,7 +288,7 @@ func TestStorePersistence(t *testing.T) {
 	db1.Exec(`CREATE TABLE IF NOT EXISTS chunks (
 		id TEXT PRIMARY KEY, document_id TEXT NOT NULL, document_name TEXT NOT NULL,
 		chunk_index INTEGER NOT NULL, chunk_text TEXT NOT NULL, embedding BLOB NOT NULL,
-		image_url TEXT DEFAULT '', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
+		image_url TEXT DEFAULT '', product_id TEXT DEFAULT '', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
 
 	store1 := NewSQLiteVectorStore(db1)
 	store1.Store("doc1", []VectorChunk{
@@ -301,7 +304,7 @@ func TestStorePersistence(t *testing.T) {
 	defer db2.Close()
 
 	store2 := NewSQLiteVectorStore(db2)
-	results, err := store2.Search([]float64{0.5, 0.5}, 5, 0.0)
+	results, err := store2.Search([]float64{0.5, 0.5}, 5, 0.0, "")
 	if err != nil {
 		t.Fatalf("Search after reopen: %v", err)
 	}
@@ -310,5 +313,115 @@ func TestStorePersistence(t *testing.T) {
 	}
 	if results[0].ChunkText != "persistent data" {
 		t.Errorf("expected 'persistent data', got %q", results[0].ChunkText)
+	}
+}
+
+// TestProperty8_ProductIsolationSearch verifies that when searching with a productID,
+// results only contain chunks matching that productID or the public library (empty productID).
+// Chunks belonging to other products must never appear.
+//
+// **Feature: multi-product-support, Property 8: 产品隔离检索**
+// **Validates: Requirements 8.1, 8.2, 8.3**
+func TestProperty8_ProductIsolationSearch(t *testing.T) {
+	counter := 0
+	f := func(seed uint8) bool {
+		db, cleanup := setupTestDB(t)
+		defer cleanup()
+		store := NewSQLiteVectorStore(db)
+
+		counter++
+
+		// Create chunks for 3 products + public library
+		productA := fmt.Sprintf("product-a-%d", counter)
+		productB := fmt.Sprintf("product-b-%d", counter)
+		productC := fmt.Sprintf("product-c-%d", counter)
+
+		// Use a simple 3D vector space; all vectors point in similar directions
+		// so they'll all be returned (above threshold 0)
+		chunksA := []VectorChunk{
+			{ChunkText: "chunk A1", ChunkIndex: 0, DocumentID: "docA", DocumentName: "a.pdf", Vector: []float64{1.0, 0.1, 0.0}, ProductID: productA},
+			{ChunkText: "chunk A2", ChunkIndex: 1, DocumentID: "docA", DocumentName: "a.pdf", Vector: []float64{0.9, 0.2, 0.0}, ProductID: productA},
+		}
+		chunksB := []VectorChunk{
+			{ChunkText: "chunk B1", ChunkIndex: 0, DocumentID: "docB", DocumentName: "b.pdf", Vector: []float64{0.8, 0.3, 0.0}, ProductID: productB},
+		}
+		chunksC := []VectorChunk{
+			{ChunkText: "chunk C1", ChunkIndex: 0, DocumentID: "docC", DocumentName: "c.pdf", Vector: []float64{0.7, 0.4, 0.0}, ProductID: productC},
+		}
+		chunksPublic := []VectorChunk{
+			{ChunkText: "chunk public", ChunkIndex: 0, DocumentID: "docPub", DocumentName: "pub.pdf", Vector: []float64{0.6, 0.5, 0.0}, ProductID: ""},
+		}
+
+		for _, batch := range []struct {
+			docID  string
+			chunks []VectorChunk
+		}{
+			{"docA", chunksA},
+			{"docB", chunksB},
+			{"docC", chunksC},
+			{"docPub", chunksPublic},
+		} {
+			if err := store.Store(batch.docID, batch.chunks); err != nil {
+				t.Logf("Store failed: %v", err)
+				return false
+			}
+		}
+
+		// Search with productA scope - should only get productA + public
+		query := []float64{1.0, 0.0, 0.0}
+		results, err := store.Search(query, 100, 0.0, productA)
+		if err != nil {
+			t.Logf("Search failed: %v", err)
+			return false
+		}
+		for _, r := range results {
+			if r.ProductID != productA && r.ProductID != "" {
+				t.Logf("Search(productA): got result with productID=%q, expected %q or empty", r.ProductID, productA)
+				return false
+			}
+		}
+
+		// Search with productB scope - should only get productB + public
+		results, err = store.Search(query, 100, 0.0, productB)
+		if err != nil {
+			t.Logf("Search(productB) failed: %v", err)
+			return false
+		}
+		for _, r := range results {
+			if r.ProductID != productB && r.ProductID != "" {
+				t.Logf("Search(productB): got result with productID=%q, expected %q or empty", r.ProductID, productB)
+				return false
+			}
+		}
+
+		// TextSearch with productA scope - same isolation
+		textResults, err := store.TextSearch("chunk", 100, 0.0, productA)
+		if err != nil {
+			t.Logf("TextSearch failed: %v", err)
+			return false
+		}
+		for _, r := range textResults {
+			if r.ProductID != productA && r.ProductID != "" {
+				t.Logf("TextSearch(productA): got result with productID=%q, expected %q or empty", r.ProductID, productA)
+				return false
+			}
+		}
+
+		// Search with empty productID - should return ALL chunks
+		allResults, err := store.Search(query, 100, 0.0, "")
+		if err != nil {
+			t.Logf("Search(empty) failed: %v", err)
+			return false
+		}
+		if len(allResults) != 5 {
+			t.Logf("Search(empty): expected 5 results (all chunks), got %d", len(allResults))
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, &quick.Config{MaxCount: 100}); err != nil {
+		t.Error(err)
 	}
 }

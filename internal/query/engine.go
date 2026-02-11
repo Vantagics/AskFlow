@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"helpdesk/internal/config"
@@ -23,8 +25,10 @@ import (
 type QueryRequest struct {
 	Question  string `json:"question"`
 	UserID    string `json:"user_id"`
+	ProductID string `json:"product_id"`
 	ImageData string `json:"image_data,omitempty"` // base64 data URL from clipboard paste
 }
+
 
 // QueryResponse represents the result of a RAG query.
 type QueryResponse struct {
@@ -66,6 +70,7 @@ type DebugSearchHit struct {
 
 // QueryEngine orchestrates the RAG query flow: embed → search → LLM generate or pending.
 type QueryEngine struct {
+	mu               sync.RWMutex
 	embeddingService embedding.EmbeddingService
 	vectorStore      vectorstore.VectorStore
 	llmService       llm.LLMService
@@ -92,9 +97,18 @@ func NewQueryEngine(
 
 // UpdateServices replaces the embedding and LLM services (used after config change).
 func (qe *QueryEngine) UpdateServices(es embedding.EmbeddingService, ls llm.LLMService, cfg *config.Config) {
+	qe.mu.Lock()
+	defer qe.mu.Unlock()
 	qe.embeddingService = es
 	qe.llmService = ls
 	qe.config = cfg
+}
+
+// getServices returns a snapshot of the current services under read lock.
+func (qe *QueryEngine) getServices() (embedding.EmbeddingService, llm.LLMService, *config.Config) {
+	qe.mu.RLock()
+	defer qe.mu.RUnlock()
+	return qe.embeddingService, qe.llmService, qe.config
 }
 
 // TranslateText translates the given text to the target language using LLM.
@@ -102,6 +116,7 @@ func (qe *QueryEngine) TranslateText(text, targetLang string) (string, error) {
 	if text == "" {
 		return "", nil
 	}
+	_, ls, _ := qe.getServices()
 	langName := targetLang
 	switch targetLang {
 	case "zh-CN":
@@ -110,7 +125,7 @@ func (qe *QueryEngine) TranslateText(text, targetLang string) (string, error) {
 		langName = "English"
 	}
 	prompt := fmt.Sprintf("你是一个翻译助手。将以下文本翻译为%s。只输出翻译结果，不要添加任何解释或引号。如果文本已经是目标语言，直接原样输出。", langName)
-	translated, err := qe.llmService.Generate(prompt, []string{text}, text)
+	translated, err := ls.Generate(prompt, []string{text}, text)
 	if err != nil {
 		return "", err
 	}
@@ -124,10 +139,10 @@ type IntentResult struct {
 }
 
 // classifyIntent uses the LLM to determine the user's intent.
-func (qe *QueryEngine) classifyIntent(question string) (*IntentResult, error) {
+func (qe *QueryEngine) classifyIntent(question string, ls llm.LLMService, cfg *config.Config) (*IntentResult, error) {
 	productIntro := ""
-	if qe.config != nil {
-		productIntro = qe.config.ProductIntro
+	if cfg != nil {
+		productIntro = cfg.ProductIntro
 	}
 
 	systemPrompt := "你是一个意图分类器。根据用户输入判断意图类别。"
@@ -148,7 +163,7 @@ func (qe *QueryEngine) classifyIntent(question string) (*IntentResult, error) {
 		"\n\"怎么安装\" → {\"intent\":\"product\"}" +
 		"\n\"今天天气怎么样\" → {\"intent\":\"irrelevant\",\"reason\":\"天气查询与产品无关\"}"
 
-	answer, err := qe.llmService.Generate(systemPrompt, nil, question)
+	answer, err := ls.Generate(systemPrompt, nil, question)
 	if err != nil {
 		// If classification fails, default to allowing the query
 		return &IntentResult{Intent: "product"}, nil
@@ -185,19 +200,22 @@ func (qe *QueryEngine) classifyIntent(question string) (*IntentResult, error) {
 // 3. If results found, call LLM to generate an answer with source references
 // 4. If no results, create a pending question and notify the user
 func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
+	// Snapshot services under read lock for concurrency safety
+	es, ls, cfg := qe.getServices()
+
 	// Initialize debug info if debug mode is enabled
-	debugMode := qe.config != nil && qe.config.Vector.DebugMode
+	debugMode := cfg != nil && cfg.Vector.DebugMode
 	var dbg *DebugInfo
 	if debugMode {
 		dbg = &DebugInfo{
-			TopK:      qe.config.Vector.TopK,
-			Threshold: qe.config.Vector.Threshold,
+			TopK:      cfg.Vector.TopK,
+			Threshold: cfg.Vector.Threshold,
 		}
 	}
 
 	// Step 0: Intent classification (skip if image is attached — image may contain product info)
 	if req.ImageData == "" {
-		intent, err := qe.classifyIntent(req.Question)
+		intent, err := qe.classifyIntent(req.Question, ls, cfg)
 		if err == nil {
 			switch intent.Intent {
 			case "greeting":
@@ -207,11 +225,11 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			}
 			// Return product intro as greeting response, in the user's language
 			intro := "您好！欢迎使用我们的产品。"
-			if qe.config != nil && qe.config.ProductIntro != "" {
-				intro = qe.config.ProductIntro
+			if cfg != nil && cfg.ProductIntro != "" {
+				intro = cfg.ProductIntro
 			}
 			// Use LLM to translate the greeting to match the user's question language
-			translated, tErr := qe.llmService.Generate(
+			translated, tErr := ls.Generate(
 				"你是一个翻译助手。将以下内容翻译为与用户提问相同的语言。如果用户用英文提问，翻译为英文；如果用户用中文提问，保持中文。只输出翻译结果，不要添加任何解释。",
 				[]string{intro},
 				req.Question,
@@ -229,7 +247,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			if intent.Reason != "" {
 				msg = "抱歉，" + intent.Reason + "。请问有什么产品方面的问题需要帮助吗？"
 			}
-			translated, tErr := qe.llmService.Generate(
+			translated, tErr := ls.Generate(
 				"你是一个翻译助手。将以下内容翻译为与用户提问相同的语言。如果用户用英文提问，翻译为英文；如果用户用中文提问，保持中文。只输出翻译结果，不要添加任何解释。",
 				[]string{msg},
 				req.Question,
@@ -251,7 +269,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	// Level 1: Text-based matching (free — no API calls)
 	// Level 2: Vector search + cached answer reuse (embedding API only, no LLM)
 	// Level 3: Full RAG pipeline (embedding + LLM)
-	textMatchEnabled := qe.config != nil && qe.config.Vector.TextMatchEnabled
+	textMatchEnabled := cfg != nil && cfg.Vector.TextMatchEnabled
 
 	if textMatchEnabled && req.ImageData == "" {
 		if debugMode {
@@ -259,7 +277,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 		}
 
 		// Level 1: Text-based search against chunk cache
-		textResults, textErr := qe.vectorStore.TextSearch(req.Question, 3, 0.65)
+		textResults, textErr := qe.vectorStore.TextSearch(req.Question, 3, 0.65, req.ProductID)
 		if textErr == nil && len(textResults) > 0 && textResults[0].Score >= 0.75 {
 			log.Printf("[Query] Level 1 text match hit: score=%.4f doc=%q", textResults[0].Score, textResults[0].DocumentName)
 			if debugMode {
@@ -294,9 +312,9 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			if debugMode {
 				dbg.Steps = append(dbg.Steps, "TextMatch: Level 2 — confirming with embedding (embedding API only)")
 			}
-			queryVector, embErr := qe.embeddingService.Embed(req.Question)
+			queryVector, embErr := es.Embed(req.Question)
 			if embErr == nil {
-				vecResults, vecErr := qe.vectorStore.Search(queryVector, qe.config.Vector.TopK, qe.config.Vector.Threshold)
+				vecResults, vecErr := qe.vectorStore.Search(queryVector, cfg.Vector.TopK, cfg.Vector.Threshold, req.ProductID)
 				if vecErr == nil && len(vecResults) > 0 && vecResults[0].Score >= 0.75 {
 					log.Printf("[Query] Level 2 vector confirmed: score=%.4f", vecResults[0].Score)
 					if debugMode {
@@ -345,7 +363,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	// ===== Level 3: Full RAG Pipeline =====
 
 	// Step 1: Embed the question
-	queryVector, err := qe.embeddingService.Embed(req.Question)
+	queryVector, err := es.Embed(req.Question)
 	if err != nil {
 		return nil, fmt.Errorf("failed to embed question: %w", err)
 	}
@@ -356,9 +374,9 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	}
 
 	// Step 2: Search vector store
-	topK := qe.config.Vector.TopK
-	threshold := qe.config.Vector.Threshold
-	results, err := qe.vectorStore.Search(queryVector, topK, threshold)
+	topK := cfg.Vector.TopK
+	threshold := cfg.Vector.Threshold
+	results, err := qe.vectorStore.Search(queryVector, topK, threshold, req.ProductID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search vector store: %w", err)
 	}
@@ -378,7 +396,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	var imgVec []float64
 	if req.ImageData != "" {
 		var imgErr error
-		imgVec, imgErr = qe.embeddingService.EmbedImageURL(req.ImageData)
+		imgVec, imgErr = es.EmbedImageURL(req.ImageData)
 		if imgErr != nil {
 			log.Printf("[Query] image embedding failed: %v", imgErr)
 		} else {
@@ -388,7 +406,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			if imgThreshold < 0.3 {
 				imgThreshold = 0.3
 			}
-			imgResults, imgSearchErr := qe.vectorStore.Search(imgVec, topK, imgThreshold)
+			imgResults, imgSearchErr := qe.vectorStore.Search(imgVec, topK, imgThreshold, req.ProductID)
 			if imgSearchErr == nil && len(imgResults) > 0 {
 				log.Printf("[Query] image search results=%d (threshold=%.2f)", len(imgResults), imgThreshold)
 				results = mergeSearchResults(results, imgResults, topK)
@@ -402,7 +420,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			dbg.RelaxedSearch = true
 			dbg.Steps = append(dbg.Steps, "Step 3: no results above threshold, trying relaxed search (threshold=0.0, accept>=0.3)")
 		}
-		relaxedResults, _ := qe.vectorStore.Search(queryVector, 3, 0.0)
+		relaxedResults, _ := qe.vectorStore.Search(queryVector, 3, 0.0, req.ProductID)
 		log.Printf("[Query] relaxed search results=%d", len(relaxedResults))
 		for i, r := range relaxedResults {
 			log.Printf("[Query]   relaxed[%d] score=%.4f doc=%q dim_match=%v", i, r.Score, r.DocumentName, true)
@@ -422,7 +440,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 
 		// Also try relaxed search with image vector
 		if len(results) == 0 && len(imgVec) > 0 {
-			imgRelaxed, _ := qe.vectorStore.Search(imgVec, 3, 0.0)
+			imgRelaxed, _ := qe.vectorStore.Search(imgVec, 3, 0.0, req.ProductID)
 			log.Printf("[Query] relaxed image search results=%d", len(imgRelaxed))
 			for i, r := range imgRelaxed {
 				log.Printf("[Query]   img_relaxed[%d] score=%.4f doc=%q", i, r.Score, r.DocumentName)
@@ -434,8 +452,8 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	}
 
 	// Step 3.5: Reorder results based on content priority setting
-	if len(results) > 1 && qe.config != nil {
-		priority := qe.config.Vector.ContentPriority
+	if len(results) > 1 && cfg != nil {
+		priority := cfg.Vector.ContentPriority
 		if priority == "image_text" {
 			// Boost results that have images to the top (stable sort preserving score order within group)
 			reordered := make([]vectorstore.SearchResult, 0, len(results))
@@ -476,7 +494,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 				dbg.Steps = append(dbg.Steps, "Step 4: found similar pending question, returning 'already processing'")
 			}
 			pendingMsg := "该问题已在处理中，请耐心等待回复"
-			translated, tErr := qe.llmService.Generate(
+			translated, tErr := ls.Generate(
 				"你是一个翻译助手。将以下内容翻译为与用户提问相同的语言。如果用户用英文提问，翻译为英文；如果用户用中文提问，保持中文。只输出翻译结果，不要添加任何解释。",
 				[]string{pendingMsg},
 				req.Question,
@@ -491,14 +509,14 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			}, nil
 		}
 
-		if err := qe.createPendingQuestion(req.Question, req.UserID, req.ImageData); err != nil {
+		if err := qe.createPendingQuestion(req.Question, req.UserID, req.ImageData, req.ProductID); err != nil {
 			return nil, fmt.Errorf("failed to create pending question: %w", err)
 		}
 		if debugMode {
 			dbg.Steps = append(dbg.Steps, "Step 4: created new pending question, returning 'transferred to manual'")
 		}
 		pendingMsg := "该问题已转交人工处理，请稍后查看回复"
-		translated, tErr := qe.llmService.Generate(
+		translated, tErr := ls.Generate(
 			"你是一个翻译助手。将以下内容翻译为与用户提问相同的语言。如果用户用英文提问，翻译为英文；如果用户用中文提问，保持中文。只输出翻译结果，不要添加任何解释。",
 			[]string{pendingMsg},
 			req.Question,
@@ -552,9 +570,9 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 				"如果参考资料中没有相关信息，请根据图片内容尽可能回答。回答应简洁、准确、有条理。" +
 				"\n\n重要规则：你必须使用与用户提问相同的语言来回答。"
 		}
-		answer, err = qe.llmService.GenerateWithImage(visionPrompt, context, req.Question, req.ImageData)
+		answer, err = ls.GenerateWithImage(visionPrompt, context, req.Question, req.ImageData)
 	} else {
-		answer, err = qe.llmService.Generate(systemPrompt, context, req.Question)
+		answer, err = ls.Generate(systemPrompt, context, req.Question)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate answer: %w", err)
@@ -571,7 +589,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 		if existing := qe.findSimilarPendingQuestion(req.Question, queryVector); existing != "" {
 			isPending = true
 		} else {
-			_ = qe.createPendingQuestion(req.Question, req.UserID, req.ImageData)
+			_ = qe.createPendingQuestion(req.Question, req.UserID, req.ImageData, req.ProductID)
 			isPending = true
 		}
 	} else if debugMode {
@@ -763,14 +781,14 @@ func cosineSimilarity(a, b []float64) float64 {
 }
 
 // createPendingQuestion inserts a new pending question record into the database.
-func (qe *QueryEngine) createPendingQuestion(question, userID, imageData string) error {
+func (qe *QueryEngine) createPendingQuestion(question, userID, imageData, productID string) error {
 	id, err := generateID()
 	if err != nil {
 		return err
 	}
 	_, err = qe.db.Exec(
-		`INSERT INTO pending_questions (id, question, user_id, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, question, userID, "pending", imageData, time.Now().UTC(),
+		`INSERT INTO pending_questions (id, question, user_id, status, image_data, product_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, question, userID, "pending", imageData, productID, time.Now().UTC(),
 	)
 	return err
 }
@@ -838,13 +856,9 @@ func mergeSearchResults(a, b []vectorstore.SearchResult, topK int) []vectorstore
 	}
 
 	// Sort by score descending
-	for i := 0; i < len(merged)-1; i++ {
-		for j := i + 1; j < len(merged); j++ {
-			if merged[j].Score > merged[i].Score {
-				merged[i], merged[j] = merged[j], merged[i]
-			}
-		}
-	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Score > merged[j].Score
+	})
 
 	if len(merged) > topK {
 		merged = merged[:topK]

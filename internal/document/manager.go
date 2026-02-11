@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"helpdesk/internal/chunker"
@@ -35,10 +36,14 @@ var supportedFileTypes = map[string]bool{
 type DocumentManager struct {
 	parser           *parser.DocumentParser
 	chunker          *chunker.TextChunker
+	mu               sync.RWMutex
 	embeddingService embedding.EmbeddingService
 	vectorStore      vectorstore.VectorStore
 	db               *sql.DB
 	httpClient       *http.Client
+	// validateURL is a hook for URL validation (SSRF protection).
+	// Defaults to validateExternalURL. Tests can override to allow localhost.
+	validateURL func(string) error
 }
 
 // DocumentInfo holds metadata about a document stored in the system.
@@ -49,18 +54,22 @@ type DocumentInfo struct {
 	Status    string    `json:"status"` // "processing", "success", "failed"
 	Error     string    `json:"error,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+	ProductID string    `json:"product_id"`
 }
+
 
 // UploadFileRequest represents a file upload request.
 type UploadFileRequest struct {
-	FileName string `json:"file_name"`
-	FileData []byte `json:"file_data"`
-	FileType string `json:"file_type"`
+	FileName  string `json:"file_name"`
+	FileData  []byte `json:"file_data"`
+	FileType  string `json:"file_type"`
+	ProductID string `json:"product_id"`
 }
 
 // UploadURLRequest represents a URL upload request.
 type UploadURLRequest struct {
-	URL string `json:"url"`
+	URL       string `json:"url"`
+	ProductID string `json:"product_id"`
 }
 
 // NewDocumentManager creates a new DocumentManager with the given dependencies.
@@ -80,11 +89,14 @@ func NewDocumentManager(
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		validateURL: validateExternalURL,
 	}
 }
 
 // UpdateEmbeddingService replaces the embedding service (used after config change).
 func (dm *DocumentManager) UpdateEmbeddingService(es embedding.EmbeddingService) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
 	dm.embeddingService = es
 }
 
@@ -184,6 +196,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 		Type:      fileType,
 		Status:    "processing",
 		CreatedAt: time.Now(),
+		ProductID: req.ProductID,
 	}
 
 	if err := dm.insertDocument(doc); err != nil {
@@ -197,7 +210,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 	}
 
 	// Parse → Chunk → Embed → Store
-	if err := dm.processFile(docID, req.FileName, req.FileData, fileType); err != nil {
+	if err := dm.processFile(docID, req.FileName, req.FileData, fileType, req.ProductID); err != nil {
 		dm.updateDocumentStatus(docID, "failed", err.Error())
 		doc.Status = "failed"
 		doc.Error = err.Error()
@@ -227,6 +240,7 @@ func (dm *DocumentManager) UploadURL(req UploadURLRequest) (*DocumentInfo, error
 		Type:      "url",
 		Status:    "processing",
 		CreatedAt: time.Now(),
+		ProductID: req.ProductID,
 	}
 
 	if err := dm.insertDocument(doc); err != nil {
@@ -234,7 +248,7 @@ func (dm *DocumentManager) UploadURL(req UploadURLRequest) (*DocumentInfo, error
 	}
 
 	// Fetch → Chunk → Embed → Store
-	if err := dm.processURL(docID, req.URL); err != nil {
+	if err := dm.processURL(docID, req.URL, req.ProductID); err != nil {
 		dm.updateDocumentStatus(docID, "failed", err.Error())
 		doc.Status = "failed"
 		doc.Error = err.Error()
@@ -249,6 +263,11 @@ func (dm *DocumentManager) UploadURL(req UploadURLRequest) (*DocumentInfo, error
 // DeleteDocument removes a document's vectors from the vector store, its
 // record from the documents table, and the original file from disk.
 func (dm *DocumentManager) DeleteDocument(docID string) error {
+	// Validate docID to prevent path traversal in file deletion
+	if strings.ContainsAny(docID, "/\\..") {
+		return fmt.Errorf("invalid document ID")
+	}
+
 	if err := dm.vectorStore.DeleteByDocID(docID); err != nil {
 		return fmt.Errorf("failed to delete vectors: %w", err)
 	}
@@ -263,8 +282,18 @@ func (dm *DocumentManager) DeleteDocument(docID string) error {
 }
 
 // ListDocuments returns all documents ordered by creation time descending.
-func (dm *DocumentManager) ListDocuments() ([]DocumentInfo, error) {
-	rows, err := dm.db.Query(`SELECT id, name, type, status, error, created_at FROM documents ORDER BY created_at DESC`)
+func (dm *DocumentManager) ListDocuments(productID string) ([]DocumentInfo, error) {
+	var rows *sql.Rows
+	var err error
+
+	if productID != "" {
+		rows, err = dm.db.Query(
+			`SELECT id, name, type, status, error, created_at, product_id FROM documents WHERE product_id = ? OR product_id = '' ORDER BY created_at DESC`,
+			productID,
+		)
+	} else {
+		rows, err = dm.db.Query(`SELECT id, name, type, status, error, created_at, product_id FROM documents ORDER BY created_at DESC`)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query documents: %w", err)
 	}
@@ -275,7 +304,7 @@ func (dm *DocumentManager) ListDocuments() ([]DocumentInfo, error) {
 		var d DocumentInfo
 		var errStr sql.NullString
 		var createdAt sql.NullTime
-		if err := rows.Scan(&d.ID, &d.Name, &d.Type, &d.Status, &errStr, &createdAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.Type, &d.Status, &errStr, &createdAt, &d.ProductID); err != nil {
 			return nil, fmt.Errorf("failed to scan document row: %w", err)
 		}
 		if errStr.Valid {
@@ -292,10 +321,11 @@ func (dm *DocumentManager) ListDocuments() ([]DocumentInfo, error) {
 	return docs, nil
 }
 
+
 // processFile parses a file, chunks the text, embeds, and stores vectors.
 // It performs content-level deduplication: if a document with the same content
 // hash already exists, the upload is skipped to save API calls.
-func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, fileType string) error {
+func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, fileType string, productID string) error {
 	result, err := dm.parser.Parse(fileData, fileType)
 	if err != nil {
 		return fmt.Errorf("parse error: %w", err)
@@ -316,7 +346,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 
 	// Store text chunks
 	if result.Text != "" {
-		if err := dm.chunkEmbedStore(docID, docName, result.Text); err != nil {
+		if err := dm.chunkEmbedStore(docID, docName, result.Text, productID); err != nil {
 			return err
 		}
 	}
@@ -339,6 +369,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 			DocumentName: docName,
 			Vector:       vec,
 			ImageURL:     img.URL,
+			ProductID:    productID,
 		}}
 		if err := dm.vectorStore.Store(docID, imgChunk); err != nil {
 			fmt.Printf("Warning: failed to store image vector %d: %v\n", i, err)
@@ -356,12 +387,15 @@ type URLPreviewResult struct {
 }
 
 // PreviewURL fetches and parses URL content for user preview before committing.
-func (dm *DocumentManager) PreviewURL(url string) (*URLPreviewResult, error) {
-	if url == "" {
+func (dm *DocumentManager) PreviewURL(rawURL string) (*URLPreviewResult, error) {
+	if rawURL == "" {
 		return nil, fmt.Errorf("URL不能为空")
 	}
+	if err := dm.validateURL(rawURL); err != nil {
+		return nil, err
+	}
 
-	resp, err := dm.httpClient.Get(url)
+	resp, err := dm.httpClient.Get(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("无法访问该URL: %w", err)
 	}
@@ -374,7 +408,7 @@ func (dm *DocumentManager) PreviewURL(url string) (*URLPreviewResult, error) {
 		return nil, fmt.Errorf("请求失败 (HTTP %d)", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10MB limit
 	if err != nil {
 		return nil, fmt.Errorf("读取内容失败: %w", err)
 	}
@@ -384,12 +418,12 @@ func (dm *DocumentManager) PreviewURL(url string) (*URLPreviewResult, error) {
 		return nil, fmt.Errorf("URL内容为空")
 	}
 
-	result := &URLPreviewResult{URL: url}
+	result := &URLPreviewResult{URL: rawURL}
 
 	contentType := resp.Header.Get("Content-Type")
 	isHTML := strings.Contains(contentType, "text/html") || looksLikeHTML(text)
 	if isHTML {
-		parsed, err := dm.parser.ParseWithBaseURL(body, "html", url)
+		parsed, err := dm.parser.ParseWithBaseURL(body, "html", rawURL)
 		if err != nil {
 			return nil, fmt.Errorf("HTML解析失败: %w", err)
 		}
@@ -416,7 +450,11 @@ func (dm *DocumentManager) PreviewURL(url string) (*URLPreviewResult, error) {
 }
 
 // processURL fetches URL content and processes it as plain text.
-func (dm *DocumentManager) processURL(docID, url string) error {
+func (dm *DocumentManager) processURL(docID, url string, productID string) error {
+	if err := dm.validateURL(url); err != nil {
+		return err
+	}
+
 	resp, err := dm.httpClient.Get(url)
 	if err != nil {
 		return fmt.Errorf("failed to fetch URL: %w", err)
@@ -427,7 +465,7 @@ func (dm *DocumentManager) processURL(docID, url string) error {
 		return fmt.Errorf("URL returned HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10MB limit
 	if err != nil {
 		return fmt.Errorf("failed to read URL content: %w", err)
 	}
@@ -454,7 +492,7 @@ func (dm *DocumentManager) processURL(docID, url string) error {
 			dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
 		}
 		if result.Text != "" {
-			if err := dm.chunkEmbedStore(docID, url, result.Text); err != nil {
+			if err := dm.chunkEmbedStore(docID, url, result.Text, productID); err != nil {
 				return err
 			}
 		}
@@ -475,6 +513,7 @@ func (dm *DocumentManager) processURL(docID, url string) error {
 				DocumentName: url,
 				Vector:       vec,
 				ImageURL:     img.URL,
+				ProductID:    productID,
 			}}
 			if err := dm.vectorStore.Store(docID, imgChunk); err != nil {
 				fmt.Printf("Warning: failed to store HTML image vector %d: %v\n", i, err)
@@ -490,7 +529,38 @@ func (dm *DocumentManager) processURL(docID, url string) error {
 	}
 	dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
 
-	return dm.chunkEmbedStore(docID, url, text)
+	return dm.chunkEmbedStore(docID, url, text, productID)
+}
+
+// validateExternalURL checks that a URL is a valid external HTTP(S) URL
+// to prevent SSRF attacks against internal services.
+func validateExternalURL(rawURL string) error {
+	if rawURL == "" {
+		return fmt.Errorf("URL不能为空")
+	}
+	lower := strings.ToLower(rawURL)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return fmt.Errorf("仅支持 HTTP/HTTPS 协议")
+	}
+	// Block common internal/private hostnames and IPs
+	host := strings.TrimPrefix(strings.TrimPrefix(lower, "https://"), "http://")
+	if idx := strings.Index(host, "/"); idx >= 0 {
+		host = host[:idx]
+	}
+	if idx := strings.Index(host, ":"); idx >= 0 {
+		host = host[:idx]
+	}
+	blockedHosts := []string{"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "169.254.169.254", "metadata.google.internal"}
+	for _, blocked := range blockedHosts {
+		if host == blocked {
+			return fmt.Errorf("不允许访问内部地址")
+		}
+	}
+	// Block private IP ranges
+	if strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") || strings.HasPrefix(host, "172.") {
+		return fmt.Errorf("不允许访问内部网络地址")
+	}
+	return nil
 }
 
 // looksLikeHTML checks if content appears to be HTML by looking for common HTML markers.
@@ -512,7 +582,7 @@ func min(a, b int) int {
 // chunkEmbedStore splits text into chunks, embeds them in batch, and stores vectors.
 // It performs chunk-level deduplication: if a chunk with identical text already exists
 // in the database, its embedding is reused instead of calling the embedding API.
-func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string) error {
+func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string, productID string) error {
 	chunks := dm.chunker.Split(text, docID)
 	if len(chunks) == 0 {
 		return fmt.Errorf("分块结果为空")
@@ -562,6 +632,7 @@ func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string) error {
 			DocumentID:   docID,
 			DocumentName: docName,
 			Vector:       existingEmbeddings[c.Text],
+			ProductID:    productID,
 		}
 	}
 
@@ -574,8 +645,8 @@ func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string) error {
 // insertDocument inserts a new document record into the documents table.
 func (dm *DocumentManager) insertDocument(doc *DocumentInfo) error {
 	_, err := dm.db.Exec(
-		`INSERT INTO documents (id, name, type, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		doc.ID, doc.Name, doc.Type, doc.Status, doc.Error, doc.CreatedAt,
+		`INSERT INTO documents (id, name, type, status, error, created_at, product_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		doc.ID, doc.Name, doc.Type, doc.Status, doc.Error, doc.CreatedAt, doc.ProductID,
 	)
 	return err
 }
@@ -587,6 +658,12 @@ func (dm *DocumentManager) updateDocumentStatus(docID, status, errMsg string) {
 
 // saveOriginalFile saves the uploaded file to data/uploads/{docID}/{filename}.
 func (dm *DocumentManager) saveOriginalFile(docID, filename string, data []byte) error {
+	// Sanitize filename to prevent path traversal
+	filename = filepath.Base(filename)
+	if filename == "." || filename == ".." {
+		return fmt.Errorf("invalid filename")
+	}
+
 	dir := filepath.Join(".", "data", "uploads", docID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create upload dir: %w", err)
@@ -598,6 +675,11 @@ func (dm *DocumentManager) saveOriginalFile(docID, filename string, data []byte)
 // GetFilePath returns the path to the original uploaded file for a document.
 // Returns empty string if the file doesn't exist.
 func (dm *DocumentManager) GetFilePath(docID string) (string, string, error) {
+	// Validate docID to prevent path traversal
+	if strings.ContainsAny(docID, "/\\..") {
+		return "", "", fmt.Errorf("invalid document ID")
+	}
+
 	var name string
 	err := dm.db.QueryRow(`SELECT name FROM documents WHERE id = ?`, docID).Scan(&name)
 	if err != nil {
@@ -615,12 +697,14 @@ func (dm *DocumentManager) GetFilePath(docID string) (string, string, error) {
 }
 
 // ChunkEmbedStore is a public wrapper around chunkEmbedStore for external callers.
-func (dm *DocumentManager) ChunkEmbedStore(docID, docName, text string) error {
-	return dm.chunkEmbedStore(docID, docName, text)
+func (dm *DocumentManager) ChunkEmbedStore(docID, docName, text string, productID string) error {
+	return dm.chunkEmbedStore(docID, docName, text, productID)
 }
 
 // GetEmbeddingService returns the current embedding service.
 func (dm *DocumentManager) GetEmbeddingService() embedding.EmbeddingService {
+	dm.mu.RLock()
+	defer dm.mu.RUnlock()
 	return dm.embeddingService
 }
 

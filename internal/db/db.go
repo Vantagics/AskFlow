@@ -46,6 +46,16 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create admin_users table: %w", err)
 	}
 
+	if err := createProductTables(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to create product tables: %w", err)
+	}
+
+	if err := migrateProductTables(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to migrate product tables: %w", err)
+	}
+
 	if err := createIndexes(db); err != nil {
 		db.Close()
 		return nil, err
@@ -139,18 +149,6 @@ func createTables(db *sql.DB) error {
 		}
 	}
 
-	// Create indexes for frequently queried columns
-	indexes := []string{
-		`CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)`,
-	}
-	for _, idx := range indexes {
-		if _, err := tx.Exec(idx); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to create index: %w", err)
-		}
-	}
-
 	return tx.Commit()
 }
 
@@ -167,6 +165,56 @@ func createAdminUsersTable(db *sql.DB) error {
 	return err
 }
 
+// createProductTables creates the products table and admin_user_products junction table.
+// Called after createAdminUsersTable since admin_user_products references admin_users.
+func createProductTables(db *sql.DB) error {
+	tables := []string{
+		`CREATE TABLE IF NOT EXISTS products (
+			id              TEXT PRIMARY KEY,
+			name            TEXT NOT NULL UNIQUE,
+			description     TEXT DEFAULT '',
+			welcome_message TEXT DEFAULT '',
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS admin_user_products (
+			admin_user_id TEXT NOT NULL,
+			product_id    TEXT NOT NULL,
+			PRIMARY KEY (admin_user_id, product_id),
+			FOREIGN KEY (admin_user_id) REFERENCES admin_users(id) ON DELETE CASCADE,
+			FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+		)`,
+	}
+
+	for _, ddl := range tables {
+		if _, err := db.Exec(ddl); err != nil {
+			return fmt.Errorf("failed to create product table: %w", err)
+		}
+	}
+	return nil
+}
+
+// migrateProductTables adds missing columns to product tables for backward compatibility.
+// Called after createProductTables to ensure the table exists before altering it.
+func migrateProductTables(db *sql.DB) error {
+	migrations := []struct {
+		table  string
+		column string
+		ddl    string
+	}{
+		{"products", "welcome_message", "ALTER TABLE products ADD COLUMN welcome_message TEXT DEFAULT ''"},
+	}
+
+	for _, m := range migrations {
+		if !columnExists(db, m.table, m.column) {
+			if _, err := db.Exec(m.ddl); err != nil {
+				return fmt.Errorf("migration failed (%s.%s): %w", m.table, m.column, err)
+			}
+		}
+	}
+	return nil
+}
+
 // createIndexes adds indexes for frequently queried columns.
 // Called after migrations to ensure all columns exist.
 func createIndexes(db *sql.DB) error {
@@ -176,6 +224,8 @@ func createIndexes(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_email_tokens_token ON email_tokens(token)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_product_id ON documents(product_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_chunks_product_id ON chunks(product_id)`,
 	}
 	for _, idx := range indexes {
 		if _, err := db.Exec(idx); err != nil {
@@ -198,6 +248,9 @@ func migrateTables(db *sql.DB) error {
 		{"chunks", "image_url", "ALTER TABLE chunks ADD COLUMN image_url TEXT DEFAULT ''"},
 		{"documents", "content_hash", "ALTER TABLE documents ADD COLUMN content_hash TEXT DEFAULT ''"},
 		{"pending_questions", "image_data", "ALTER TABLE pending_questions ADD COLUMN image_data TEXT DEFAULT ''"},
+		{"documents", "product_id", "ALTER TABLE documents ADD COLUMN product_id TEXT DEFAULT ''"},
+		{"chunks", "product_id", "ALTER TABLE chunks ADD COLUMN product_id TEXT DEFAULT ''"},
+		{"pending_questions", "product_id", "ALTER TABLE pending_questions ADD COLUMN product_id TEXT DEFAULT ''"},
 	}
 
 	for _, m := range migrations {
@@ -218,6 +271,7 @@ func columnExists(db *sql.DB, table, column string) bool {
 		"users": true, "documents": true, "chunks": true,
 		"pending_questions": true, "sessions": true,
 		"email_tokens": true, "admin_users": true,
+		"products": true, "admin_user_products": true,
 	}
 	if !validTables[table] {
 		return false

@@ -14,6 +14,7 @@ import (
 
 	"helpdesk/internal/auth"
 	"helpdesk/internal/config"
+	"helpdesk/internal/product"
 	"helpdesk/internal/document"
 	"helpdesk/internal/email"
 	"helpdesk/internal/embedding"
@@ -34,6 +35,7 @@ type App struct {
 	sessionManager *auth.SessionManager
 	configManager  *config.ConfigManager
 	emailService   *email.Service
+	productService *product.ProductService
 }
 
 // NewApp creates a new App with all service dependencies injected.
@@ -46,6 +48,7 @@ func NewApp(
 	sm *auth.SessionManager,
 	cm *config.ConfigManager,
 	es *email.Service,
+	ps *product.ProductService,
 ) *App {
 	return &App{
 		db:             db,
@@ -56,17 +59,15 @@ func NewApp(
 		sessionManager: sm,
 		configManager:  cm,
 		emailService:   es,
+		productService: ps,
 	}
 }
 
 // --- Query Interface ---
 
 // Query processes a user question through the RAG pipeline.
-func (a *App) Query(question string) (*query.QueryResponse, error) {
-	return a.queryEngine.Query(query.QueryRequest{
-		Question: question,
-		UserID:   "", // UserID can be set by the caller via session context
-	})
+func (a *App) Query(req query.QueryRequest) (*query.QueryResponse, error) {
+	return a.queryEngine.Query(req)
 }
 
 // --- Document Management Interface ---
@@ -86,9 +87,9 @@ func (a *App) PreviewURL(url string) (*document.URLPreviewResult, error) {
 	return a.docManager.PreviewURL(url)
 }
 
-// ListDocuments returns all uploaded documents.
-func (a *App) ListDocuments() ([]document.DocumentInfo, error) {
-	return a.docManager.ListDocuments()
+// ListDocuments returns uploaded documents, optionally filtered by product ID.
+func (a *App) ListDocuments(productID string) ([]document.DocumentInfo, error) {
+	return a.docManager.ListDocuments(productID)
 }
 
 // DeleteDocument removes a document and its associated vectors.
@@ -98,10 +99,10 @@ func (a *App) DeleteDocument(docID string) error {
 
 // --- Pending Questions Interface ---
 
-// ListPendingQuestions returns pending questions filtered by status.
+// ListPendingQuestions returns pending questions filtered by status and productID.
 // Pass an empty string to list all questions.
-func (a *App) ListPendingQuestions(status string) ([]pending.PendingQuestion, error) {
-	return a.pendingManager.ListPending(status)
+func (a *App) ListPendingQuestions(status string, productID string) ([]pending.PendingQuestion, error) {
+	return a.pendingManager.ListPending(status, productID)
 }
 
 // AnswerQuestion submits an admin answer to a pending question.
@@ -114,8 +115,8 @@ func (a *App) DeletePendingQuestion(id string) error {
 }
 
 // CreatePendingQuestion creates a new pending question from a user who is not satisfied with the answer.
-func (a *App) CreatePendingQuestion(question, userID, imageData string) (*pending.PendingQuestion, error) {
-	return a.pendingManager.CreatePending(question, userID, imageData)
+func (a *App) CreatePendingQuestion(question, userID, imageData, productID string) (*pending.PendingQuestion, error) {
+	return a.pendingManager.CreatePending(question, userID, imageData, productID)
 }
 
 // --- Authentication Interface ---
@@ -191,7 +192,9 @@ func (a *App) DeleteOAuthProvider(provider string) error {
 	if _, ok := cfg.OAuth.Providers[provider]; !ok {
 		return fmt.Errorf("provider %s not found", provider)
 	}
-	a.configManager.DeleteOAuthProvider(provider)
+	if err := a.configManager.DeleteOAuthProvider(provider); err != nil {
+		return fmt.Errorf("delete OAuth provider: %w", err)
+	}
 	a.RefreshOAuthClient()
 	return nil
 }
@@ -786,9 +789,10 @@ func (a *App) DeleteAdminUser(id string) error {
 
 // KnowledgeEntryRequest represents a direct knowledge entry from admin.
 type KnowledgeEntryRequest struct {
-	Title    string   `json:"title"`
-	Content  string   `json:"content"`
+	Title     string   `json:"title"`
+	Content   string   `json:"content"`
 	ImageURLs []string `json:"image_urls,omitempty"`
+	ProductID string   `json:"product_id"`
 }
 
 // AddKnowledgeEntry stores a text+image knowledge entry into the vector store.
@@ -807,15 +811,15 @@ func (a *App) AddKnowledgeEntry(req KnowledgeEntryRequest) error {
 
 	// Insert document record
 	_, err = a.db.Exec(
-		`INSERT INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
-		docID, docName, "knowledge", "success", time.Now().UTC(),
+		`INSERT INTO documents (id, name, type, status, product_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		docID, docName, "knowledge", "success", req.ProductID, time.Now().UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("创建文档记录失败: %w", err)
 	}
 
 	// Embed and store text content
-	if err := a.docManager.ChunkEmbedStore(docID, docName, content); err != nil {
+	if err := a.docManager.ChunkEmbedStore(docID, docName, content, req.ProductID); err != nil {
 		return fmt.Errorf("存储文本失败: %w", err)
 	}
 
@@ -842,6 +846,7 @@ func (a *App) AddKnowledgeEntry(req KnowledgeEntryRequest) error {
 				DocumentName: docName,
 				Vector:       vec,
 				ImageURL:     imgURL,
+				ProductID:    req.ProductID,
 			}}
 			if err := a.docManager.StoreChunks(docID, imgChunk); err != nil {
 				fmt.Printf("Warning: failed to store image chunk %d: %v\n", i, err)
@@ -868,6 +873,7 @@ func (a *App) AddKnowledgeEntry(req KnowledgeEntryRequest) error {
 					DocumentName: docName,
 					Vector:       vec,
 					ImageURL:     imgURL,
+					ProductID:    req.ProductID,
 				}}
 				if err := a.docManager.StoreChunks(docID, imgChunk); err != nil {
 					fmt.Printf("Warning: failed to store multimodal image vector %d: %v\n", i, err)
@@ -877,4 +883,48 @@ func (a *App) AddKnowledgeEntry(req KnowledgeEntryRequest) error {
 	}
 
 	return nil
+}
+
+// --- Product Management ---
+
+// CreateProduct creates a new product with the given name, description, and welcome message.
+func (a *App) CreateProduct(name, description, welcomeMessage string) (*product.Product, error) {
+	return a.productService.Create(name, description, welcomeMessage)
+}
+
+// UpdateProduct updates an existing product's name, description, and welcome message.
+func (a *App) UpdateProduct(id, name, description, welcomeMessage string) (*product.Product, error) {
+	return a.productService.Update(id, name, description, welcomeMessage)
+}
+
+// DeleteProduct removes a product by ID.
+func (a *App) DeleteProduct(id string) error {
+	return a.productService.Delete(id)
+}
+
+// GetProduct retrieves a product by ID.
+func (a *App) GetProduct(id string) (*product.Product, error) {
+	return a.productService.GetByID(id)
+}
+
+// ListProducts returns all products.
+func (a *App) ListProducts() ([]product.Product, error) {
+	return a.productService.List()
+}
+
+// HasProductDocumentsOrKnowledge checks whether a product has associated documents or knowledge entries.
+func (a *App) HasProductDocumentsOrKnowledge(productID string) (bool, error) {
+	return a.productService.HasDocumentsOrKnowledge(productID)
+}
+
+// GetProductsByAdminUserID returns the products assigned to the given admin user.
+// If the admin user has zero assigned products, all products are returned.
+func (a *App) GetProductsByAdminUserID(adminUserID string) ([]product.Product, error) {
+	return a.productService.GetByAdminUserID(adminUserID)
+}
+
+// AssignProductsToAdminUser assigns the given product IDs to an admin user,
+// replacing any previous assignments.
+func (a *App) AssignProductsToAdminUser(adminUserID string, productIDs []string) error {
+	return a.productService.AssignAdminUser(adminUserID, productIDs)
 }
