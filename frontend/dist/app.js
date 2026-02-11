@@ -245,7 +245,7 @@
                     return;
                 }
                 // Clear existing options except the first placeholder
-                select.innerHTML = '<option value="">' + i18n.t('login_select_product') + '</option>';
+                select.innerHTML = '<option value="" data-i18n="login_select_product">' + i18n.t('login_select_product') + '</option>';
                 for (var i = 0; i < products.length; i++) {
                     var opt = document.createElement('option');
                     opt.value = products[i].id;
