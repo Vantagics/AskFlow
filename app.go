@@ -943,8 +943,16 @@ func (a *App) HasProductDocumentsOrKnowledge(productID string) (bool, error) {
 
 // GetProductsByAdminUserID returns the products assigned to the given admin user.
 // If the admin user has zero assigned products, all products are returned.
+// The session stores userID as "admin_<id>" for sub-admins and "admin" for super admin.
+// We strip the "admin_" prefix to get the actual admin_users.id for the DB lookup.
 func (a *App) GetProductsByAdminUserID(adminUserID string) ([]product.Product, error) {
-	return a.productService.GetByAdminUserID(adminUserID)
+	// Super admin ("admin") has access to all products
+	if adminUserID == "admin" {
+		return a.productService.List()
+	}
+	// Sub-admin session stores "admin_<actual_id>", strip prefix for DB lookup
+	actualID := strings.TrimPrefix(adminUserID, "admin_")
+	return a.productService.GetByAdminUserID(actualID)
 }
 
 // AssignProductsToAdminUser assigns the given product IDs to an admin user,
