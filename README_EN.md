@@ -27,15 +27,18 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 ## Features
 
 - **Smart Q&A**: Intent classification → vector retrieval → LLM answer generation with source citations
+- **Multi-Product Support**: Manage multiple product lines, each with its own knowledge base, plus a shared Public Library accessible across all products
 - **Multi-format Documents**: Upload and parse PDF, Word, Excel, PPT, and Markdown files
 - **URL Import**: Fetch and index web page content via URL
-- **Batch Import**: CLI recursive directory scan for bulk document import
+- **Batch Import**: CLI recursive directory scan for bulk document import, with optional product targeting
 - **Multimodal Retrieval**: Vectorize and search both text and images
-- **Knowledge Entries**: Admins can directly add text + image knowledge entries
+- **Knowledge Entries**: Admins can directly add text + image knowledge entries, categorized by product
+- **Product-Scoped Search**: User queries search only within the selected product's knowledge base and the Public Library, ensuring accurate answers
 - **Content Deduplication**: Document-level SHA-256 hash dedup + chunk-level embedding reuse to prevent duplicate imports and redundant API calls
-- **Pending Questions**: Unanswered questions are automatically queued; admin answers are auto-indexed
+- **Pending Questions**: Unanswered questions are automatically queued with product association; admin answers are auto-indexed
 - **User Authentication**: OAuth 2.0 (Google / Apple / Amazon / Facebook) + email/password registration
-- **Admin Hierarchy**: Super admin + sub-admins (editor role) with role-based access control
+- **Admin Hierarchy**: Super admin + sub-admins (editor role) with per-product permission assignment
+- **Per-Product Welcome Messages**: Each product can have its own welcome message displayed to users
 - **Hot Reload**: Modify LLM / Embedding / SMTP settings via web UI without restart
 - **Encrypted Storage**: API keys stored with AES-256-GCM encryption in config file
 - **Email Service**: SMTP email verification and test email sending
@@ -57,7 +60,10 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 │  │ (OAuth  │ │ Manager  │ │ Engine │ │  Manager  │ │
 │  │ Session)│ │          │ │ (RAG)  │ │           │ │
 │  └─────────┘ └────┬─────┘ └───┬────┘ └───────────┘ │
-│                    │           │                      │
+│  ┌─────────┐      │           │      ┌───────────┐  │
+│  │ Product │      │           │      │  Pending   │ │
+│  │ Service │      │           │      │  Manager   │ │
+│  └─────────┘      │           │      └───────────┘  │
 │  ┌─────────┐ ┌────▼─────┐ ┌──▼─────┐ ┌───────────┐ │
 │  │ Parser  │ │ Chunker  │ │Embedding│ │   LLM     │ │
 │  │(PDF/Word│ │(512/128) │ │ Service │ │  Service  │ │
@@ -126,6 +132,8 @@ helpdesk/
 │   │   └── engine.go            # RAG query engine (classify → retrieve → generate)
 │   ├── pending/
 │   │   └── manager.go           # Pending question management
+│   ├── product/
+│   │   └── service.go           # Product management (CRUD, admin-product assignment)
 │   └── email/
 │       └── service.go           # SMTP email sending (verification/test)
 │
@@ -186,10 +194,14 @@ curl -X POST http://localhost:8080/api/admin/setup \
 ```bash
 # Upload a single file via API
 curl -X POST http://localhost:8080/api/documents/upload \
-  -F "file=@./product-manual.pdf"
+  -F "file=@./product-manual.pdf" \
+  -F "product_id=<product_id>"
 
 # Batch import from directories
-./helpdesk import ./docs ./manuals
+./helpdesk import ./docs
+
+# Batch import targeting a specific product
+./helpdesk import --product <product_id> ./docs ./manuals
 ```
 
 ### Ask a Question
@@ -283,7 +295,7 @@ Supported providers: `google`, `apple`, `amazon`, `facebook`.
 | `admin.username` | Super admin username (set during initialization) |
 | `admin.password_hash` | Super admin password hash (bcrypt) |
 | `admin.login_route` | Admin login route, default `/admin` |
-| `product_intro` | Product introduction text (used for intent classification context) |
+| `product_intro` | Global product introduction text (used for intent classification context). Each product can have its own `welcome_message` set via product management, which takes priority over this global setting |
 
 ### Environment Variables
 
@@ -296,9 +308,9 @@ Supported providers: `google`, `apple`, `amazon`, `facebook`.
 ## CLI Usage
 
 ```
-helpdesk                          Start HTTP server
-helpdesk import <dir> [...]       Batch import documents into knowledge base
-helpdesk help                     Show help information
+helpdesk                                              Start HTTP server
+helpdesk import [--product <product_id>] <dir> [...]  Batch import documents into knowledge base
+helpdesk help                                         Show help information
 ```
 
 ### Batch Import
@@ -308,7 +320,12 @@ Recursively scans specified directories and imports supported files into the vec
 ```bash
 helpdesk import ./docs
 helpdesk import ./docs ./manuals /path/to/files
+
+# Import into a specific product
+helpdesk import --product <product_id> ./docs
 ```
+
+When `--product` is omitted, documents are imported into the Public Library. If the specified product ID does not exist, the system reports an error and aborts.
 
 Supported file extensions: `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown`
 
@@ -336,16 +353,26 @@ All APIs return JSON. Authenticated endpoints require `Authorization: Bearer <se
 
 | Method | Path | Description | Access |
 |--------|------|-------------|--------|
-| `POST` | `/api/query` | Submit question, get RAG answer | Public |
-| `GET` | `/api/product-intro` | Get product introduction | Public |
+| `POST` | `/api/query` | Submit question, get RAG answer (supports `product_id` to scope search) | Public |
+| `GET` | `/api/product-intro` | Get product introduction (supports `product_id` for per-product welcome message) | Public |
+
+### Product Management
+
+| Method | Path | Description | Access |
+|--------|------|-------------|--------|
+| `GET` | `/api/products` | List all products | Admin |
+| `POST` | `/api/products` | Create a product | Super Admin |
+| `PUT` | `/api/products/{id}` | Update a product | Super Admin |
+| `DELETE` | `/api/products/{id}` | Delete a product | Super Admin |
+| `GET` | `/api/products/my` | List products assigned to current admin | Admin |
 
 ### Document Management
 
 | Method | Path | Description | Access |
 |--------|------|-------------|--------|
-| `POST` | `/api/documents/upload` | Upload file (multipart/form-data) | Admin |
-| `POST` | `/api/documents/url` | Import from URL | Admin |
-| `GET` | `/api/documents` | List all documents | Admin |
+| `POST` | `/api/documents/upload` | Upload file (multipart/form-data, supports `product_id` field) | Admin |
+| `POST` | `/api/documents/url` | Import from URL (supports `product_id` parameter) | Admin |
+| `GET` | `/api/documents` | List documents (supports `product_id` filter) | Admin |
 | `DELETE` | `/api/documents/{id}` | Delete document | Admin |
 | `GET` | `/api/documents/{id}/download` | Download original file | Admin |
 
@@ -353,7 +380,7 @@ All APIs return JSON. Authenticated endpoints require `Authorization: Bearer <se
 
 | Method | Path | Description | Access |
 |--------|------|-------------|--------|
-| `GET` | `/api/pending?status=xxx` | List pending questions | Admin |
+| `GET` | `/api/pending?status=xxx` | List pending questions (supports `product_id` filter) | Admin |
 | `POST` | `/api/pending/answer` | Answer a pending question | Admin |
 | `DELETE` | `/api/pending/{id}` | Delete a pending question | Admin |
 
@@ -361,7 +388,7 @@ All APIs return JSON. Authenticated endpoints require `Authorization: Bearer <se
 
 | Method | Path | Description | Access |
 |--------|------|-------------|--------|
-| `POST` | `/api/knowledge` | Add knowledge entry | Admin |
+| `POST` | `/api/knowledge` | Add knowledge entry (supports `product_id` parameter) | Admin |
 | `POST` | `/api/images/upload` | Upload image | Admin |
 | `GET` | `/api/images/{filename}` | Get image | Public |
 
@@ -370,7 +397,7 @@ All APIs return JSON. Authenticated endpoints require `Authorization: Bearer <se
 | Method | Path | Description | Access |
 |--------|------|-------------|--------|
 | `GET` | `/api/admin/users` | List sub-admins | Super Admin |
-| `POST` | `/api/admin/users` | Create sub-admin | Super Admin |
+| `POST` | `/api/admin/users` | Create sub-admin (supports `product_ids` for product assignment) | Super Admin |
 | `DELETE` | `/api/admin/users/{id}` | Delete sub-admin | Super Admin |
 | `GET` | `/api/admin/role` | Get current user role | Admin |
 
@@ -501,13 +528,17 @@ Critical data files:
 
 | Table | Description |
 |-------|-------------|
-| `documents` | Document metadata (ID, name, type, status, content hash, created_at) |
-| `chunks` | Document chunks (text, vector, parent document, image URL) |
-| `pending_questions` | Pending questions (question, status, answer, user ID) |
+| `products` | Product information (ID, name, description, welcome_message, created_at, updated_at) |
+| `admin_user_products` | Admin-product junction table (admin_user_id, product_id, composite primary key) |
+| `documents` | Document metadata (ID, name, type, status, content hash, product_id, created_at) |
+| `chunks` | Document chunks (text, vector, parent document, image URL, product_id) |
+| `pending_questions` | Pending questions (question, status, answer, user ID, product_id) |
 | `users` | Registered users (email, password hash, verification status) |
 | `sessions` | User sessions (session ID, user ID, expiry) |
 | `email_tokens` | Email verification tokens |
 | `admin_users` | Sub-admin accounts (username, password hash, role) |
+
+An empty or NULL `product_id` indicates the record belongs to the Public Library, which is accessible across all product searches.
 
 ---
 

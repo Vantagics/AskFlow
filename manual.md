@@ -24,20 +24,25 @@ helpdesk.exe
 ### 1.2 命令行用法
 
 ```
-helpdesk                          启动 HTTP 服务（默认端口 8080）
-helpdesk import <目录> [...]       批量导入目录下的文档到知识库
-helpdesk help                     显示帮助信息
+helpdesk                                              启动 HTTP 服务（默认端口 8080）
+helpdesk import [--product <product_id>] <目录> [...]  批量导入目录下的文档到知识库
+helpdesk help                                         显示帮助信息
 ```
 
 ### 1.3 批量导入文档
 
 ```bash
-# 导入单个目录
+# 导入单个目录（导入到公共库）
 helpdesk import ./docs
 
 # 导入多个目录
 helpdesk import ./docs ./manuals /path/to/files
+
+# 导入到指定产品
+helpdesk import --product <product_id> ./docs
 ```
+
+使用 `--product` 参数可将导入的文档关联到指定产品。不指定时，文档将导入到公共库。若指定的产品 ID 不存在，系统将报错并中止导入。
 
 支持的文件格式：`.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown`
 
@@ -81,7 +86,7 @@ Content-Type: application/json
 | `vector.overlap` | 分块重叠字符数，默认 128 |
 | `vector.top_k` | 检索返回的最相关片段数，默认 5 |
 | `vector.threshold` | 相似度阈值，默认 0.5 |
-| `product_intro` | 产品介绍文本（用于意图分类） |
+| `product_intro` | 全局产品介绍文本（用于意图分类）。各产品可设置独立的 `welcome_message`，优先级高于此全局配置 |
 
 API Key 在保存时会自动使用 AES-256-GCM 加密，加密密钥通过环境变量 `HELPDESK_ENCRYPTION_KEY` 设置。若未设置，系统会自动生成随机密钥。
 
@@ -114,6 +119,7 @@ POST /api/documents/upload
 Content-Type: multipart/form-data
 
 file: <文件>
+product_id: <产品ID>（可选，留空则导入到公共库）
 ```
 
 支持格式：PDF、Word、Excel、PPT、Markdown。上传后系统自动完成解析、去重检查、分块、向量化和存储。
@@ -129,17 +135,21 @@ POST /api/documents/url
 Content-Type: application/json
 
 {
-  "url": "https://example.com/document.pdf"
+  "url": "https://example.com/document.pdf",
+  "product_id": "<产品ID>"
 }
 ```
+
+`product_id` 为可选字段，留空则导入到公共库。
 
 ### 3.3 查看文档列表
 
 ```
 GET /api/documents
+GET /api/documents?product_id=<产品ID>
 ```
 
-返回所有已上传文档及其状态（processing / success / failed）。
+返回所有已上传文档及其状态（processing / success / failed）。支持通过 `product_id` 参数筛选特定产品的文档，列表中每个文档会显示所属产品名称或"公共库"标签。
 
 ### 3.4 删除文档
 
@@ -167,11 +177,12 @@ Content-Type: application/json
 
 {
   "question": "如何安装产品？",
-  "image_data": ""
+  "image_data": "",
+  "product_id": "<产品ID>"
 }
 ```
 
-`image_data` 为可选字段，支持传入 base64 格式的图片数据进行多模态查询。
+`image_data` 为可选字段，支持传入 base64 格式的图片数据进行多模态查询。`product_id` 为可选字段，指定后系统仅在该产品知识库和公共库中检索，不指定则在所有产品中检索。
 
 ### 4.2 回答流程
 
@@ -207,9 +218,10 @@ Content-Type: application/json
 
 ```
 GET /api/pending?status=pending
+GET /api/pending?status=pending&product_id=<产品ID>
 ```
 
-`status` 可选值：`pending`（待处理）、`answered`（已回答），留空返回全部。
+`status` 可选值：`pending`（待处理）、`answered`（已回答），留空返回全部。支持通过 `product_id` 参数筛选特定产品的问题。每个问题会显示所属产品名称。
 
 ### 5.2 回答待处理问题
 
@@ -259,9 +271,12 @@ Authorization: Bearer <session_token>
 {
   "title": "条目标题",
   "content": "知识内容文本",
-  "image_urls": ["/api/images/xxx.png"]
+  "image_urls": ["/api/images/xxx.png"],
+  "product_id": "<产品ID>"
 }
 ```
+
+`product_id` 为可选字段，留空则添加到公共库。
 
 ---
 
@@ -347,9 +362,12 @@ Authorization: Bearer <super_admin_token>
 {
   "username": "editor1",
   "password": "password",
-  "role": "editor"
+  "role": "editor",
+  "product_ids": ["<产品ID1>", "<产品ID2>"]
 }
 ```
+
+`product_ids` 为可选字段，指定该子管理员负责的产品。不指定或为空数组时，该管理员可访问所有产品。
 
 ### 8.3 删除子管理员
 
@@ -367,9 +385,78 @@ Authorization: Bearer <token>
 
 ---
 
-## 9. 系统配置（API）
+## 9. 产品管理
 
-### 9.1 获取当前配置
+超级管理员可创建和管理产品，每个产品拥有独立的知识库。
+
+### 9.1 获取产品列表
+
+```
+GET /api/products
+Authorization: Bearer <admin_token>
+```
+
+返回所有产品列表，包含 ID、名称、描述、欢迎信息等。
+
+### 9.2 获取当前管理员的产品
+
+```
+GET /api/products/my
+Authorization: Bearer <admin_token>
+```
+
+返回当前管理员被分配的产品列表。若管理员未分配任何产品，则返回所有产品。
+
+### 9.3 创建产品
+
+```
+POST /api/products
+Authorization: Bearer <super_admin_token>
+
+{
+  "name": "产品名称",
+  "description": "产品描述",
+  "welcome_message": "欢迎使用本产品，有什么可以帮您？"
+}
+```
+
+产品名称必须唯一且非空。`welcome_message` 为可选字段，用于设置该产品的专属欢迎信息。
+
+### 9.4 更新产品
+
+```
+PUT /api/products/{id}
+Authorization: Bearer <super_admin_token>
+
+{
+  "name": "新名称",
+  "description": "新描述",
+  "welcome_message": "更新后的欢迎信息"
+}
+```
+
+### 9.5 删除产品
+
+```
+DELETE /api/products/{id}
+Authorization: Bearer <super_admin_token>
+```
+
+删除产品时，关联的文档和知识条目将解除产品关联（变为公共库内容）。
+
+### 9.6 获取产品欢迎信息
+
+```
+GET /api/product-intro?product_id=<产品ID>
+```
+
+返回指定产品的欢迎信息。若该产品未设置欢迎信息，则返回全局 `product_intro` 配置。
+
+---
+
+## 10. 系统配置（API）
+
+### 10.1 获取当前配置
 
 ```
 GET /api/config
@@ -378,7 +465,7 @@ Authorization: Bearer <admin_token>
 
 返回脱敏后的配置信息（API Key 部分隐藏）。
 
-### 9.2 更新配置
+### 10.2 更新配置
 
 ```
 PUT /api/config
@@ -398,7 +485,7 @@ Authorization: Bearer <super_admin_token>
 
 ---
 
-## 10. 数据目录结构
+## 11. 数据目录结构
 
 ```
 data/

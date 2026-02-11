@@ -27,15 +27,18 @@ Go 单二进制部署，SQLite 存储，开箱即用。
 ## 功能特性
 
 - **智能问答**：意图分类 → 向量检索 → LLM 生成回答，附带来源引用
+- **多产品支持**：管理多个产品线，每个产品拥有独立知识库，支持公共知识库跨产品共享
 - **多格式文档**：支持 PDF、Word、Excel、PPT、Markdown 上传与解析
 - **URL 导入**：通过 URL 抓取网页内容入库
-- **批量导入**：命令行递归扫描目录，批量导入文档
+- **批量导入**：命令行递归扫描目录，批量导入文档，支持指定目标产品
 - **多模态检索**：支持文本和图片的向量化与检索
-- **知识条目**：管理员可直接添加文本 + 图片知识条目
+- **知识条目**：管理员可直接添加文本 + 图片知识条目，按产品分类
+- **产品隔离检索**：用户提问时仅在所选产品知识库和公共库中检索，确保回答准确性
 - **内容去重**：文档级 SHA-256 哈希去重 + 分块级向量复用，避免重复导入和冗余 API 调用
-- **待处理问题**：无法回答的问题自动排队，管理员回答后自动入库
+- **待处理问题**：无法回答的问题自动排队并标记所属产品，管理员回答后自动入库
 - **用户认证**：OAuth 2.0（Google / Apple / Amazon / Facebook）+ 邮箱密码注册
-- **管理员体系**：超级管理员 + 子管理员（编辑角色），权限分级
+- **管理员体系**：超级管理员 + 子管理员（编辑角色），支持按产品分配管理权限
+- **产品专属欢迎信息**：每个产品可设置独立的欢迎信息，用户进入时展示对应介绍
 - **配置热重载**：Web 界面修改 LLM / Embedding / SMTP 等配置，无需重启
 - **加密存储**：API Key 使用 AES-256-GCM 加密存储在配置文件中
 - **邮件服务**：SMTP 邮箱验证、测试邮件发送
@@ -57,7 +60,10 @@ Go 单二进制部署，SQLite 存储，开箱即用。
 │  │ (OAuth  │ │ Manager  │ │ Engine │ │  Manager  │ │
 │  │ Session)│ │          │ │ (RAG)  │ │           │ │
 │  └─────────┘ └────┬─────┘ └───┬────┘ └───────────┘ │
-│                    │           │                      │
+│  ┌─────────┐      │           │      ┌───────────┐  │
+│  │ Product │      │           │      │  Pending   │ │
+│  │ Service │      │           │      │  Manager   │ │
+│  └─────────┘      │           │      └───────────┘  │
 │  ┌─────────┐ ┌────▼─────┐ ┌──▼─────┐ ┌───────────┐ │
 │  │ Parser  │ │ Chunker  │ │Embedding│ │   LLM     │ │
 │  │(PDF/Word│ │(512/128) │ │ Service │ │  Service  │ │
@@ -125,6 +131,8 @@ helpdesk/
 │   │   └── engine.go            # RAG 查询引擎（意图分类→检索→生成）
 │   ├── pending/
 │   │   └── manager.go           # 待处理问题管理
+│   ├── product/
+│   │   └── service.go           # 产品管理（CRUD、管理员产品分配）
 │   └── email/
 │       └── service.go           # SMTP 邮件发送（验证/测试）
 │
@@ -185,10 +193,14 @@ curl -X POST http://localhost:8080/api/admin/setup \
 ```bash
 # 上传单个文件（通过 API）
 curl -X POST http://localhost:8080/api/documents/upload \
-  -F "file=@./产品手册.pdf"
+  -F "file=@./产品手册.pdf" \
+  -F "product_id=<product_id>"
 
 # 批量导入目录
-./helpdesk import ./docs ./manuals
+./helpdesk import ./docs
+
+# 批量导入到指定产品
+./helpdesk import --product <product_id> ./docs ./manuals
 ```
 
 ### 提问
@@ -282,7 +294,7 @@ curl -X POST http://localhost:8080/api/query \
 | `admin.username` | 超级管理员用户名（初始化时设置） |
 | `admin.password_hash` | 超级管理员密码哈希（bcrypt） |
 | `admin.login_route` | 管理员登录路由，默认 `/admin` |
-| `product_intro` | 产品介绍文本，用于意图分类上下文 |
+| `product_intro` | 全局产品介绍文本，用于意图分类上下文。各产品可在产品管理中设置独立的 `welcome_message`，优先级高于此全局配置 |
 
 ### 环境变量
 
@@ -295,9 +307,9 @@ curl -X POST http://localhost:8080/api/query \
 ## 命令行用法
 
 ```
-helpdesk                          启动 HTTP 服务
-helpdesk import <目录> [...]       批量导入文档到知识库
-helpdesk help                     显示帮助信息
+helpdesk                                              启动 HTTP 服务
+helpdesk import [--product <product_id>] <目录> [...]  批量导入文档到知识库
+helpdesk help                                         显示帮助信息
 ```
 
 ### 批量导入
@@ -307,7 +319,12 @@ helpdesk help                     显示帮助信息
 ```bash
 helpdesk import ./docs
 helpdesk import ./docs ./manuals /path/to/files
+
+# 指定目标产品（文档将关联到该产品）
+helpdesk import --product <product_id> ./docs
 ```
+
+不指定 `--product` 时，文档将导入到公共库。若指定的产品 ID 不存在，系统将报错并中止导入。
 
 支持的文件扩展名：`.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `.md` `.markdown`
 
@@ -335,16 +352,26 @@ helpdesk import ./docs ./manuals /path/to/files
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| `POST` | `/api/query` | 提交问题，获取 RAG 回答 | 公开 |
-| `GET` | `/api/product-intro` | 获取产品介绍 | 公开 |
+| `POST` | `/api/query` | 提交问题，获取 RAG 回答（支持 `product_id` 参数限定检索范围） | 公开 |
+| `GET` | `/api/product-intro` | 获取产品介绍（支持 `product_id` 参数获取指定产品欢迎信息） | 公开 |
+
+### 产品管理
+
+| 方法 | 路径 | 说明 | 权限 |
+|------|------|------|------|
+| `GET` | `/api/products` | 获取所有产品列表 | 管理员 |
+| `POST` | `/api/products` | 创建产品 | 超级管理员 |
+| `PUT` | `/api/products/{id}` | 更新产品信息 | 超级管理员 |
+| `DELETE` | `/api/products/{id}` | 删除产品 | 超级管理员 |
+| `GET` | `/api/products/my` | 获取当前管理员被分配的产品列表 | 管理员 |
 
 ### 文档管理
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| `POST` | `/api/documents/upload` | 上传文件（multipart/form-data） | 管理员 |
-| `POST` | `/api/documents/url` | 通过 URL 导入 | 管理员 |
-| `GET` | `/api/documents` | 列出所有文档 | 管理员 |
+| `POST` | `/api/documents/upload` | 上传文件（multipart/form-data，支持 `product_id` 字段） | 管理员 |
+| `POST` | `/api/documents/url` | 通过 URL 导入（支持 `product_id` 参数） | 管理员 |
+| `GET` | `/api/documents` | 列出文档（支持 `product_id` 参数筛选） | 管理员 |
 | `DELETE` | `/api/documents/{id}` | 删除文档 | 管理员 |
 | `GET` | `/api/documents/{id}/download` | 下载原始文件 | 管理员 |
 
@@ -352,7 +379,7 @@ helpdesk import ./docs ./manuals /path/to/files
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| `GET` | `/api/pending?status=xxx` | 列出待处理问题 | 管理员 |
+| `GET` | `/api/pending?status=xxx` | 列出待处理问题（支持 `product_id` 参数筛选） | 管理员 |
 | `POST` | `/api/pending/answer` | 回答待处理问题 | 管理员 |
 | `DELETE` | `/api/pending/{id}` | 删除待处理问题 | 管理员 |
 
@@ -360,7 +387,7 @@ helpdesk import ./docs ./manuals /path/to/files
 
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
-| `POST` | `/api/knowledge` | 添加知识条目 | 管理员 |
+| `POST` | `/api/knowledge` | 添加知识条目（支持 `product_id` 参数） | 管理员 |
 | `POST` | `/api/images/upload` | 上传图片 | 管理员 |
 | `GET` | `/api/images/{filename}` | 获取图片 | 公开 |
 
@@ -369,7 +396,7 @@ helpdesk import ./docs ./manuals /path/to/files
 | 方法 | 路径 | 说明 | 权限 |
 |------|------|------|------|
 | `GET` | `/api/admin/users` | 列出子管理员 | 超级管理员 |
-| `POST` | `/api/admin/users` | 创建子管理员 | 超级管理员 |
+| `POST` | `/api/admin/users` | 创建子管理员（支持 `product_ids` 参数分配产品） | 超级管理员 |
 | `DELETE` | `/api/admin/users/{id}` | 删除子管理员 | 超级管理员 |
 | `GET` | `/api/admin/role` | 查询当前角色 | 管理员 |
 
@@ -500,13 +527,17 @@ build.cmd
 
 | 表名 | 说明 |
 |------|------|
-| `documents` | 文档元数据（ID、名称、类型、状态、内容哈希、创建时间） |
-| `chunks` | 文档分块（文本、向量、所属文档、图片 URL） |
-| `pending_questions` | 待处理问题（问题、状态、回答、用户 ID） |
+| `products` | 产品信息（ID、名称、描述、欢迎信息、创建/更新时间） |
+| `admin_user_products` | 管理员-产品关联表（admin_user_id、product_id，联合主键） |
+| `documents` | 文档元数据（ID、名称、类型、状态、内容哈希、product_id、创建时间） |
+| `chunks` | 文档分块（文本、向量、所属文档、图片 URL、product_id） |
+| `pending_questions` | 待处理问题（问题、状态、回答、用户 ID、product_id） |
 | `users` | 注册用户（邮箱、密码哈希、验证状态） |
 | `sessions` | 用户会话（Session ID、用户 ID、过期时间） |
 | `email_tokens` | 邮箱验证令牌 |
 | `admin_users` | 子管理员账户（用户名、密码哈希、角色） |
+
+`product_id` 为空字符串或 NULL 表示该记录属于公共库（Public Library），所有产品检索时均可访问。
 
 ---
 
