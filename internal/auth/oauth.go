@@ -4,6 +4,7 @@ package auth
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -65,13 +66,19 @@ func NewOAuthClient(providers map[string]config.OAuthProviderConfig) *OAuthClien
 }
 
 // GetAuthURL returns the OAuth2 authorization URL for the given provider.
-// The state parameter is set to the provider name for simplicity.
+// A cryptographically random state parameter is generated to prevent CSRF attacks.
 func (oc *OAuthClient) GetAuthURL(provider string) (string, error) {
 	cfg, ok := oc.providers[provider]
 	if !ok {
 		return "", fmt.Errorf("unsupported OAuth provider: %s", provider)
 	}
-	url := cfg.AuthCodeURL("state-"+provider, oauth2.AccessTypeOnline)
+	// Generate a cryptographically random state to prevent CSRF
+	stateBytes := make([]byte, 16)
+	if _, err := io.ReadFull(cryptorand.Reader, stateBytes); err != nil {
+		return "", fmt.Errorf("failed to generate OAuth state: %w", err)
+	}
+	state := provider + ":" + fmt.Sprintf("%x", stateBytes)
+	url := cfg.AuthCodeURL(state, oauth2.AccessTypeOnline)
 	return url, nil
 }
 

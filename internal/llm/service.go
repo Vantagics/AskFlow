@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 // LLMService defines the interface for LLM text generation.
 type LLMService interface {
 	Generate(prompt string, context []string, question string) (string, error)
+	GenerateWithImage(prompt string, context []string, question string, imageDataURL string) (string, error)
 }
 
 // APILLMService implements LLMService using an OpenAI-compatible Chat Completion API.
@@ -50,9 +52,22 @@ type chatRequest struct {
 }
 
 // chatMessage represents a single message in the chat completion request.
+// Content can be a string or an array of content parts (for vision/multimodal).
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
+}
+
+// visionContentPart represents a content part in a multimodal message.
+type visionContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *visionImageURL `json:"image_url,omitempty"`
+}
+
+// visionImageURL holds the URL for an image content part.
+type visionImageURL struct {
+	URL string `json:"url"`
 }
 
 // chatResponse is the response body from the chat completion API.
@@ -63,7 +78,13 @@ type chatResponse struct {
 
 // chatChoice represents a single choice in the chat completion response.
 type chatChoice struct {
-	Message chatMessage `json:"message"`
+	Message chatChoiceMessage `json:"message"`
+}
+
+// chatChoiceMessage is the message in a chat completion response (content is always string).
+type chatChoiceMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // apiError represents an error returned by the API.
@@ -99,7 +120,7 @@ func BuildMessages(prompt string, context []string, question string) []chatMessa
 }
 
 // Generate sends a prompt with context and question to the LLM and returns the generated answer.
-// It retries once on failure. If both attempts fail, it returns a fallback error message.
+// It retries once on failure with a brief delay. If both attempts fail, it returns a fallback message.
 func (s *APILLMService) Generate(prompt string, context []string, question string) (string, error) {
 	messages := BuildMessages(prompt, context, question)
 
@@ -108,14 +129,19 @@ func (s *APILLMService) Generate(prompt string, context []string, question strin
 	if err == nil {
 		return answer, nil
 	}
+	log.Printf("LLM API first attempt failed: %v", err)
+
+	// Brief delay before retry
+	time.Sleep(500 * time.Millisecond)
 
 	// Retry once
 	answer, err = s.callAPI(messages)
 	if err == nil {
 		return answer, nil
 	}
+	log.Printf("LLM API retry failed: %v", err)
 
-	return "服务暂时不可用，请稍后重试", nil
+	return "服务暂时不可用，请稍后重试", fmt.Errorf("LLM API failed after retries: %w", err)
 }
 
 // callAPI sends the chat completion request to the API and returns the generated text.
@@ -172,4 +198,61 @@ func (s *APILLMService) callAPI(messages []chatMessage) (string, error) {
 	}
 
 	return result.Choices[0].Message.Content, nil
+}
+
+// BuildMessagesWithImage constructs chat messages that include an image for vision-capable LLMs.
+// The image is sent as a base64 data URL in the OpenAI vision format.
+func BuildMessagesWithImage(prompt string, context []string, question string, imageDataURL string) []chatMessage {
+	systemContent := prompt
+	if systemContent == "" {
+		systemContent = "你是一个专业的软件技术支持助手。请根据提供的参考资料和用户上传的图片回答用户的问题。" +
+			"如果参考资料中没有相关信息，请根据图片内容尽可能回答。回答应简洁、准确、有条理。" +
+			"\n\n重要规则：你必须使用与用户提问相同的语言来回答。如果用户用英文提问，你必须用英文回答；如果用户用中文提问，你必须用中文回答；其他语言同理。"
+	}
+
+	var textParts []string
+	if len(context) > 0 {
+		textParts = append(textParts, "参考资料：")
+		for i, chunk := range context {
+			textParts = append(textParts, fmt.Sprintf("[%d] %s", i+1, chunk))
+		}
+		textParts = append(textParts, "")
+	}
+	textParts = append(textParts, "用户问题："+question)
+
+	userContent := []visionContentPart{
+		{Type: "image_url", ImageURL: &visionImageURL{URL: imageDataURL}},
+		{Type: "text", Text: strings.Join(textParts, "\n")},
+	}
+
+	return []chatMessage{
+		{Role: "system", Content: systemContent},
+		{Role: "user", Content: userContent},
+	}
+}
+
+// GenerateWithImage sends a prompt with context, question, and an image to a vision-capable LLM.
+// The imageDataURL should be a base64 data URL (e.g., "data:image/png;base64,...").
+// Falls back to text-only Generate if the image is empty.
+func (s *APILLMService) GenerateWithImage(prompt string, context []string, question string, imageDataURL string) (string, error) {
+	if imageDataURL == "" {
+		return s.Generate(prompt, context, question)
+	}
+
+	messages := BuildMessagesWithImage(prompt, context, question, imageDataURL)
+
+	// First attempt
+	answer, err := s.callAPI(messages)
+	if err == nil {
+		return answer, nil
+	}
+
+	// Retry once
+	answer, err = s.callAPI(messages)
+	if err == nil {
+		return answer, nil
+	}
+
+	// Fall back to text-only if vision fails
+	return s.Generate(prompt, context, question)
 }

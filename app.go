@@ -550,7 +550,10 @@ func GenerateCaptcha() *CaptchaResponse {
 		answer = a * b
 	}
 
-	id := fmt.Sprintf("cap_%d", now.UnixNano())
+	id, _ := generateToken()
+	if id == "" {
+		id = fmt.Sprintf("cap_%d", now.UnixNano())
+	}
 	captchaStore[id] = captchaEntry{
 		answer:    answer,
 		expiresAt: now.Add(5 * time.Minute),

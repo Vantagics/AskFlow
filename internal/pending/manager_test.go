@@ -52,6 +52,10 @@ func (m *mockLLMService) Generate(prompt string, context []string, question stri
 	return "LLM generated summary answer", nil
 }
 
+func (m *mockLLMService) GenerateWithImage(prompt string, context []string, question string, imageDataURL string) (string, error) {
+	return m.Generate(prompt, context, question)
+}
+
 // setupTestDB creates a temporary SQLite database for testing.
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()

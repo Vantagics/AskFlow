@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -8,8 +9,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"helpdesk/internal/auth"
@@ -90,10 +93,44 @@ func main() {
 	// 6. Serve frontend with SPA fallback (non-API routes serve index.html)
 	http.Handle("/", spaHandler("frontend/dist"))
 
-	// 7. Start HTTP server
+	// 7. Start HTTP server with graceful shutdown
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
+	server := &http.Server{
+		Addr:         addr,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Start periodic session cleanup
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if n, err := sm.CleanExpired(); err == nil && n > 0 {
+				log.Printf("Cleaned %d expired sessions", n)
+			}
+		}
+	}()
+
+	// Graceful shutdown on SIGINT/SIGTERM
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-sigCh
+		log.Printf("Received signal %v, shutting down gracefully...", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("Graceful shutdown error: %v", err)
+		}
+	}()
+
 	fmt.Printf("Helpdesk system starting on http://%s\n", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("HTTP server error: %v", err)
+	}
+	log.Println("Server stopped")
 }
 
 // printUsage prints CLI usage information.
@@ -218,67 +255,86 @@ func runBatchImport(args []string, dm *document.DocumentManager) {
 }
 
 func registerAPIHandlers(app *App) {
+	// Wrap all API handlers with security headers
+	secureAPI := func(handler http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Cache-Control", "no-store")
+			handler(w, r)
+		}
+	}
+
 	// OAuth
-	http.HandleFunc("/api/oauth/url", handleOAuthURL(app))
-	http.HandleFunc("/api/oauth/callback", handleOAuthCallback(app))
-	http.HandleFunc("/api/oauth/providers/", handleOAuthProviderDelete(app))
+	http.HandleFunc("/api/oauth/url", secureAPI(handleOAuthURL(app)))
+	http.HandleFunc("/api/oauth/callback", secureAPI(handleOAuthCallback(app)))
+	http.HandleFunc("/api/oauth/providers/", secureAPI(handleOAuthProviderDelete(app)))
 
 	// Admin login
-	http.HandleFunc("/api/admin/login", handleAdminLogin(app))
-	http.HandleFunc("/api/admin/setup", handleAdminSetup(app))
-	http.HandleFunc("/api/admin/status", handleAdminStatus(app))
+	http.HandleFunc("/api/admin/login", secureAPI(handleAdminLogin(app)))
+	http.HandleFunc("/api/admin/setup", secureAPI(handleAdminSetup(app)))
+	http.HandleFunc("/api/admin/status", secureAPI(handleAdminStatus(app)))
 
 	// User registration & login
-	http.HandleFunc("/api/auth/register", handleRegister(app))
-	http.HandleFunc("/api/auth/login", handleUserLogin(app))
-	http.HandleFunc("/api/auth/verify", handleVerifyEmail(app))
-	http.HandleFunc("/api/captcha", handleCaptcha())
-	http.HandleFunc("/api/captcha/image", handleCaptchaImage())
+	http.HandleFunc("/api/auth/register", secureAPI(handleRegister(app)))
+	http.HandleFunc("/api/auth/login", secureAPI(handleUserLogin(app)))
+	http.HandleFunc("/api/auth/verify", secureAPI(handleVerifyEmail(app)))
+	http.HandleFunc("/api/captcha", secureAPI(handleCaptcha()))
+	http.HandleFunc("/api/captcha/image", secureAPI(handleCaptchaImage()))
 
 	// Public info
-	http.HandleFunc("/api/product-intro", handleProductIntro(app))
-	http.HandleFunc("/api/app-info", handleAppInfo(app))
-	http.HandleFunc("/api/translate-product-name", handleTranslateProductName(app))
+	http.HandleFunc("/api/product-intro", secureAPI(handleProductIntro(app)))
+	http.HandleFunc("/api/app-info", secureAPI(handleAppInfo(app)))
+	http.HandleFunc("/api/translate-product-name", secureAPI(handleTranslateProductName(app)))
 
 	// Query
-	http.HandleFunc("/api/query", handleQuery(app))
+	http.HandleFunc("/api/query", secureAPI(handleQuery(app)))
 
 	// Documents
-	http.HandleFunc("/api/documents/upload", handleDocumentUpload(app))
-	http.HandleFunc("/api/documents/url", handleDocumentURL(app))
-	http.HandleFunc("/api/documents", handleDocuments(app))
+	http.HandleFunc("/api/documents/upload", secureAPI(handleDocumentUpload(app)))
+	http.HandleFunc("/api/documents/url", secureAPI(handleDocumentURL(app)))
+	http.HandleFunc("/api/documents", secureAPI(handleDocuments(app)))
 	// DELETE /api/documents/{id} - handled by prefix match
-	http.HandleFunc("/api/documents/", handleDocumentByID(app))
+	http.HandleFunc("/api/documents/", secureAPI(handleDocumentByID(app)))
 
 	// Pending questions
-	http.HandleFunc("/api/pending/answer", handlePendingAnswer(app))
-	http.HandleFunc("/api/pending/create", handlePendingCreate(app))
-	http.HandleFunc("/api/pending/", handlePendingByID(app))
-	http.HandleFunc("/api/pending", handlePending(app))
+	http.HandleFunc("/api/pending/answer", secureAPI(handlePendingAnswer(app)))
+	http.HandleFunc("/api/pending/create", secureAPI(handlePendingCreate(app)))
+	http.HandleFunc("/api/pending/", secureAPI(handlePendingByID(app)))
+	http.HandleFunc("/api/pending", secureAPI(handlePending(app)))
 
 	// Config (with role check)
-	http.HandleFunc("/api/config", handleConfigWithRole(app))
+	http.HandleFunc("/api/config", secureAPI(handleConfigWithRole(app)))
 
 	// System status (public — used by frontend to check if system is ready)
-	http.HandleFunc("/api/system/status", handleSystemStatus(app))
+	http.HandleFunc("/api/system/status", secureAPI(handleSystemStatus(app)))
+
+	// Health check endpoint
+	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	// LLM / Embedding test endpoints (admin only)
-	http.HandleFunc("/api/test/llm", handleTestLLM(app))
-	http.HandleFunc("/api/test/embedding", handleTestEmbedding(app))
+	http.HandleFunc("/api/test/llm", secureAPI(handleTestLLM(app)))
+	http.HandleFunc("/api/test/embedding", secureAPI(handleTestEmbedding(app)))
 
 	// Email test
-	http.HandleFunc("/api/email/test", handleEmailTest(app))
+	http.HandleFunc("/api/email/test", secureAPI(handleEmailTest(app)))
 
 	// Admin sub-accounts
-	http.HandleFunc("/api/admin/users", handleAdminUsers(app))
-	http.HandleFunc("/api/admin/users/", handleAdminUserByID(app))
-	http.HandleFunc("/api/admin/role", handleAdminRole(app))
+	http.HandleFunc("/api/admin/users", secureAPI(handleAdminUsers(app)))
+	http.HandleFunc("/api/admin/users/", secureAPI(handleAdminUserByID(app)))
+	http.HandleFunc("/api/admin/role", secureAPI(handleAdminRole(app)))
 
 	// Knowledge entry
-	http.HandleFunc("/api/knowledge", handleKnowledgeEntry(app))
+	http.HandleFunc("/api/knowledge", secureAPI(handleKnowledgeEntry(app)))
 
 	// Image upload for knowledge entry
-	http.HandleFunc("/api/images/upload", handleImageUpload(app))
+	http.HandleFunc("/api/images/upload", secureAPI(handleImageUpload(app)))
 
 	// Serve uploaded images
 	http.Handle("/api/images/", http.StripPrefix("/api/images/", http.FileServer(http.Dir("./data/images"))))
@@ -298,7 +354,9 @@ func writeError(w http.ResponseWriter, status int, message string) {
 
 func readJSONBody(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	// Limit request body to 1MB to prevent large payload attacks
+	limited := io.LimitReader(r.Body, 1<<20)
+	return json.NewDecoder(limited).Decode(v)
 }
 
 // --- OAuth handlers ---
@@ -727,7 +785,11 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 				writeError(w, http.StatusNotFound, err.Error())
 				return
 			}
-			w.Header().Set("Content-Disposition", "inline; filename=\""+fileName+"\"")
+			// Sanitize filename to prevent header injection
+			safeName := strings.ReplaceAll(fileName, "\"", "")
+			safeName = strings.ReplaceAll(safeName, "\n", "")
+			safeName = strings.ReplaceAll(safeName, "\r", "")
+			w.Header().Set("Content-Disposition", "inline; filename=\""+safeName+"\"")
 			http.ServeFile(w, r, filePath)
 			return
 		}
@@ -1257,8 +1319,13 @@ func spaHandler(dir string) http.Handler {
 	fileServer := http.FileServer(http.Dir(dir))
 	indexPath := filepath.Join(dir, "index.html")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Clean the path and build the file path
-		p := filepath.Join(dir, filepath.Clean(r.URL.Path))
+		// Clean the path and prevent directory traversal
+		cleanPath := filepath.Clean(r.URL.Path)
+		if strings.Contains(cleanPath, "..") {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		p := filepath.Join(dir, cleanPath)
 		info, err := os.Stat(p)
 		if err == nil && !info.IsDir() {
 			// Static file exists, serve it

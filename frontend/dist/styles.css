@@ -867,6 +867,34 @@ body {
 .chat-send-btn:hover:not(:disabled) { background: var(--color-primary-hover); }
 .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Chat Image Upload Button */
+.chat-image-upload-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.2s, background 0.2s;
+    position: relative;
+}
+.chat-image-upload-btn:hover {
+    color: var(--color-primary);
+    background: rgba(79,70,229,0.08);
+}
+
+/* Chat Input Drag-over State */
+.chat-input-wrapper.drag-over {
+    border-color: var(--color-primary);
+    background: rgba(79,70,229,0.04);
+    box-shadow: 0 0 0 3px rgba(79,70,229,0.15);
+}
+
 /* Responsive */
 @media (max-width: 480px) {
     .login-card { padding: 2rem 1.25rem; }

@@ -12,6 +12,12 @@
             // Page title
             'site_title': '软件自助服务平台',
 
+            // Setup page (system not configured)
+            'setup_title': '系统配置中',
+            'setup_message': '系统正在安装配置中，请稍后再来。',
+            'setup_hint': '管理员正在配置系统，配置完成后即可正常使用。',
+            'setup_refresh': '刷新页面',
+
             // Login page
             'login_title': '软件自助服务平台',
             'login_subtitle': '登录您的账号',
@@ -80,9 +86,10 @@
             'chat_logout_btn': '退出登录',
             'chat_welcome_title': '欢迎使用软件自助服务平台',
             'chat_welcome_desc': '请输入您的问题，我将为您查找相关资料并提供解答。',
-            'chat_input_placeholder': '输入您的问题...（可粘贴图片）',
+            'chat_input_placeholder': '输入您的问题...（可粘贴或上传图片）',
             'chat_image_preview_alt': '预览',
             'chat_image_remove_title': '移除图片',
+            'chat_image_upload_title': '上传图片',
             'chat_image_recognize': '请识别这张图片的内容',
             'chat_request_failed': '请求失败',
             'chat_no_answer': '暂无回答',
@@ -323,6 +330,12 @@
             // Page title
             'site_title': 'Software Self-Service Platform',
 
+            // Setup page (system not configured)
+            'setup_title': 'System Setup In Progress',
+            'setup_message': 'The system is being configured. Please check back later.',
+            'setup_hint': 'The administrator is setting up the system. It will be available once configuration is complete.',
+            'setup_refresh': 'Refresh Page',
+
             // Login page
             'login_title': 'Software Self-Service Platform',
             'login_subtitle': 'Sign in to your account',
@@ -391,9 +404,10 @@
             'chat_logout_btn': 'Sign Out',
             'chat_welcome_title': 'Welcome to Software Self-Service Platform',
             'chat_welcome_desc': 'Enter your question and I will find relevant information for you.',
-            'chat_input_placeholder': 'Type your question... (paste images supported)',
+            'chat_input_placeholder': 'Type your question... (paste or upload images supported)',
             'chat_image_preview_alt': 'Preview',
             'chat_image_remove_title': 'Remove image',
+            'chat_image_upload_title': 'Upload image',
             'chat_image_recognize': 'Please identify the content of this image',
             'chat_request_failed': 'Request failed',
             'chat_no_answer': 'No answer available',

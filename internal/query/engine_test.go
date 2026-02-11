@@ -66,6 +66,10 @@ func (m *mockLLMService) Generate(prompt string, context []string, question stri
 	return m.generateFn(prompt, context, question)
 }
 
+func (m *mockLLMService) GenerateWithImage(prompt string, context []string, question string, imageDataURL string) (string, error) {
+	return m.generateFn(prompt, context, question)
+}
+
 // --- Test helpers ---
 
 func setupTestDB(t *testing.T) *sql.DB {

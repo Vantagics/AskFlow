@@ -118,22 +118,48 @@ func (dm *DocumentManager) findDocumentByContentHash(hash string) string {
 
 // getExistingChunkEmbeddings looks up embeddings for chunk texts that already exist in the DB.
 // Returns a map of chunk_text -> embedding vector for reuse, saving API calls.
+// Uses batch queries to minimize database round-trips.
 func (dm *DocumentManager) getExistingChunkEmbeddings(texts []string) map[string][]float64 {
 	result := make(map[string][]float64)
 	if len(texts) == 0 {
 		return result
 	}
-	for _, text := range texts {
-		var embeddingBytes []byte
-		err := dm.db.QueryRow(
-			`SELECT embedding FROM chunks WHERE chunk_text = ? LIMIT 1`, text,
-		).Scan(&embeddingBytes)
-		if err == nil && len(embeddingBytes) > 0 {
-			vec := vectorstore.DeserializeVector(embeddingBytes)
-			if len(vec) > 0 {
-				result[text] = vec
+
+	// Batch query in groups of 100 to stay within SQLite variable limits
+	const batchSize = 100
+	for i := 0; i < len(texts); i += batchSize {
+		end := i + batchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		batch := texts[i:end]
+
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch))
+		for j, t := range batch {
+			placeholders[j] = "?"
+			args[j] = t
+		}
+
+		query := fmt.Sprintf(
+			`SELECT chunk_text, embedding FROM chunks WHERE chunk_text IN (%s)`,
+			strings.Join(placeholders, ","),
+		)
+		rows, err := dm.db.Query(query, args...)
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var chunkText string
+			var embeddingBytes []byte
+			if err := rows.Scan(&chunkText, &embeddingBytes); err == nil && len(embeddingBytes) > 0 {
+				vec := vectorstore.DeserializeVector(embeddingBytes)
+				if len(vec) > 0 {
+					result[chunkText] = vec
+				}
 			}
 		}
+		rows.Close()
 	}
 	return result
 }

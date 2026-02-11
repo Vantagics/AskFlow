@@ -184,18 +184,17 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 // Search uses the in-memory cache with concurrent cosine similarity computation.
 // It partitions the cache across goroutines, filters by threshold, and returns top-K.
 func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold float64) ([]SearchResult, error) {
-	// Ensure cache is loaded (needs write lock on first call)
+	// Ensure cache is loaded
 	s.mu.Lock()
 	if err := s.ensureCache(); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
+	// Downgrade: copy cache reference under write lock, then release
+	cache := s.cache
 	s.mu.Unlock()
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if len(s.cache) == 0 {
+	if len(cache) == 0 {
 		return nil, nil
 	}
 
@@ -206,15 +205,15 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 
 	// Determine concurrency level
 	numWorkers := runtime.NumCPU()
-	if numWorkers > len(s.cache) {
-		numWorkers = len(s.cache)
+	if numWorkers > len(cache) {
+		numWorkers = len(cache)
 	}
 	if numWorkers < 1 {
 		numWorkers = 1
 	}
 
 	// Partition work
-	chunkSize := (len(s.cache) + numWorkers - 1) / numWorkers
+	chunkSize := (len(cache) + numWorkers - 1) / numWorkers
 	type partialResult struct {
 		results []SearchResult
 	}
@@ -223,8 +222,8 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
 		end := start + chunkSize
-		if end > len(s.cache) {
-			end = len(s.cache)
+		if end > len(cache) {
+			end = len(cache)
 		}
 		go func(items []cachedChunk) {
 			var local []SearchResult
@@ -251,7 +250,7 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 				}
 			}
 			resultsCh <- partialResult{results: local}
-		}(s.cache[start:end])
+		}(cache[start:end])
 	}
 
 	// Collect results
@@ -276,18 +275,17 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 // using keyword overlap and character bigram Jaccard similarity.
 // This is Level 1 of the 3-level matching: zero API cost.
 // Returns results sorted by text similarity score descending.
+// Uses concurrent workers for large caches.
 func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64) ([]SearchResult, error) {
 	s.mu.Lock()
 	if err := s.ensureCache(); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
+	cache := s.cache
 	s.mu.Unlock()
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if len(s.cache) == 0 {
+	if len(cache) == 0 {
 		return nil, nil
 	}
 
@@ -299,22 +297,51 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 		idx   int
 		score float64
 	}
-	var hits []scored
 
-	for i := range s.cache {
-		c := &s.cache[i]
-		chunkLower := strings.ToLower(c.chunkText)
+	// Use concurrent workers for large caches
+	numWorkers := runtime.NumCPU()
+	if numWorkers > len(cache) {
+		numWorkers = len(cache)
+	}
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
 
-		// Combine keyword overlap score and bigram Jaccard score
-		kwScore := keywordOverlap(queryKeywords, chunkLower)
-		bigramScore := jaccardBigrams(queryBigrams, charBigrams(chunkLower))
+	chunkSize := (len(cache) + numWorkers - 1) / numWorkers
+	type partialHits struct {
+		hits []scored
+	}
+	hitsCh := make(chan partialHits, numWorkers)
 
-		// Weighted combination: keywords matter more for short queries
-		score := kwScore*0.6 + bigramScore*0.4
-
-		if score >= threshold {
-			hits = append(hits, scored{idx: i, score: score})
+	for w := 0; w < numWorkers; w++ {
+		start := w * chunkSize
+		end := start + chunkSize
+		if end > len(cache) {
+			end = len(cache)
 		}
+		go func(items []cachedChunk, baseIdx int) {
+			var local []scored
+			for i := range items {
+				c := &items[i]
+				chunkLower := strings.ToLower(c.chunkText)
+
+				kwScore := keywordOverlap(queryKeywords, chunkLower)
+				bigramScore := jaccardBigrams(queryBigrams, charBigrams(chunkLower))
+
+				score := kwScore*0.6 + bigramScore*0.4
+
+				if score >= threshold {
+					local = append(local, scored{idx: baseIdx + i, score: score})
+				}
+			}
+			hitsCh <- partialHits{hits: local}
+		}(cache[start:end], start)
+	}
+
+	var hits []scored
+	for w := 0; w < numWorkers; w++ {
+		ph := <-hitsCh
+		hits = append(hits, ph.hits...)
 	}
 
 	sort.Slice(hits, func(i, j int) bool {
@@ -326,7 +353,7 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 
 	results := make([]SearchResult, len(hits))
 	for i, h := range hits {
-		c := &s.cache[h.idx]
+		c := &cache[h.idx]
 		results[i] = SearchResult{
 			ChunkText:    c.chunkText,
 			ChunkIndex:   c.chunkIndex,
@@ -415,15 +442,15 @@ func (s *SQLiteVectorStore) DeleteByDocID(docID string) error {
 		return fmt.Errorf("failed to delete chunks for document %s: %w", docID, err)
 	}
 
-	// Update cache: remove matching entries
+	// Update cache: build a new slice to allow GC of removed entries' vectors
 	if s.loaded {
-		filtered := s.cache[:0]
+		newCache := make([]cachedChunk, 0, len(s.cache))
 		for _, c := range s.cache {
 			if c.documentID != docID {
-				filtered = append(filtered, c)
+				newCache = append(newCache, c)
 			}
 		}
-		s.cache = filtered
+		s.cache = newCache
 	}
 
 	return nil

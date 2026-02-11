@@ -8,6 +8,7 @@
     var SESSION_KEY = 'helpdesk_session';
     var USER_KEY = 'helpdesk_user';
     var adminLoginRoute = '/admin'; // default, will be fetched from server
+    var systemReady = true; // assume ready until checked
     var loginCaptchaId = '';
     var registerCaptchaId = '';
     var adminCaptchaId = '';
@@ -45,6 +46,17 @@
 
         // OAuth callback is handled in init(), skip routing
         if (route === '/oauth/callback') return;
+
+        // If system is not ready (API keys not configured), show setup page
+        // except for admin login/panel routes so admin can configure the system
+        if (!systemReady) {
+            if (route === adminLoginRoute || route === '/admin-panel') {
+                // Allow admin to access admin pages to configure the system
+            } else {
+                showPage('setup');
+                return;
+            }
+        }
 
         if (route === adminLoginRoute) {
             if (isAdmin) {
@@ -621,6 +633,41 @@
                 }
             }
         });
+
+        // Drag-and-drop image support on the input wrapper
+        var wrapper = document.getElementById('chat-input-wrapper');
+        if (wrapper) {
+            wrapper.addEventListener('dragover', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                wrapper.classList.add('drag-over');
+            });
+            wrapper.addEventListener('dragleave', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                wrapper.classList.remove('drag-over');
+            });
+            wrapper.addEventListener('drop', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                wrapper.classList.remove('drag-over');
+                var files = e.dataTransfer && e.dataTransfer.files;
+                if (!files || files.length === 0) return;
+                var file = files[0];
+                if (file.type.indexOf('image') === -1) return;
+                if (file.size > 10 * 1024 * 1024) {
+                    alert(i18n.t('image_size_error'));
+                    return;
+                }
+                var reader = new FileReader();
+                reader.onload = function (ev) {
+                    chatPendingImage = ev.target.result;
+                    showChatImagePreview(chatPendingImage);
+                    updateSendBtnState();
+                };
+                reader.readAsDataURL(file);
+            });
+        }
     }
 
     function updateSendBtnState() {
@@ -645,6 +692,31 @@
         var preview = document.getElementById('chat-image-preview');
         if (preview) preview.classList.add('hidden');
         updateSendBtnState();
+    };
+
+    // Handle image file selection from the upload button
+    window.handleChatImageFileSelect = function (input) {
+        if (!input.files || input.files.length === 0) return;
+        var file = input.files[0];
+        if (file.type.indexOf('image') === -1) {
+            alert(i18n.t('image_select_error'));
+            input.value = '';
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            alert(i18n.t('image_size_error'));
+            input.value = '';
+            return;
+        }
+        var reader = new FileReader();
+        reader.onload = function (ev) {
+            chatPendingImage = ev.target.result;
+            showChatImagePreview(chatPendingImage);
+            updateSendBtnState();
+        };
+        reader.readAsDataURL(file);
+        // Reset input so the same file can be selected again
+        input.value = '';
     };
 
     function renderChatMessages() {
@@ -2378,8 +2450,17 @@
         // Check for OAuth callback first
         if (handleOAuthCallbackFromURL()) return;
 
-        // Fetch admin login route, product name, and OAuth providers, then handle routing
+        // Fetch admin login route, product name, OAuth providers, and system status
         var promises = [];
+
+        promises.push(
+            fetch('/api/system/status')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    systemReady = !!data.ready;
+                })
+                .catch(function () { systemReady = true; /* assume ready on error */ })
+        );
 
         promises.push(
             fetch('/api/admin/status')

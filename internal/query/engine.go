@@ -542,7 +542,20 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			"\n\n关于图片：参考资料中标记为[图片已附带]的内容，对应的图片会自动展示在你的回答下方。请在回答中自然地引导用户查看图片（例如：如下图所示、请参考下方图片），不要说无法提供图片或无法展示图片。"
 	}
 
-	answer, err := qe.llmService.Generate(systemPrompt, context, req.Question)
+	// Use vision LLM when user attached an image
+	var answer string
+	if req.ImageData != "" {
+		visionPrompt := systemPrompt
+		if visionPrompt == "" {
+			visionPrompt = "你是一个专业的软件技术支持助手。用户上传了一张图片并提出了问题。" +
+				"请结合图片内容和提供的参考资料来回答用户的问题。" +
+				"如果参考资料中没有相关信息，请根据图片内容尽可能回答。回答应简洁、准确、有条理。" +
+				"\n\n重要规则：你必须使用与用户提问相同的语言来回答。"
+		}
+		answer, err = qe.llmService.GenerateWithImage(visionPrompt, context, req.Question, req.ImageData)
+	} else {
+		answer, err = qe.llmService.Generate(systemPrompt, context, req.Question)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate answer: %w", err)
 	}

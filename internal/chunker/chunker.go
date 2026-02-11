@@ -29,10 +29,11 @@ func NewTextChunker() *TextChunker {
 	}
 }
 
-// Split divides text into chunks of ChunkSize characters with Overlap characters
+// Split divides text into chunks of ChunkSize runes with Overlap runes
 // of overlap between adjacent chunks. Each chunk is tagged with the given documentID
 // and an incrementing index starting from 0.
 //
+// Uses rune-based splitting to correctly handle multi-byte Unicode characters.
 // Returns an empty slice for empty text.
 // Returns a single chunk if text is shorter than or equal to ChunkSize.
 // The last chunk may be shorter than ChunkSize.
@@ -40,6 +41,8 @@ func (tc *TextChunker) Split(text string, documentID string) []Chunk {
 	if len(text) == 0 {
 		return []Chunk{}
 	}
+
+	runes := []rune(text)
 
 	chunkSize := tc.ChunkSize
 	if chunkSize <= 0 {
@@ -58,21 +61,21 @@ func (tc *TextChunker) Split(text string, documentID string) []Chunk {
 	var chunks []Chunk
 	index := 0
 
-	for start := 0; start < len(text); start += step {
+	for start := 0; start < len(runes); start += step {
 		end := start + chunkSize
-		if end > len(text) {
-			end = len(text)
+		if end > len(runes) {
+			end = len(runes)
 		}
 
 		chunks = append(chunks, Chunk{
-			Text:       text[start:end],
+			Text:       string(runes[start:end]),
 			Index:      index,
 			DocumentID: documentID,
 		})
 		index++
 
 		// If we've reached the end of the text, stop
-		if end == len(text) {
+		if end == len(runes) {
 			break
 		}
 	}

@@ -3,6 +3,7 @@ package captcha
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"image"
@@ -53,7 +54,7 @@ func Generate() *Response {
 	}
 	answer := string(text)
 
-	id := fmt.Sprintf("cap_%d", now.UnixNano())
+	id := generateCaptchaID()
 	store[id] = entry{
 		answer:    answer,
 		expiresAt: now.Add(5 * time.Minute),
@@ -208,6 +209,16 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// generateCaptchaID creates a cryptographically random captcha ID.
+func generateCaptchaID() string {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails (should never happen)
+		return fmt.Sprintf("cap_%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("cap_%x", b)
 }
 
 // drawChar renders a single character using a simple bitmap font.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -140,7 +141,7 @@ func (s *APIEmbeddingService) callAPI(input interface{}) ([]embeddingData, error
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := s.Endpoint + "/embeddings"
+	url := strings.TrimRight(s.Endpoint, "/") + "/embeddings"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -235,7 +236,7 @@ func (s *APIEmbeddingService) callMultimodalAPI(input []multimodalInputItem) ([]
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := s.Endpoint + "/embeddings/multimodal"
+	url := strings.TrimRight(s.Endpoint, "/") + "/embeddings/multimodal"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)

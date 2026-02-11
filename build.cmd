@@ -1,9 +1,23 @@
 @echo off
 setlocal
 
-set SERVER=service.vantagedata.chat
-set USER=root
-set PASS=sunion123
+REM Read credentials from environment variables (never hardcode secrets!)
+if "%DEPLOY_SERVER%"=="" (
+    echo [ERROR] DEPLOY_SERVER environment variable not set.
+    echo         Set it with: set DEPLOY_SERVER=your.server.host
+    exit /b 1
+)
+if "%DEPLOY_USER%"=="" (
+    echo [ERROR] DEPLOY_USER environment variable not set.
+    exit /b 1
+)
+if "%DEPLOY_PASS%"=="" (
+    echo [ERROR] DEPLOY_PASS environment variable not set.
+    exit /b 1
+)
+set SERVER=%DEPLOY_SERVER%
+set USER=%DEPLOY_USER%
+set PASS=%DEPLOY_PASS%
 set REMOTE_DIR=/root/vantageselfservice
 set BINARY_NAME=helpdesk
 set PLINK="C:\Program Files\PuTTY\plink.exe"

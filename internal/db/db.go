@@ -21,6 +21,11 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Configure connection pool for SQLite
+	db.SetMaxOpenConns(1) // SQLite only supports one writer at a time
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0) // connections don't expire
+
 	if err := configurePragmas(db); err != nil {
 		db.Close()
 		return nil, err
@@ -39,6 +44,11 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	if err := createAdminUsersTable(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to create admin_users table: %w", err)
+	}
+
+	if err := createIndexes(db); err != nil {
+		db.Close()
+		return nil, err
 	}
 
 	return db, nil
@@ -129,6 +139,18 @@ func createTables(db *sql.DB) error {
 		}
 	}
 
+	// Create indexes for frequently queried columns
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)`,
+	}
+	for _, idx := range indexes {
+		if _, err := tx.Exec(idx); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
 	return tx.Commit()
 }
 
@@ -143,6 +165,24 @@ func createAdminUsersTable(db *sql.DB) error {
 		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
 	return err
+}
+
+// createIndexes adds indexes for frequently queried columns.
+// Called after migrations to ensure all columns exist.
+func createIndexes(db *sql.DB) error {
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks(document_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_email_tokens_token ON email_tokens(token)`,
+	}
+	for _, idx := range indexes {
+		if _, err := db.Exec(idx); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+	return nil
 }
 
 // migrateTables adds missing columns to existing tables for backward compatibility.
@@ -171,7 +211,17 @@ func migrateTables(db *sql.DB) error {
 }
 
 // columnExists checks if a column exists in a table.
+// Table names are validated against a whitelist to prevent SQL injection.
 func columnExists(db *sql.DB, table, column string) bool {
+	// Whitelist of known tables to prevent SQL injection via table name
+	validTables := map[string]bool{
+		"users": true, "documents": true, "chunks": true,
+		"pending_questions": true, "sessions": true,
+		"email_tokens": true, "admin_users": true,
+	}
+	if !validTables[table] {
+		return false
+	}
 	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return false
