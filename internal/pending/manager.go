@@ -219,9 +219,10 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 	// Step 1: Get the question from DB
 	var question string
 	var status string
+	var productID string
 	err := pm.db.QueryRow(
-		`SELECT question, status FROM pending_questions WHERE id = ?`, req.QuestionID,
-	).Scan(&question, &status)
+		`SELECT question, status, product_id FROM pending_questions WHERE id = ?`, req.QuestionID,
+	).Scan(&question, &status, &productID)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("pending question not found: %s", req.QuestionID)
 	}
@@ -276,8 +277,8 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 
 			// Insert a document record so the chunks FK constraint is satisfied
 			_, err = pm.db.Exec(
-				`INSERT OR REPLACE INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
-				docID, docName, "answer", "success", time.Now().UTC(),
+				`INSERT OR REPLACE INTO documents (id, name, type, status, product_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+				docID, docName, "answer", "success", productID, time.Now().UTC(),
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert document record for answer: %w", err)
@@ -292,6 +293,7 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 					DocumentID:   docID,
 					DocumentName: docName,
 					Vector:       embeddings[i],
+					ProductID:    productID,
 				}
 			}
 
@@ -305,8 +307,8 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 	if len(req.ImageURLs) > 0 {
 		if !docCreated {
 			_, err = pm.db.Exec(
-				`INSERT OR REPLACE INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
-				docID, docName, "answer", "success", time.Now().UTC(),
+				`INSERT OR REPLACE INTO documents (id, name, type, status, product_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+				docID, docName, "answer", "success", productID, time.Now().UTC(),
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert document record for answer images: %w", err)
@@ -330,6 +332,7 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 				DocumentName: docName,
 				Vector:       vec,
 				ImageURL:     imgURL,
+				ProductID:    productID,
 			}}
 			if storeErr := pm.vectorStore.Store(docID, imgChunk); storeErr != nil {
 				fmt.Printf("Warning: failed to store answer image chunk %d: %v\n", i, storeErr)
