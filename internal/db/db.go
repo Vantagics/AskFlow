@@ -156,6 +156,8 @@ func migrateTables(db *sql.DB) error {
 		{"users", "password_hash", "ALTER TABLE users ADD COLUMN password_hash TEXT"},
 		{"users", "email_verified", "ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0"},
 		{"chunks", "image_url", "ALTER TABLE chunks ADD COLUMN image_url TEXT DEFAULT ''"},
+		{"documents", "content_hash", "ALTER TABLE documents ADD COLUMN content_hash TEXT DEFAULT ''"},
+		{"pending_questions", "image_data", "ALTER TABLE pending_questions ADD COLUMN image_data TEXT DEFAULT ''"},
 	}
 
 	for _, m := range migrations {

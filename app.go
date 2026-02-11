@@ -554,6 +554,7 @@ type MaskedConfig struct {
 	Admin        config.AdminConfig     `json:"admin"`
 	SMTP         config.SMTPConfig      `json:"smtp"`
 	ProductIntro string                 `json:"product_intro"`
+	ProductName  string                 `json:"product_name"`
 }
 
 // MaskedOAuthConfig holds OAuth config with secrets masked.
@@ -586,6 +587,7 @@ func (a *App) GetConfig() *MaskedConfig {
 		Admin:        cfg.Admin,
 		SMTP:         cfg.SMTP,
 		ProductIntro: cfg.ProductIntro,
+		ProductName:  cfg.ProductName,
 	}
 
 	// Mask API keys

@@ -4,6 +4,7 @@ package document
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -27,6 +28,7 @@ var supportedFileTypes = map[string]bool{
 	"excel":    true,
 	"ppt":      true,
 	"markdown": true,
+	"html":     true,
 }
 
 // DocumentManager orchestrates document upload, processing, and lifecycle management.
@@ -93,6 +95,47 @@ func generateID() (string, error) {
 		return "", fmt.Errorf("failed to generate ID: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// contentHash computes a SHA-256 hash of the given text for deduplication.
+func contentHash(text string) string {
+	h := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(h[:])
+}
+
+// findDocumentByContentHash checks if a document with the same content hash already exists.
+// Returns the document ID if found, empty string otherwise.
+func (dm *DocumentManager) findDocumentByContentHash(hash string) string {
+	var docID string
+	err := dm.db.QueryRow(
+		`SELECT id FROM documents WHERE content_hash = ? AND status = 'success' LIMIT 1`, hash,
+	).Scan(&docID)
+	if err != nil {
+		return ""
+	}
+	return docID
+}
+
+// getExistingChunkEmbeddings looks up embeddings for chunk texts that already exist in the DB.
+// Returns a map of chunk_text -> embedding vector for reuse, saving API calls.
+func (dm *DocumentManager) getExistingChunkEmbeddings(texts []string) map[string][]float64 {
+	result := make(map[string][]float64)
+	if len(texts) == 0 {
+		return result
+	}
+	for _, text := range texts {
+		var embeddingBytes []byte
+		err := dm.db.QueryRow(
+			`SELECT embedding FROM chunks WHERE chunk_text = ? LIMIT 1`, text,
+		).Scan(&embeddingBytes)
+		if err == nil && len(embeddingBytes) > 0 {
+			vec := vectorstore.DeserializeVector(embeddingBytes)
+			if len(vec) > 0 {
+				result[text] = vec
+			}
+		}
+	}
+	return result
 }
 
 // UploadFile validates the file type, parses the file, chunks the text,
@@ -224,6 +267,8 @@ func (dm *DocumentManager) ListDocuments() ([]DocumentInfo, error) {
 }
 
 // processFile parses a file, chunks the text, embeds, and stores vectors.
+// It performs content-level deduplication: if a document with the same content
+// hash already exists, the upload is skipped to save API calls.
 func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, fileType string) error {
 	result, err := dm.parser.Parse(fileData, fileType)
 	if err != nil {
@@ -231,6 +276,16 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	}
 	if result.Text == "" && len(result.Images) == 0 {
 		return fmt.Errorf("文档内容为空")
+	}
+
+	// Document-level dedup: check if identical content already exists
+	if result.Text != "" {
+		hash := contentHash(result.Text)
+		if existingID := dm.findDocumentByContentHash(hash); existingID != "" {
+			return fmt.Errorf("文档内容重复，与已有文档相同 (ID: %s)", existingID)
+		}
+		// Store the content hash for future dedup checks
+		dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
 	}
 
 	// Store text chunks
@@ -288,25 +343,121 @@ func (dm *DocumentManager) processURL(docID, url string) error {
 	if text == "" {
 		return fmt.Errorf("URL内容为空")
 	}
+
+	// Detect HTML content and parse it with image extraction
+	contentType := resp.Header.Get("Content-Type")
+	isHTML := strings.Contains(contentType, "text/html") || looksLikeHTML(text)
+	if isHTML {
+		result, err := dm.parser.ParseWithBaseURL(body, "html", url)
+		if err != nil {
+			return fmt.Errorf("HTML parse error: %w", err)
+		}
+		// Document-level dedup for HTML content
+		if result.Text != "" {
+			hash := contentHash(result.Text)
+			if existingID := dm.findDocumentByContentHash(hash); existingID != "" {
+				return fmt.Errorf("文档内容重复，与已有文档相同 (ID: %s)", existingID)
+			}
+			dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
+		}
+		if result.Text != "" {
+			if err := dm.chunkEmbedStore(docID, url, result.Text); err != nil {
+				return err
+			}
+		}
+		// Embed images found in the HTML
+		for i, img := range result.Images {
+			if img.URL == "" {
+				continue
+			}
+			vec, err := dm.embeddingService.EmbedImageURL(img.URL)
+			if err != nil {
+				fmt.Printf("Warning: failed to embed HTML image %d (%s): %v\n", i, img.Alt, err)
+				continue
+			}
+			imgChunk := []vectorstore.VectorChunk{{
+				ChunkText:    fmt.Sprintf("[图片: %s]", img.Alt),
+				ChunkIndex:   1000 + i,
+				DocumentID:   docID,
+				DocumentName: url,
+				Vector:       vec,
+				ImageURL:     img.URL,
+			}}
+			if err := dm.vectorStore.Store(docID, imgChunk); err != nil {
+				fmt.Printf("Warning: failed to store HTML image vector %d: %v\n", i, err)
+			}
+		}
+		return nil
+	}
+
+	// Document-level dedup for plain text URL content
+	hash := contentHash(text)
+	if existingID := dm.findDocumentByContentHash(hash); existingID != "" {
+		return fmt.Errorf("文档内容重复，与已有文档相同 (ID: %s)", existingID)
+	}
+	dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
+
 	return dm.chunkEmbedStore(docID, url, text)
 }
 
+// looksLikeHTML checks if content appears to be HTML by looking for common HTML markers.
+func looksLikeHTML(content string) bool {
+	lower := strings.ToLower(content[:min(512, len(content))])
+	return strings.Contains(lower, "<!doctype html") ||
+		strings.Contains(lower, "<html") ||
+		strings.Contains(lower, "<head") ||
+		strings.Contains(lower, "<body")
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // chunkEmbedStore splits text into chunks, embeds them in batch, and stores vectors.
+// It performs chunk-level deduplication: if a chunk with identical text already exists
+// in the database, its embedding is reused instead of calling the embedding API.
 func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string) error {
 	chunks := dm.chunker.Split(text, docID)
 	if len(chunks) == 0 {
 		return fmt.Errorf("分块结果为空")
 	}
 
-	// Collect chunk texts for batch embedding
+	// Collect chunk texts
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
 		texts[i] = c.Text
 	}
 
-	embeddings, err := dm.embeddingService.EmbedBatch(texts)
-	if err != nil {
-		return fmt.Errorf("embedding error: %w", err)
+	// Chunk-level dedup: look up existing embeddings for identical chunk texts
+	existingEmbeddings := dm.getExistingChunkEmbeddings(texts)
+
+	// Identify which chunks need new embeddings
+	var newTexts []string
+	var newIndices []int
+	for i, t := range texts {
+		if _, ok := existingEmbeddings[t]; !ok {
+			newTexts = append(newTexts, t)
+			newIndices = append(newIndices, i)
+		}
+	}
+
+	// Only call embedding API for chunks that don't have existing embeddings
+	if len(newTexts) > 0 {
+		newEmbeddings, err := dm.embeddingService.EmbedBatch(newTexts)
+		if err != nil {
+			return fmt.Errorf("embedding error: %w", err)
+		}
+		for j, idx := range newIndices {
+			existingEmbeddings[texts[idx]] = newEmbeddings[j]
+		}
+	}
+
+	if len(newTexts) < len(texts) {
+		fmt.Printf("去重: %d/%d 个分块复用了已有向量，节省 %d 次API调用\n",
+			len(texts)-len(newTexts), len(texts), len(texts)-len(newTexts))
 	}
 
 	// Build VectorChunks for storage
@@ -317,7 +468,7 @@ func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string) error {
 			ChunkIndex:   c.Index,
 			DocumentID:   docID,
 			DocumentName: docName,
-			Vector:       embeddings[i],
+			Vector:       existingEmbeddings[c.Text],
 		}
 	}
 

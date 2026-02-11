@@ -103,10 +103,10 @@ func printUsage() {
   helpdesk help                显示此帮助信息
 
 import 命令:
-  递归扫描指定目录及子目录，将支持的文件（PDF、Word、Excel、PPT、Markdown）
+  递归扫描指定目录及子目录，将支持的文件（PDF、Word、Excel、PPT、Markdown、HTML）
   解析后存入向量数据库。可同时指定多个目录。
 
-  支持的文件格式: .pdf .doc .docx .xls .xlsx .ppt .pptx .md .markdown
+  支持的文件格式: .pdf .doc .docx .xls .xlsx .ppt .pptx .md .markdown .html .htm
 
   示例:
     helpdesk import ./docs
@@ -124,6 +124,8 @@ var supportedExtensions = map[string]string{
 	".pptx":     "ppt",
 	".md":       "markdown",
 	".markdown": "markdown",
+	".html":     "html",
+	".htm":      "html",
 }
 
 // runBatchImport scans directories and imports supported files.
@@ -232,6 +234,8 @@ func registerAPIHandlers(app *App) {
 
 	// Public info
 	http.HandleFunc("/api/product-intro", handleProductIntro(app))
+	http.HandleFunc("/api/app-info", handleAppInfo(app))
+	http.HandleFunc("/api/translate-product-name", handleTranslateProductName(app))
 
 	// Query
 	http.HandleFunc("/api/query", handleQuery(app))
@@ -494,6 +498,45 @@ func handleProductIntro(app *App) http.HandlerFunc {
 		}
 		cfg := app.configManager.Get()
 		writeJSON(w, http.StatusOK, map[string]string{"product_intro": cfg.ProductIntro})
+	}
+}
+
+// handleAppInfo returns public app info (product_name) for frontend display.
+func handleAppInfo(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		cfg := app.configManager.Get()
+		writeJSON(w, http.StatusOK, map[string]string{"product_name": cfg.ProductName})
+	}
+}
+
+// handleTranslateProductName translates the product name to the requested language using LLM.
+func handleTranslateProductName(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		lang := r.URL.Query().Get("lang")
+		cfg := app.configManager.Get()
+		name := cfg.ProductName
+		if name == "" {
+			writeJSON(w, http.StatusOK, map[string]string{"product_name": ""})
+			return
+		}
+		if lang == "" {
+			writeJSON(w, http.StatusOK, map[string]string{"product_name": name})
+			return
+		}
+		translated, err := app.queryEngine.TranslateText(name, lang)
+		if err != nil || translated == "" {
+			writeJSON(w, http.StatusOK, map[string]string{"product_name": name})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"product_name": translated})
 	}
 }
 
@@ -1017,6 +1060,8 @@ func detectFileType(filename string) string {
 		return "ppt"
 	case strings.HasSuffix(lower, ".md"), strings.HasSuffix(lower, ".markdown"):
 		return "markdown"
+	case strings.HasSuffix(lower, ".html"), strings.HasSuffix(lower, ".htm"):
+		return "html"
 	default:
 		return "unknown"
 	}

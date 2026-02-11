@@ -5,6 +5,7 @@ package parser
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -45,9 +46,19 @@ func (dp *DocumentParser) Parse(fileData []byte, fileType string) (*ParseResult,
 		return dp.parsePPT(fileData)
 	case "markdown":
 		return dp.parseMarkdown(fileData)
+	case "html":
+		return dp.parseHTML(fileData, "")
 	default:
 		return nil, fmt.Errorf("不支持的文件格式: %s", fileType)
 	}
+}
+
+// ParseWithBaseURL dispatches to the correct parser, passing baseURL for HTML image resolution.
+func (dp *DocumentParser) ParseWithBaseURL(fileData []byte, fileType string, baseURL string) (*ParseResult, error) {
+	if strings.ToLower(fileType) == "html" {
+		return dp.parseHTML(fileData, baseURL)
+	}
+	return dp.Parse(fileData, fileType)
 }
 
 // parsePDF extracts text from PDF data using gopdf2, preserving paragraph structure.
@@ -268,4 +279,175 @@ func (dp *DocumentParser) parseMarkdown(data []byte) (*ParseResult, error) {
 		Metadata: map[string]string{"format": "markdown"},
 		Images:   images,
 	}, nil
+}
+
+// parseHTML extracts text and images from HTML content.
+// It strips HTML tags while preserving text structure, and collects <img> src URLs.
+// If baseURL is provided, relative image URLs are resolved to absolute URLs.
+func (dp *DocumentParser) parseHTML(data []byte, baseURL string) (*ParseResult, error) {
+	html := string(data)
+	if strings.TrimSpace(html) == "" {
+		return nil, fmt.Errorf("HTML文件内容为空")
+	}
+
+	// Parse base URL for resolving relative image paths
+	var base *url.URL
+	if baseURL != "" {
+		var err error
+		base, err = url.Parse(baseURL)
+		if err != nil {
+			base = nil
+		}
+	}
+
+	// Also check for <base href="..."> in the HTML
+	if base == nil {
+		reBase := regexp.MustCompile(`(?i)<base[^>]+href\s*=\s*["']([^"']+)["']`)
+		if m := reBase.FindStringSubmatch(html); len(m) >= 2 {
+			if parsed, err := url.Parse(m[1]); err == nil {
+				base = parsed
+			}
+		}
+	}
+
+	// Extract images from <img> tags before stripping HTML
+	var images []ImageRef
+	reImg := regexp.MustCompile(`(?i)<img[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>`)
+	reAlt := regexp.MustCompile(`(?i)\balt\s*=\s*["']([^"']*)["']`)
+	for _, m := range reImg.FindAllStringSubmatch(html, -1) {
+		if len(m) < 2 {
+			continue
+		}
+		imgSrc := strings.TrimSpace(m[1])
+		if imgSrc == "" {
+			continue
+		}
+
+		// Skip data URIs (inline base64 images)
+		if strings.HasPrefix(imgSrc, "data:") {
+			continue
+		}
+
+		// Resolve relative URLs
+		imgSrc = resolveURL(imgSrc, base)
+
+		alt := ""
+		if altMatch := reAlt.FindStringSubmatch(m[0]); len(altMatch) >= 2 {
+			alt = altMatch[1]
+		}
+		images = append(images, ImageRef{Alt: alt, URL: imgSrc})
+	}
+
+	// --- Strip HTML to extract text ---
+
+	// Remove <script> and <style> blocks entirely
+	reScript := regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	html = reScript.ReplaceAllString(html, "")
+	reStyle := regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	html = reStyle.ReplaceAllString(html, "")
+
+	// Remove HTML comments
+	reComment := regexp.MustCompile(`(?s)<!--.*?-->`)
+	html = reComment.ReplaceAllString(html, "")
+
+	// Replace block-level tags with newlines for structure preservation
+	blockTags := []string{"div", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
+		"li", "tr", "blockquote", "pre", "section", "article", "header", "footer", "nav", "main"}
+	for _, tag := range blockTags {
+		reOpen := regexp.MustCompile(`(?i)<` + tag + `[^>]*>`)
+		html = reOpen.ReplaceAllString(html, "\n")
+		reClose := regexp.MustCompile(`(?i)</` + tag + `\s*>`)
+		html = reClose.ReplaceAllString(html, "\n")
+	}
+
+	// Replace <br> variants
+	reBr := regexp.MustCompile(`(?i)<br\s*/?\s*>`)
+	html = reBr.ReplaceAllString(html, "\n")
+
+	// Replace <td>/<th> with tab for table structure
+	reTd := regexp.MustCompile(`(?i)<t[dh][^>]*>`)
+	html = reTd.ReplaceAllString(html, "\t")
+
+	// Strip all remaining HTML tags
+	reTag := regexp.MustCompile(`<[^>]+>`)
+	html = reTag.ReplaceAllString(html, "")
+
+	// Decode common HTML entities
+	html = decodeHTMLEntities(html)
+
+	text := CleanText(html)
+	if text == "" && len(images) == 0 {
+		return nil, fmt.Errorf("HTML文件内容为空")
+	}
+
+	return &ParseResult{
+		Text: text,
+		Metadata: map[string]string{
+			"type":        "html",
+			"image_count": fmt.Sprintf("%d", len(images)),
+		},
+		Images: images,
+	}, nil
+}
+
+// resolveURL resolves a potentially relative URL against a base URL.
+// Returns the original src if base is nil or resolution fails.
+func resolveURL(src string, base *url.URL) string {
+	if base == nil {
+		return src
+	}
+	// Already absolute
+	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
+		return src
+	}
+	// Protocol-relative
+	if strings.HasPrefix(src, "//") {
+		return base.Scheme + ":" + src
+	}
+	ref, err := url.Parse(src)
+	if err != nil {
+		return src
+	}
+	return base.ResolveReference(ref).String()
+}
+
+// decodeHTMLEntities decodes common HTML entities to their text equivalents.
+func decodeHTMLEntities(s string) string {
+	replacer := strings.NewReplacer(
+		"&amp;", "&",
+		"&lt;", "<",
+		"&gt;", ">",
+		"&quot;", "\"",
+		"&#39;", "'",
+		"&apos;", "'",
+		"&nbsp;", " ",
+		"&mdash;", "—",
+		"&ndash;", "–",
+		"&hellip;", "…",
+		"&copy;", "©",
+		"&reg;", "®",
+		"&trade;", "™",
+		"&laquo;", "«",
+		"&raquo;", "»",
+	)
+	// Also handle numeric entities like &#123; and &#x1F;
+	reNumeric := regexp.MustCompile(`&#(\d+);`)
+	s = reNumeric.ReplaceAllStringFunc(s, func(match string) string {
+		var n int
+		fmt.Sscanf(match, "&#%d;", &n)
+		if n > 0 && n < 0x110000 {
+			return string(rune(n))
+		}
+		return match
+	})
+	reHex := regexp.MustCompile(`(?i)&#x([0-9a-f]+);`)
+	s = reHex.ReplaceAllStringFunc(s, func(match string) string {
+		var n int
+		fmt.Sscanf(strings.ToLower(match), "&#x%x;", &n)
+		if n > 0 && n < 0x110000 {
+			return string(rune(n))
+		}
+		return match
+	})
+	return replacer.Replace(s)
 }

@@ -88,7 +88,7 @@ func TestCreatePending_Success(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, err := pm.CreatePending("How do I reset my password?", "user-123")
+	pq, err := pm.CreatePending("How do I reset my password?", "user-123", "")
 	if err != nil {
 		t.Fatalf("CreatePending failed: %v", err)
 	}
@@ -120,11 +120,11 @@ func TestCreatePending_MultipleQuestions(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq1, err := pm.CreatePending("Question 1", "user-1")
+	pq1, err := pm.CreatePending("Question 1", "user-1", "")
 	if err != nil {
 		t.Fatalf("CreatePending 1 failed: %v", err)
 	}
-	pq2, err := pm.CreatePending("Question 2", "user-2")
+	pq2, err := pm.CreatePending("Question 2", "user-2", "")
 	if err != nil {
 		t.Fatalf("CreatePending 2 failed: %v", err)
 	}
@@ -155,8 +155,8 @@ func TestListPending_AllStatuses(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pm.CreatePending("Q1", "user-1")
-	pm.CreatePending("Q2", "user-2")
+	pm.CreatePending("Q1", "user-1", "")
+	pm.CreatePending("Q2", "user-2", "")
 
 	questions, err := pm.ListPending("")
 	if err != nil {
@@ -173,8 +173,8 @@ func TestListPending_FilterByStatus(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("Q1", "user-1")
-	pm.CreatePending("Q2", "user-2")
+	pq, _ := pm.CreatePending("Q1", "user-1", "")
+	pm.CreatePending("Q2", "user-2", "")
 
 	// Answer Q1 to change its status
 	pm.AnswerQuestion(AdminAnswerRequest{
@@ -258,7 +258,7 @@ func TestAnswerQuestion_Success(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, ls)
 
-	pq, _ := pm.CreatePending("How do I reset my password?", "user-123")
+	pq, _ := pm.CreatePending("How do I reset my password?", "user-123", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{
 		QuestionID: pq.ID,
@@ -308,7 +308,7 @@ func TestAnswerQuestion_StoresInVectorStore(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("How to configure email?", "user-456")
+	pq, _ := pm.CreatePending("How to configure email?", "user-456", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{
 		QuestionID: pq.ID,
@@ -348,7 +348,7 @@ func TestAnswerQuestion_AlreadyAnswered(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("Q1", "user-1")
+	pq, _ := pm.CreatePending("Q1", "user-1", "")
 	pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Answer 1"})
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Answer 2"})
@@ -369,7 +369,7 @@ func TestAnswerQuestion_EmbeddingError(t *testing.T) {
 
 	pm := newTestManager(t, database, es, &mockLLMService{})
 
-	pq, _ := pm.CreatePending("Q1", "user-1")
+	pq, _ := pm.CreatePending("Q1", "user-1", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Some answer text"})
 	if err == nil {
@@ -389,7 +389,7 @@ func TestAnswerQuestion_LLMError(t *testing.T) {
 
 	pm := newTestManager(t, database, &mockEmbeddingService{}, ls)
 
-	pq, _ := pm.CreatePending("Q1", "user-1")
+	pq, _ := pm.CreatePending("Q1", "user-1", "")
 
 	err := pm.AnswerQuestion(AdminAnswerRequest{QuestionID: pq.ID, Text: "Some answer"})
 	if err == nil {

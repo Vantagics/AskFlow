@@ -22,8 +22,10 @@ type PendingQuestion struct {
 	UserID    string    `json:"user_id"`
 	Status    string    `json:"status"` // "pending", "answered"
 	Answer    string    `json:"answer,omitempty"`
+	ImageData string    `json:"image_data,omitempty"` // base64 data URL of attached image
 	CreatedAt time.Time `json:"created_at"`
 }
+
 
 // AdminAnswerRequest represents an admin's answer to a pending question.
 type AdminAnswerRequest struct {
@@ -77,7 +79,7 @@ func generateID() (string, error) {
 }
 
 // CreatePending inserts a new pending question record with status="pending".
-func (pm *PendingQuestionManager) CreatePending(question string, userID string) (*PendingQuestion, error) {
+func (pm *PendingQuestionManager) CreatePending(question string, userID string, imageData string) (*PendingQuestion, error) {
 	id, err := generateID()
 	if err != nil {
 		return nil, err
@@ -85,8 +87,8 @@ func (pm *PendingQuestionManager) CreatePending(question string, userID string) 
 
 	now := time.Now().UTC()
 	_, err = pm.db.Exec(
-		`INSERT INTO pending_questions (id, question, user_id, status, created_at) VALUES (?, ?, ?, ?, ?)`,
-		id, question, userID, "pending", now,
+		`INSERT INTO pending_questions (id, question, user_id, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, question, userID, "pending", imageData, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert pending question: %w", err)
@@ -97,6 +99,7 @@ func (pm *PendingQuestionManager) CreatePending(question string, userID string) 
 		Question:  question,
 		UserID:    userID,
 		Status:    "pending",
+		ImageData: imageData,
 		CreatedAt: now,
 	}, nil
 }
@@ -135,11 +138,11 @@ func (pm *PendingQuestionManager) ListPending(status string) ([]PendingQuestion,
 
 	if status == "" {
 		rows, err = pm.db.Query(
-			`SELECT id, question, user_id, status, answer, created_at FROM pending_questions ORDER BY created_at DESC`,
+			`SELECT id, question, user_id, status, answer, image_data, created_at FROM pending_questions ORDER BY created_at DESC`,
 		)
 	} else {
 		rows, err = pm.db.Query(
-			`SELECT id, question, user_id, status, answer, created_at FROM pending_questions WHERE status = ? ORDER BY created_at DESC`,
+			`SELECT id, question, user_id, status, answer, image_data, created_at FROM pending_questions WHERE status = ? ORDER BY created_at DESC`,
 			status,
 		)
 	}
@@ -152,12 +155,16 @@ func (pm *PendingQuestionManager) ListPending(status string) ([]PendingQuestion,
 	for rows.Next() {
 		var q PendingQuestion
 		var answer sql.NullString
+		var imageData sql.NullString
 		var createdAt sql.NullTime
-		if err := rows.Scan(&q.ID, &q.Question, &q.UserID, &q.Status, &answer, &createdAt); err != nil {
+		if err := rows.Scan(&q.ID, &q.Question, &q.UserID, &q.Status, &answer, &imageData, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan pending question row: %w", err)
 		}
 		if answer.Valid {
 			q.Answer = answer.String
+		}
+		if imageData.Valid {
+			q.ImageData = imageData.String
 		}
 		if createdAt.Valid {
 			q.CreatedAt = createdAt.Time

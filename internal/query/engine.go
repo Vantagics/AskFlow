@@ -75,6 +75,26 @@ func (qe *QueryEngine) UpdateServices(es embedding.EmbeddingService, ls llm.LLMS
 	qe.config = cfg
 }
 
+// TranslateText translates the given text to the target language using LLM.
+func (qe *QueryEngine) TranslateText(text, targetLang string) (string, error) {
+	if text == "" {
+		return "", nil
+	}
+	langName := targetLang
+	switch targetLang {
+	case "zh-CN":
+		langName = "简体中文"
+	case "en-US", "en":
+		langName = "English"
+	}
+	prompt := fmt.Sprintf("你是一个翻译助手。将以下文本翻译为%s。只输出翻译结果，不要添加任何解释或引号。如果文本已经是目标语言，直接原样输出。", langName)
+	translated, err := qe.llmService.Generate(prompt, []string{text}, text)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(translated), nil
+}
+
 // IntentResult represents the result of intent classification.
 type IntentResult struct {
 	Intent string // "greeting", "product", or "irrelevant"
@@ -199,15 +219,22 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	log.Printf("[Query] search topK=%d threshold=%.2f results=%d", topK, threshold, len(results))
 
 	// Step 2.5: If image provided, also search with image embedding and merge results
+	var imgVec []float64
 	if req.ImageData != "" {
-		imgVec, imgErr := qe.embeddingService.EmbedImageURL(req.ImageData)
+		var imgErr error
+		imgVec, imgErr = qe.embeddingService.EmbedImageURL(req.ImageData)
 		if imgErr != nil {
 			log.Printf("[Query] image embedding failed: %v", imgErr)
 		} else {
 			log.Printf("[Query] image vector_dim=%d", len(imgVec))
-			imgResults, imgSearchErr := qe.vectorStore.Search(imgVec, topK, threshold)
+			// Use a lower threshold for image search since cross-modal similarity scores are typically lower
+			imgThreshold := threshold * 0.6
+			if imgThreshold < 0.3 {
+				imgThreshold = 0.3
+			}
+			imgResults, imgSearchErr := qe.vectorStore.Search(imgVec, topK, imgThreshold)
 			if imgSearchErr == nil && len(imgResults) > 0 {
-				log.Printf("[Query] image search results=%d", len(imgResults))
+				log.Printf("[Query] image search results=%d (threshold=%.2f)", len(imgResults), imgThreshold)
 				results = mergeSearchResults(results, imgResults, topK)
 			}
 		}
@@ -222,6 +249,18 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 		}
 		if len(relaxedResults) > 0 && relaxedResults[0].Score >= 0.3 {
 			results = relaxedResults[:1]
+		}
+
+		// Also try relaxed search with image vector
+		if len(results) == 0 && len(imgVec) > 0 {
+			imgRelaxed, _ := qe.vectorStore.Search(imgVec, 3, 0.0)
+			log.Printf("[Query] relaxed image search results=%d", len(imgRelaxed))
+			for i, r := range imgRelaxed {
+				log.Printf("[Query]   img_relaxed[%d] score=%.4f doc=%q", i, r.Score, r.DocumentName)
+			}
+			if len(imgRelaxed) > 0 && imgRelaxed[0].Score >= 0.2 {
+				results = mergeSearchResults(results, imgRelaxed[:1], topK)
+			}
 		}
 	}
 
@@ -276,7 +315,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 			}, nil
 		}
 
-		if err := qe.createPendingQuestion(req.Question, req.UserID); err != nil {
+		if err := qe.createPendingQuestion(req.Question, req.UserID, req.ImageData); err != nil {
 			return nil, fmt.Errorf("failed to create pending question: %w", err)
 		}
 		pendingMsg := "该问题已转交人工处理，请稍后查看回复"
@@ -331,7 +370,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 		if existing := qe.findSimilarPendingQuestion(req.Question, queryVector); existing != "" {
 			isPending = true
 		} else {
-			_ = qe.createPendingQuestion(req.Question, req.UserID)
+			_ = qe.createPendingQuestion(req.Question, req.UserID, req.ImageData)
 			isPending = true
 		}
 	}
@@ -415,7 +454,8 @@ func (qe *QueryEngine) findDocumentImages(results []vectorstore.SearchResult) []
 }
 
 // findSimilarPendingQuestion checks if there's already a pending question similar
-// to the given question. Uses the pre-computed query vector to avoid re-embedding.
+// to the given question. Uses local text similarity (Jaccard on character bigrams)
+// to avoid unnecessary embedding API calls.
 // Returns the existing question text if found, empty string otherwise.
 func (qe *QueryEngine) findSimilarPendingQuestion(question string, queryVector []float64) string {
 	rows, err := qe.db.Query(
@@ -438,19 +478,47 @@ func (qe *QueryEngine) findSimilarPendingQuestion(question string, queryVector [
 		return ""
 	}
 
-	// Batch embed all pending questions
-	pqVecs, err := qe.embeddingService.EmbedBatch(pendingQuestions)
-	if err != nil {
-		return ""
-	}
-
-	for i, pqVec := range pqVecs {
-		sim := cosineSimilarity(queryVector, pqVec)
-		if sim >= 0.85 {
-			return pendingQuestions[i]
+	// Use local text similarity instead of embedding API to save API calls
+	for _, pq := range pendingQuestions {
+		if textSimilarity(question, pq) >= 0.7 {
+			return pq
 		}
 	}
 	return ""
+}
+
+// textSimilarity computes Jaccard similarity on character bigrams between two strings.
+// This is a fast, local approximation that avoids embedding API calls.
+func textSimilarity(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+	bigramsA := charBigrams(strings.ToLower(a))
+	bigramsB := charBigrams(strings.ToLower(b))
+	if len(bigramsA) == 0 || len(bigramsB) == 0 {
+		return 0
+	}
+	intersection := 0
+	for bg := range bigramsA {
+		if bigramsB[bg] {
+			intersection++
+		}
+	}
+	union := len(bigramsA) + len(bigramsB) - intersection
+	if union == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
+}
+
+// charBigrams extracts character bigrams from a string.
+func charBigrams(s string) map[string]bool {
+	runes := []rune(s)
+	result := make(map[string]bool)
+	for i := 0; i < len(runes)-1; i++ {
+		result[string(runes[i:i+2])] = true
+	}
+	return result
 }
 
 // cosineSimilarity computes the cosine similarity between two vectors.
@@ -471,14 +539,14 @@ func cosineSimilarity(a, b []float64) float64 {
 }
 
 // createPendingQuestion inserts a new pending question record into the database.
-func (qe *QueryEngine) createPendingQuestion(question, userID string) error {
+func (qe *QueryEngine) createPendingQuestion(question, userID, imageData string) error {
 	id, err := generateID()
 	if err != nil {
 		return err
 	}
 	_, err = qe.db.Exec(
-		`INSERT INTO pending_questions (id, question, user_id, status, created_at) VALUES (?, ?, ?, ?, ?)`,
-		id, question, userID, "pending", time.Now().UTC(),
+		`INSERT INTO pending_questions (id, question, user_id, status, image_data, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		id, question, userID, "pending", imageData, time.Now().UTC(),
 	)
 	return err
 }

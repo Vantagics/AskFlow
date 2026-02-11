@@ -163,7 +163,7 @@
             })
             .catch(function () {
                 var el = document.getElementById(questionElId);
-                if (el) el.textContent = '加载失败，点击重试';
+                if (el) el.textContent = i18n.t('captcha_load_fail');
             });
     }
 
@@ -206,11 +206,11 @@
         var captchaAnswer = captchaInput ? parseInt(captchaInput.value.trim(), 10) : 0;
 
         if (!email || !password) {
-            if (errorEl) { errorEl.textContent = '请输入邮箱和密码'; errorEl.classList.remove('hidden'); }
+            if (errorEl) { errorEl.textContent = i18n.t('login_error_email_password'); errorEl.classList.remove('hidden'); }
             return;
         }
         if (!captchaInput || !captchaInput.value.trim()) {
-            if (errorEl) { errorEl.textContent = '请输入验证码'; errorEl.classList.remove('hidden'); }
+            if (errorEl) { errorEl.textContent = i18n.t('login_error_captcha'); errorEl.classList.remove('hidden'); }
             return;
         }
         if (errorEl) errorEl.classList.add('hidden');
@@ -222,7 +222,7 @@
             body: JSON.stringify({ email: email, password: password, captcha_id: loginCaptchaId, captcha_answer: captchaAnswer })
         })
         .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '登录失败'); });
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('login_failed')); });
             return res.json();
         })
         .then(function (data) {
@@ -258,11 +258,11 @@
         var confirm = confirmInput.value;
         var captchaAnswer = captchaInput ? parseInt(captchaInput.value.trim(), 10) : 0;
 
-        if (!email) { if (errorEl) { errorEl.textContent = '请输入邮箱'; errorEl.classList.remove('hidden'); } return; }
-        if (!password) { if (errorEl) { errorEl.textContent = '请输入密码'; errorEl.classList.remove('hidden'); } return; }
-        if (password.length < 6) { if (errorEl) { errorEl.textContent = '密码至少6位'; errorEl.classList.remove('hidden'); } return; }
-        if (password !== confirm) { if (errorEl) { errorEl.textContent = '两次密码不一致'; errorEl.classList.remove('hidden'); } return; }
-        if (!captchaInput || !captchaInput.value.trim()) { if (errorEl) { errorEl.textContent = '请输入验证码'; errorEl.classList.remove('hidden'); } return; }
+        if (!email) { if (errorEl) { errorEl.textContent = i18n.t('register_error_email'); errorEl.classList.remove('hidden'); } return; }
+        if (!password) { if (errorEl) { errorEl.textContent = i18n.t('register_error_password'); errorEl.classList.remove('hidden'); } return; }
+        if (password.length < 6) { if (errorEl) { errorEl.textContent = i18n.t('register_error_password_length'); errorEl.classList.remove('hidden'); } return; }
+        if (password !== confirm) { if (errorEl) { errorEl.textContent = i18n.t('register_error_password_mismatch'); errorEl.classList.remove('hidden'); } return; }
+        if (!captchaInput || !captchaInput.value.trim()) { if (errorEl) { errorEl.textContent = i18n.t('register_error_captcha'); errorEl.classList.remove('hidden'); } return; }
 
         if (errorEl) errorEl.classList.add('hidden');
         if (successEl) successEl.classList.add('hidden');
@@ -274,11 +274,11 @@
             body: JSON.stringify({ email: email, name: name, password: password, captcha_id: registerCaptchaId, captcha_answer: captchaAnswer })
         })
         .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '注册失败'); });
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('register_failed')); });
             return res.json();
         })
         .then(function (data) {
-            if (successEl) { successEl.textContent = data.message || '注册成功，请查收验证邮件'; successEl.classList.remove('hidden'); }
+            if (successEl) { successEl.textContent = data.message || i18n.t('register_success'); successEl.classList.remove('hidden'); }
             if (errorEl) errorEl.classList.add('hidden');
         })
         .catch(function (err) {
@@ -297,19 +297,19 @@
         var statusEl = document.getElementById('verify-status');
 
         if (!token) {
-            if (statusEl) statusEl.innerHTML = '<p class="error-text">无效的验证链接</p>';
+            if (statusEl) statusEl.innerHTML = '<p class="error-text">' + i18n.t('verify_invalid_link') + '</p>';
             return;
         }
 
         fetch('/api/auth/verify?token=' + encodeURIComponent(token))
             .then(function (res) {
-                if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '验证失败'); });
+                if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('verify_failed')); });
                 return res.json();
             })
             .then(function (data) {
                 if (statusEl) {
-                    statusEl.innerHTML = '<p class="success-text">' + escapeHtml(data.message || '邮箱验证成功') + '</p>' +
-                        '<p style="margin-top:1rem;"><a href="/login">前往登录</a></p>';
+                    statusEl.innerHTML = '<p class="success-text">' + escapeHtml(data.message || i18n.t('verify_success')) + '</p>' +
+                        '<p style="margin-top:1rem;"><a href="/login">' + i18n.t('verify_go_login') + '</a></p>';
                 }
             })
             .catch(function (err) {
@@ -370,19 +370,19 @@
         var confirm = confirmInput.value;
 
         if (!username) {
-            if (errorEl) { errorEl.textContent = '请输入用户名'; errorEl.classList.remove('hidden'); }
+            if (errorEl) { errorEl.textContent = i18n.t('admin_error_username'); errorEl.classList.remove('hidden'); }
             return;
         }
         if (!password) {
-            if (errorEl) { errorEl.textContent = '请输入密码'; errorEl.classList.remove('hidden'); }
+            if (errorEl) { errorEl.textContent = i18n.t('admin_error_password'); errorEl.classList.remove('hidden'); }
             return;
         }
         if (password.length < 6) {
-            if (errorEl) { errorEl.textContent = '密码至少6位'; errorEl.classList.remove('hidden'); }
+            if (errorEl) { errorEl.textContent = i18n.t('admin_error_password_length'); errorEl.classList.remove('hidden'); }
             return;
         }
         if (password !== confirm) {
-            if (errorEl) { errorEl.textContent = '两次密码不一致'; errorEl.classList.remove('hidden'); }
+            if (errorEl) { errorEl.textContent = i18n.t('admin_error_password_mismatch'); errorEl.classList.remove('hidden'); }
             return;
         }
 
@@ -395,7 +395,7 @@
             body: JSON.stringify({ username: username, password: password })
         })
             .then(function (res) {
-                if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '设置失败'); });
+                if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_setup_failed')); });
                 return res.json();
             })
             .then(function (data) {
@@ -404,11 +404,11 @@
                     if (data.role) localStorage.setItem('admin_role', data.role);
                     navigate('/admin-panel');
                 } else {
-                    throw new Error('设置失败');
+                    throw new Error(i18n.t('admin_setup_failed'));
                 }
             })
             .catch(function (err) {
-                if (errorEl) { errorEl.textContent = err.message || '设置失败'; errorEl.classList.remove('hidden'); }
+                if (errorEl) { errorEl.textContent = err.message || i18n.t('admin_setup_failed'); errorEl.classList.remove('hidden'); }
             })
             .finally(function () {
                 if (submitBtn) submitBtn.disabled = false;
@@ -427,7 +427,7 @@
         var password = input.value.trim();
         if (!username || !password) {
             if (errorEl) {
-                errorEl.textContent = '请输入用户名和密码';
+                errorEl.textContent = i18n.t('admin_error_credentials');
                 errorEl.classList.remove('hidden');
             }
             return;
@@ -444,9 +444,9 @@
             .then(function (res) {
                 if (!res.ok) {
                     if (res.status === 401 || res.status === 403) {
-                        throw new Error('用户名或密码错误');
+                        throw new Error(i18n.t('admin_error_wrong_credentials'));
                     }
-                    throw new Error('登录失败');
+                    throw new Error(i18n.t('admin_login_failed'));
                 }
                 return res.json();
             })
@@ -456,12 +456,12 @@
                     if (data.role) localStorage.setItem('admin_role', data.role);
                     navigate('/admin-panel');
                 } else {
-                    throw new Error('登录失败');
+                    throw new Error(i18n.t('admin_login_failed'));
                 }
             })
             .catch(function (err) {
                 if (errorEl) {
-                    errorEl.textContent = err.message || '登录失败，请重试';
+                    errorEl.textContent = err.message || i18n.t('admin_login_retry');
                     errorEl.classList.remove('hidden');
                 }
                 input.value = '';
@@ -629,15 +629,15 @@
                         '<rect width="48" height="48" rx="12" fill="#4F46E5" opacity="0.1"/>' +
                         '<path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
                     '</svg>' +
-                    '<h3>欢迎使用软件自助服务平台</h3>' +
-                    '<p>请输入您的问题，我将为您查找相关资料并提供解答。</p>' +
+                    '<h3>' + i18n.t('chat_welcome_title') + '</h3>' +
+                    '<p>' + i18n.t('chat_welcome_desc') + '</p>' +
                 '</div>';
             return;
         }
 
         var html = '';
         for (var i = 0; i < chatMessages.length; i++) {
-            html += renderSingleMessage(chatMessages[i]);
+            html += renderSingleMessage(chatMessages[i], i === chatMessages.length - 1);
         }
         if (chatLoading) {
             html += renderLoadingIndicator();
@@ -646,14 +646,18 @@
         scrollChatToBottom();
     }
 
-    function renderSingleMessage(msg) {
+    function renderSingleMessage(msg, isLast) {
         var timeStr = formatTime(msg.timestamp);
 
         if (msg.role === 'user') {
             var userHtml = '<div class="chat-msg chat-msg-user">' +
                 '<div class="chat-msg-bubble">' + linkifyText(escapeHtml(msg.content));
             if (msg.imageUrl) {
-                userHtml += '<div class="chat-msg-user-image"><img src="' + msg.imageUrl + '" alt="用户图片" /></div>';
+                var showProgress = chatLoading && isLast;
+                userHtml += '<div class="chat-msg-user-image">' +
+                    '<img src="' + msg.imageUrl + '" alt="' + i18n.t('chat_user_image_alt') + '" />' +
+                    (showProgress ? '<div class="img-progress-overlay"><div class="img-progress-bar indeterminate"></div></div>' : '') +
+                    '</div>';
             }
             userHtml += '</div>' +
                 '<span class="chat-msg-time">' + timeStr + '</span>' +
@@ -675,7 +679,7 @@
         if (msg.sources && msg.sources.length > 0) {
             for (var k = 0; k < msg.sources.length; k++) {
                 if (msg.sources[k].image_url) {
-                    html += '<div class="chat-msg-image"><img src="' + escapeHtml(msg.sources[k].image_url) + '" alt="' + escapeHtml(msg.sources[k].document_name || '图片') + '" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;cursor:pointer;" onclick="window.open(this.src,\'_blank\')" /></div>';
+                    html += '<div class="chat-msg-image"><img src="' + escapeHtml(msg.sources[k].image_url) + '" alt="' + escapeHtml(msg.sources[k].document_name || 'image') + '" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;cursor:pointer;" onclick="window.open(this.src,\'_blank\')" /></div>';
                 }
             }
         }
@@ -686,18 +690,18 @@
             var srcId = 'sources-' + msg.timestamp;
             html += '<div class="chat-sources">';
             html += '<button class="chat-sources-toggle" onclick="toggleSources(\'' + srcId + '\', this)">';
-            html += '<span class="arrow">▶</span> 引用来源（' + msg.sources.length + '）';
+            html += '<span class="arrow">▶</span> ' + i18n.t('chat_source_toggle') + '（' + msg.sources.length + '）';
             html += '</button>';
             html += '<ul id="' + srcId + '" class="chat-sources-list">';
             for (var j = 0; j < msg.sources.length; j++) {
                 var src = msg.sources[j];
                 html += '<li class="chat-source-item">';
-                html += '<span class="chat-source-name">' + escapeHtml(src.document_name || '未知文档') + '</span>';
+                html += '<span class="chat-source-name">' + escapeHtml(src.document_name || i18n.t('chat_source_unknown')) + '</span>';
                 if (src.snippet) {
                     html += '<span class="chat-source-snippet">' + escapeHtml(src.snippet) + '</span>';
                 }
                 if (src.image_url) {
-                    html += '<span class="chat-source-snippet">📷 图片来源</span>';
+                    html += '<span class="chat-source-snippet">' + i18n.t('chat_source_image') + '</span>';
                 }
                 html += '</li>';
             }
@@ -788,7 +792,7 @@
 
         // Default question text if only image
         if (!question && imageData) {
-            question = '请识别这张图片的内容';
+            question = i18n.t('chat_image_recognize');
         }
 
         // Add user message
@@ -802,21 +806,16 @@
         }
         chatMessages.push(userMsg);
 
-        // Show indeterminate progress on chat image preview if image was pasted
+        // Clear input, image, and reset height
         var chatPreview = document.getElementById('chat-image-preview');
         var hadImage = !!imageData;
-        if (hadImage && chatPreview) {
-            addProgressOverlay(chatPreview, true, 'chat-img-progress');
-        }
-
-        // Clear input, image, and reset height
         input.value = '';
         input.style.height = 'auto';
         chatPendingImage = null;
         if (sendBtn) sendBtn.disabled = true;
 
-        // Don't hide preview yet if we're showing progress on it
-        if (!hadImage && chatPreview) chatPreview.classList.add('hidden');
+        // Always hide the chat image preview immediately after sending
+        if (chatPreview) chatPreview.classList.add('hidden');
 
         // Show loading
         chatLoading = true;
@@ -842,26 +841,26 @@
             body: JSON.stringify(reqBody)
         })
         .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '请求失败'); });
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('chat_request_failed')); });
             return res.json();
         })
         .then(function (data) {
             var msg = {
                 role: 'system',
-                content: data.answer || data.message || '暂无回答',
+                content: data.answer || data.message || i18n.t('chat_no_answer'),
                 sources: data.sources || [],
                 isPending: !!data.is_pending,
                 timestamp: Date.now()
             };
             if (data.is_pending) {
-                msg.content = data.message || '该问题已转交人工处理，请稍后查看回复';
+                msg.content = data.message || i18n.t('chat_pending_message');
             }
             chatMessages.push(msg);
         })
         .catch(function (err) {
             chatMessages.push({
                 role: 'system',
-                content: '抱歉，请求出错：' + (err.message || '未知错误') + '。请稍后重试。',
+                content: i18n.t('chat_error_prefix') + (err.message || i18n.t('chat_error_unknown')) + i18n.t('chat_error_suffix'),
                 sources: [],
                 isPending: false,
                 timestamp: Date.now()
@@ -869,11 +868,6 @@
         })
         .finally(function () {
             chatLoading = false;
-            // Hide chat image preview and remove progress
-            if (chatPreview) {
-                chatPreview.classList.add('hidden');
-                removeProgressOverlay(chatPreview, 'chat-img-progress');
-            }
             renderChatMessages();
             if (input) input.focus();
         });
@@ -999,7 +993,7 @@
         var formData = new FormData();
         formData.append('file', file);
 
-        showAdminToast('正在上传 ' + file.name + '...', 'info');
+        showAdminToast(i18n.t('admin_doc_uploading', { name: file.name }), 'info');
 
         // Show progress bar on drop zone
         var zone = document.getElementById('admin-drop-zone');
@@ -1026,16 +1020,16 @@
                 if (zone) removeProgressOverlay(zone, 'upload-drop-progress');
             }, 400);
             if (xhr.status >= 200 && xhr.status < 300) {
-                showAdminToast('文件上传成功', 'success');
+                showAdminToast(i18n.t('admin_doc_upload_success'), 'success');
                 loadDocumentList();
             } else {
-                showAdminToast('上传失败', 'error');
+                showAdminToast(i18n.t('admin_doc_upload_failed'), 'error');
             }
         };
 
         xhr.onerror = function () {
             if (zone) removeProgressOverlay(zone, 'upload-drop-progress');
-            showAdminToast('上传失败', 'error');
+            showAdminToast(i18n.t('admin_doc_upload_failed'), 'error');
         };
 
         xhr.send(formData);
@@ -1046,11 +1040,11 @@
         if (!input) return;
         var url = input.value.trim();
         if (!url) {
-            showAdminToast('请输入URL地址', 'error');
+            showAdminToast(i18n.t('admin_doc_url_empty'), 'error');
             return;
         }
 
-        showAdminToast('正在提交URL...', 'info');
+        showAdminToast(i18n.t('admin_doc_url_submitting'), 'info');
 
         adminFetch('/api/documents/url', {
             method: 'POST',
@@ -1058,23 +1052,23 @@
             body: JSON.stringify({ url: url })
         })
         .then(function (res) {
-            if (!res.ok) throw new Error('提交失败');
+            if (!res.ok) throw new Error(i18n.t('admin_doc_url_failed'));
             return res.json();
         })
         .then(function () {
-            showAdminToast('URL提交成功', 'success');
+            showAdminToast(i18n.t('admin_doc_url_success'), 'success');
             input.value = '';
             loadDocumentList();
         })
         .catch(function (err) {
-            showAdminToast(err.message || '提交失败', 'error');
+            showAdminToast(err.message || i18n.t('admin_doc_url_failed'), 'error');
         });
     };
 
     function loadDocumentList() {
         adminFetch('/api/documents')
             .then(function (res) {
-                if (!res.ok) throw new Error('加载失败');
+                if (!res.ok) throw new Error(i18n.t('admin_doc_load_failed'));
                 return res.json();
             })
             .then(function (data) {
@@ -1090,7 +1084,7 @@
         if (!tbody) return;
 
         if (!docs || docs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="admin-table-empty">暂无文档</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="admin-table-empty">' + i18n.t('admin_doc_empty') + '</td></tr>';
             return;
         }
 
@@ -1098,8 +1092,9 @@
         for (var i = 0; i < docs.length; i++) {
             var doc = docs[i];
             var statusClass = 'admin-badge-' + (doc.status || 'processing');
-            var statusText = { processing: '处理中', success: '成功', failed: '失败' }[doc.status] || doc.status;
-            var timeStr = doc.created_at ? new Date(doc.created_at).toLocaleString('zh-CN') : '-';
+            var statusMap = { processing: i18n.t('admin_doc_status_processing'), success: i18n.t('admin_doc_status_success'), failed: i18n.t('admin_doc_status_failed') };
+            var statusText = statusMap[doc.status] || doc.status;
+            var timeStr = doc.created_at ? new Date(doc.created_at).toLocaleString(i18n.getLang()) : '-';
 
             var nameCell = '';
             if (doc.type === 'url') {
@@ -1115,7 +1110,7 @@
                 '<td>' + escapeHtml(doc.type || '-') + '</td>' +
                 '<td><span class="admin-badge ' + statusClass + '">' + escapeHtml(statusText) + '</span></td>' +
                 '<td>' + escapeHtml(timeStr) + '</td>' +
-                '<td><button class="btn-danger btn-sm" onclick="showDeleteDialog(\'' + escapeHtml(doc.id) + '\', \'' + escapeHtml(doc.name || '') + '\')">删除</button></td>' +
+                '<td><button class="btn-danger btn-sm" onclick="showDeleteDialog(\'' + escapeHtml(doc.id) + '\', \'' + escapeHtml(doc.name || '') + '\')">' + i18n.t('admin_doc_delete_btn') + '</button></td>' +
             '</tr>';
         }
         tbody.innerHTML = html;
@@ -1126,7 +1121,7 @@
     window.showDeleteDialog = function (docId, docName) {
         adminDeleteTargetId = docId;
         var msg = document.getElementById('admin-confirm-msg');
-        if (msg) msg.textContent = '确定要删除文档"' + docName + '"吗？此操作不可撤销。';
+        if (msg) msg.textContent = i18n.t('admin_delete_msg', { name: docName });
         var dialog = document.getElementById('admin-confirm-dialog');
         if (dialog) dialog.classList.remove('hidden');
     };
@@ -1146,12 +1141,12 @@
             method: 'DELETE'
         })
         .then(function (res) {
-            if (!res.ok) throw new Error('删除失败');
-            showAdminToast('文档已删除', 'success');
+            if (!res.ok) throw new Error(i18n.t('admin_delete_failed'));
+            showAdminToast(i18n.t('admin_delete_success'), 'success');
             loadDocumentList();
         })
         .catch(function (err) {
-            showAdminToast(err.message || '删除失败', 'error');
+            showAdminToast(err.message || i18n.t('admin_delete_failed'), 'error');
         });
     };
 
@@ -1172,7 +1167,7 @@
 
         adminFetch(url)
             .then(function (res) {
-                if (!res.ok) throw new Error('加载失败');
+                if (!res.ok) throw new Error(i18n.t('admin_doc_load_failed'));
                 return res.json();
             })
             .then(function (data) {
@@ -1188,7 +1183,7 @@
         if (!container) return;
 
         if (!questions || questions.length === 0) {
-            container.innerHTML = '<div class="admin-table-empty">暂无问题</div>';
+            container.innerHTML = '<div class="admin-table-empty">' + i18n.t('admin_pending_empty') + '</div>';
             return;
         }
 
@@ -1196,30 +1191,34 @@
         for (var i = 0; i < questions.length; i++) {
             var q = questions[i];
             var statusClass = 'admin-badge-' + (q.status || 'pending');
-            var statusText = q.status === 'answered' ? '已回答' : '待回答';
-            var timeStr = q.created_at ? new Date(q.created_at).toLocaleString('zh-CN') : '-';
+            var statusText = q.status === 'answered' ? i18n.t('admin_pending_filter_answered') : i18n.t('admin_pending_filter_pending');
+            var timeStr = q.created_at ? new Date(q.created_at).toLocaleString(i18n.getLang()) : '-';
 
             html += '<div class="admin-pending-card">';
             html += '<div class="admin-pending-card-header">';
             html += '<div class="admin-pending-meta">';
-            html += '<span>用户: ' + escapeHtml(q.user_id || '-') + '</span>';
+            html += '<span>' + i18n.t('admin_pending_user') + ': ' + escapeHtml(q.user_id || '-') + '</span>';
             html += '<span>' + escapeHtml(timeStr) + '</span>';
             html += '</div>';
             html += '<span class="admin-badge ' + statusClass + '">' + escapeHtml(statusText) + '</span>';
             html += '</div>';
             html += '<div class="admin-pending-question">' + escapeHtml(q.question || '') + '</div>';
 
+            if (q.image_data) {
+                html += '<div class="admin-pending-image" style="margin:8px 0"><img src="' + escapeHtml(q.image_data) + '" style="max-width:300px;max-height:200px;border-radius:6px;border:1px solid #e0e0e0;cursor:pointer" onclick="window.open(this.src)" alt="' + i18n.t('chat_user_image_alt') + '" /></div>';
+            }
+
             if (q.answer) {
-                html += '<div class="admin-pending-answer-preview">回答: ' + escapeHtml(q.answer) + '</div>';
+                html += '<div class="admin-pending-answer-preview">' + i18n.t('admin_pending_answer_prefix') + ': ' + escapeHtml(q.answer) + '</div>';
             }
 
             if (q.status !== 'answered') {
-                html += '<button class="btn-primary btn-sm admin-answer-btn" data-id="' + escapeHtml(q.id) + '" data-question="' + escapeHtml(q.question || '') + '">回答</button>';
+                html += '<button class="btn-primary btn-sm admin-answer-btn" data-id="' + escapeHtml(q.id) + '" data-question="' + escapeHtml(q.question || '') + '" data-image="' + escapeHtml(q.image_data || '') + '">' + i18n.t('admin_pending_answer_btn') + '</button>';
             } else {
-                html += '<button class="btn-secondary btn-sm admin-edit-answer-btn" data-id="' + escapeHtml(q.id) + '" data-question="' + escapeHtml(q.question || '') + '" data-answer="' + escapeHtml(q.answer || '') + '">编辑</button>';
+                html += '<button class="btn-secondary btn-sm admin-edit-answer-btn" data-id="' + escapeHtml(q.id) + '" data-question="' + escapeHtml(q.question || '') + '" data-answer="' + escapeHtml(q.answer || '') + '" data-image="' + escapeHtml(q.image_data || '') + '">' + i18n.t('admin_pending_edit_btn') + '</button>';
             }
 
-            html += ' <button class="btn-danger btn-sm admin-delete-pending-btn" data-id="' + escapeHtml(q.id) + '">删除</button>';
+            html += ' <button class="btn-danger btn-sm admin-delete-pending-btn" data-id="' + escapeHtml(q.id) + '">' + i18n.t('admin_pending_delete_btn') + '</button>';
 
             html += '</div>';
         }
@@ -1230,7 +1229,7 @@
         for (var j = 0; j < answerBtns.length; j++) {
             (function(btn) {
                 btn.addEventListener('click', function() {
-                    showAnswerDialog(btn.getAttribute('data-id'), btn.getAttribute('data-question'));
+                    showAnswerDialog(btn.getAttribute('data-id'), btn.getAttribute('data-question'), null, btn.getAttribute('data-image'));
                 });
             })(answerBtns[j]);
         }
@@ -1241,15 +1240,15 @@
             (function(btn) {
                 btn.addEventListener('click', function() {
                     var qid = btn.getAttribute('data-id');
-                    if (!confirm('确定要删除这个问题吗？')) return;
+                    if (!confirm(i18n.t('admin_pending_delete_confirm'))) return;
                     adminFetch('/api/pending/' + encodeURIComponent(qid), { method: 'DELETE' })
                         .then(function(res) {
-                            if (!res.ok) throw new Error('删除失败');
-                            showAdminToast('已删除', 'success');
+                            if (!res.ok) throw new Error(i18n.t('admin_delete_failed'));
+                            showAdminToast(i18n.t('admin_pending_deleted'), 'success');
                             loadPendingQuestions();
                         })
                         .catch(function(err) {
-                            showAdminToast(err.message || '删除失败', 'error');
+                            showAdminToast(err.message || i18n.t('admin_delete_failed'), 'error');
                         });
                 });
             })(deleteBtns[k]);
@@ -1263,7 +1262,8 @@
                     showAnswerDialog(
                         btn.getAttribute('data-id'),
                         btn.getAttribute('data-question'),
-                        btn.getAttribute('data-answer')
+                        btn.getAttribute('data-answer'),
+                        btn.getAttribute('data-image')
                     );
                 });
             })(editBtns[m]);
@@ -1321,11 +1321,11 @@
 
     function uploadAnswerImage(file) {
         if (file.type.indexOf('image/') !== 0) {
-            showAdminToast('请选择图片文件', 'error');
+            showAdminToast(i18n.t('image_select_error'), 'error');
             return;
         }
         if (file.size > 10 * 1024 * 1024) {
-            showAdminToast('图片大小不能超过10MB', 'error');
+            showAdminToast(i18n.t('image_size_error'), 'error');
             return;
         }
 
@@ -1368,7 +1368,7 @@
                 var removeBtn = document.createElement('button');
                 removeBtn.className = 'knowledge-image-remove';
                 removeBtn.textContent = '×';
-                removeBtn.setAttribute('aria-label', '删除图片');
+                removeBtn.setAttribute('aria-label', i18n.t('image_remove_label'));
                 removeBtn.onclick = function () {
                     answerImageURLs[idx] = null;
                     item.remove();
@@ -1376,23 +1376,43 @@
                 item.appendChild(removeBtn);
             } else {
                 item.remove();
-                showAdminToast('图片上传失败', 'error');
+                showAdminToast(i18n.t('image_upload_failed'), 'error');
             }
         };
 
         xhr.onerror = function () {
             item.remove();
-            showAdminToast('图片上传失败', 'error');
+            showAdminToast(i18n.t('image_upload_failed'), 'error');
         };
 
         xhr.send(formData);
     }
 
-    window.showAnswerDialog = function (questionId, questionText, existingAnswer) {
+    window.showAnswerDialog = function (questionId, questionText, existingAnswer, imageData) {
         adminAnswerTargetId = questionId;
         answerIsEdit = !!existingAnswer;
         var textEl = document.getElementById('admin-answer-question-text');
         if (textEl) textEl.textContent = questionText;
+
+        // Show question image if present
+        var qImgEl = document.getElementById('admin-answer-question-image');
+        if (!qImgEl) {
+            // Create image container after question text element
+            qImgEl = document.createElement('div');
+            qImgEl.id = 'admin-answer-question-image';
+            qImgEl.style.cssText = 'margin:8px 0';
+            if (textEl && textEl.parentNode) {
+                textEl.parentNode.insertBefore(qImgEl, textEl.nextSibling);
+            }
+        }
+        if (imageData) {
+            qImgEl.innerHTML = '<img src="' + imageData + '" style="max-width:100%;max-height:300px;border-radius:6px;border:1px solid #e0e0e0;cursor:pointer" onclick="window.open(this.src)" alt="' + i18n.t('chat_user_image_alt') + '" />';
+            qImgEl.style.display = '';
+        } else {
+            qImgEl.innerHTML = '';
+            qImgEl.style.display = 'none';
+        }
+
         var answerInput = document.getElementById('admin-answer-text');
         if (answerInput) answerInput.value = existingAnswer || '';
         var urlInput = document.getElementById('admin-answer-url');
@@ -1423,7 +1443,7 @@
         var imageUrls = answerImageURLs.filter(function (u) { return u; });
 
         if (!text.trim() && !url.trim() && imageUrls.length === 0) {
-            showAdminToast('请输入回答内容或上传图片', 'error');
+            showAdminToast(i18n.t('admin_answer_empty'), 'error');
             return;
         }
 
@@ -1442,13 +1462,13 @@
             })
         })
         .then(function (res) {
-            if (!res.ok) throw new Error('提交失败');
-            showAdminToast('回答已提交', 'success');
+            if (!res.ok) throw new Error(i18n.t('admin_answer_failed'));
+            showAdminToast(i18n.t('admin_answer_success'), 'success');
             closeAnswerDialog();
             loadPendingQuestions();
         })
         .catch(function (err) {
-            showAdminToast(err.message || '提交失败', 'error');
+            showAdminToast(err.message || i18n.t('admin_answer_failed'), 'error');
         })
         .finally(function () {
             if (submitBtn) submitBtn.disabled = false;
@@ -1460,7 +1480,7 @@
     function loadAdminSettings() {
         adminFetch('/api/config')
             .then(function (res) {
-                if (!res.ok) throw new Error('加载失败');
+                if (!res.ok) throw new Error(i18n.t('admin_doc_load_failed'));
                 return res.json();
             })
             .then(function (cfg) {
@@ -1475,14 +1495,14 @@
                 setVal('cfg-llm-endpoint', llm.endpoint);
                 setVal('cfg-llm-model', llm.model_name);
                 setVal('cfg-llm-apikey', '');
-                setPlaceholder('cfg-llm-apikey', llm.api_key ? '***' : '未设置');
+                setPlaceholder('cfg-llm-apikey', llm.api_key ? '***' : i18n.t('admin_settings_not_set'));
                 setVal('cfg-llm-temperature', llm.temperature);
                 setVal('cfg-llm-maxtokens', llm.max_tokens);
 
                 setVal('cfg-emb-endpoint', emb.endpoint);
                 setVal('cfg-emb-model', emb.model_name);
                 setVal('cfg-emb-apikey', '');
-                setPlaceholder('cfg-emb-apikey', emb.api_key ? '***' : '未设置');
+                setPlaceholder('cfg-emb-apikey', emb.api_key ? '***' : i18n.t('admin_settings_not_set'));
                 var mmSelect = document.getElementById('cfg-emb-multimodal');
                 if (mmSelect) mmSelect.value = emb.use_multimodal ? 'true' : 'false';
 
@@ -1495,6 +1515,7 @@
 
                 setVal('cfg-admin-login-route', admin.login_route || '/admin');
 
+                setVal('cfg-product-name', cfg.product_name || '');
                 setVal('cfg-product-intro', cfg.product_intro || '');
 
                 var smtp = cfg.smtp || {};
@@ -1502,14 +1523,14 @@
                 setVal('cfg-smtp-port', smtp.port);
                 setVal('cfg-smtp-username', smtp.username);
                 setVal('cfg-smtp-password', '');
-                setPlaceholder('cfg-smtp-password', smtp.password ? '***' : '未设置');
+                setPlaceholder('cfg-smtp-password', smtp.password ? '***' : i18n.t('admin_settings_not_set'));
                 setVal('cfg-smtp-from-addr', smtp.from_addr);
                 setVal('cfg-smtp-from-name', smtp.from_name);
                 var tlsSelect = document.getElementById('cfg-smtp-tls');
                 if (tlsSelect) tlsSelect.value = smtp.use_tls === false ? 'false' : 'true';
             })
             .catch(function () {
-                showAdminToast('加载配置失败', 'error');
+                showAdminToast(i18n.t('admin_settings_load_failed'), 'error');
             });
     }
 
@@ -1529,18 +1550,18 @@
     }
 
     window.restartServer = function () {
-        if (!confirm('确定要重启服务吗？重启期间服务将短暂不可用。')) return;
+        if (!confirm(i18n.t('admin_settings_restart_confirm'))) return;
         var btn = document.getElementById('server-restart-btn');
         if (btn) btn.disabled = true;
 
         adminFetch('/api/server/restart', { method: 'POST' })
             .then(function (res) {
-                if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '重启失败'); });
-                showAdminToast('服务正在重启，请稍候刷新页面...', 'success');
+                if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_settings_restart_failed')); });
+                showAdminToast(i18n.t('admin_settings_restarting'), 'success');
                 setTimeout(function () { location.reload(); }, 3000);
             })
             .catch(function (err) {
-                showAdminToast(err.message || '重启失败', 'error');
+                showAdminToast(err.message || i18n.t('admin_settings_restart_failed'), 'error');
                 if (btn) btn.disabled = false;
             });
     };
@@ -1553,12 +1574,12 @@
 
         var email = emailInput.value.trim();
         if (!email) {
-            if (resultEl) { resultEl.textContent = '请输入收件人邮箱'; resultEl.className = 'error-text'; resultEl.classList.remove('hidden'); }
+            if (resultEl) { resultEl.textContent = i18n.t('admin_settings_smtp_test_empty'); resultEl.className = 'error-text'; resultEl.classList.remove('hidden'); }
             return;
         }
 
         if (btn) btn.disabled = true;
-        if (resultEl) { resultEl.textContent = '正在发送...'; resultEl.className = ''; resultEl.classList.remove('hidden'); }
+        if (resultEl) { resultEl.textContent = i18n.t('admin_settings_smtp_test_sending'); resultEl.className = ''; resultEl.classList.remove('hidden'); }
 
         adminFetch('/api/email/test', {
             method: 'POST',
@@ -1566,11 +1587,11 @@
             body: JSON.stringify({ email: email })
         })
         .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '发送失败'); });
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_settings_smtp_test_failed')); });
             return res.json();
         })
         .then(function () {
-            if (resultEl) { resultEl.textContent = '测试邮件已发送，请检查收件箱'; resultEl.className = 'success-text'; }
+            if (resultEl) { resultEl.textContent = i18n.t('admin_settings_smtp_test_success'); resultEl.className = 'success-text'; }
         })
         .catch(function (err) {
             if (resultEl) { resultEl.textContent = err.message; resultEl.className = 'error-text'; }
@@ -1625,6 +1646,9 @@
             updates['admin.login_route'] = adminLoginRouteVal;
         }
 
+        var productName = getVal('cfg-product-name');
+        updates['product_name'] = productName;
+
         var productIntro = getVal('cfg-product-intro');
         updates['product_intro'] = productIntro;
 
@@ -1645,7 +1669,7 @@
         updates['smtp.use_tls'] = smtpTls === 'true';
 
         if (Object.keys(updates).length === 0) {
-            showAdminToast('没有需要保存的更改', 'info');
+            showAdminToast(i18n.t('admin_settings_no_changes'), 'info');
             return;
         }
 
@@ -1655,12 +1679,12 @@
             body: JSON.stringify(updates)
         })
         .then(function (res) {
-            if (!res.ok) throw new Error('保存失败');
-            showAdminToast('设置已保存', 'success');
+            if (!res.ok) throw new Error(i18n.t('admin_settings_save_failed'));
+            showAdminToast(i18n.t('admin_settings_saved'), 'success');
             loadAdminSettings();
         })
         .catch(function (err) {
-            showAdminToast(err.message || '保存失败', 'error');
+            showAdminToast(err.message || i18n.t('admin_settings_save_failed'), 'error');
         });
     };
 
@@ -1726,11 +1750,11 @@
 
     function uploadKnowledgeImage(file) {
         if (file.type.indexOf('image/') !== 0) {
-            showAdminToast('请选择图片文件', 'error');
+            showAdminToast(i18n.t('image_select_error'), 'error');
             return;
         }
         if (file.size > 10 * 1024 * 1024) {
-            showAdminToast('图片大小不能超过10MB', 'error');
+            showAdminToast(i18n.t('image_size_error'), 'error');
             return;
         }
 
@@ -1775,7 +1799,7 @@
                 var removeBtn = document.createElement('button');
                 removeBtn.className = 'knowledge-image-remove';
                 removeBtn.textContent = '×';
-                removeBtn.setAttribute('aria-label', '删除图片');
+                removeBtn.setAttribute('aria-label', i18n.t('image_remove_label'));
                 removeBtn.onclick = function () {
                     knowledgeImageURLs[idx] = null;
                     item.remove();
@@ -1783,13 +1807,13 @@
                 item.appendChild(removeBtn);
             } else {
                 item.remove();
-                showAdminToast('图片上传失败', 'error');
+                showAdminToast(i18n.t('image_upload_failed'), 'error');
             }
         };
 
         xhr.onerror = function () {
             item.remove();
-            showAdminToast('图片上传失败', 'error');
+            showAdminToast(i18n.t('image_upload_failed'), 'error');
         };
 
         xhr.send(formData);
@@ -1800,7 +1824,7 @@
         var content = (document.getElementById('knowledge-content') || {}).value || '';
 
         if (!title.trim() || !content.trim()) {
-            showAdminToast('请输入标题和内容', 'error');
+            showAdminToast(i18n.t('admin_knowledge_empty'), 'error');
             return;
         }
 
@@ -1808,7 +1832,7 @@
 
         var btn = document.getElementById('knowledge-submit-btn');
         if (btn) btn.disabled = true;
-        showAdminToast('正在录入知识...', 'info');
+        showAdminToast(i18n.t('admin_knowledge_submitting'), 'info');
 
         // Show indeterminate progress on knowledge image zone if images present
         var imgZone = document.getElementById('knowledge-image-zone');
@@ -1823,11 +1847,11 @@
             body: JSON.stringify({ title: title.trim(), content: content.trim(), image_urls: imageURLs })
         })
         .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '录入失败'); });
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_knowledge_failed')); });
             return res.json();
         })
         .then(function () {
-            showAdminToast('知识录入成功', 'success');
+            showAdminToast(i18n.t('admin_knowledge_success'), 'success');
             if (document.getElementById('knowledge-title')) document.getElementById('knowledge-title').value = '';
             if (document.getElementById('knowledge-content')) document.getElementById('knowledge-content').value = '';
             var preview = document.getElementById('knowledge-image-preview');
@@ -1835,7 +1859,7 @@
             knowledgeImageURLs = [];
         })
         .catch(function (err) {
-            showAdminToast(err.message || '录入失败', 'error');
+            showAdminToast(err.message || i18n.t('admin_knowledge_failed'), 'error');
         })
         .finally(function () {
             if (btn) btn.disabled = false;
@@ -1848,7 +1872,7 @@
     function loadAdminUsers() {
         adminFetch('/api/admin/users')
             .then(function (res) {
-                if (!res.ok) throw new Error('加载失败');
+                if (!res.ok) throw new Error(i18n.t('admin_doc_load_failed'));
                 return res.json();
             })
             .then(function (data) {
@@ -1864,11 +1888,11 @@
         if (!tbody) return;
 
         if (!users || users.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="admin-table-empty">暂无子账号</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="admin-table-empty">' + i18n.t('admin_users_empty') + '</td></tr>';
             return;
         }
 
-        var roleMap = { 'editor': '编辑员', 'super_admin': '超级管理员' };
+        var roleMap = { 'editor': i18n.t('admin_users_role_editor_short'), 'super_admin': i18n.t('admin_users_role_super_short') };
         var html = '';
         for (var i = 0; i < users.length; i++) {
             var u = users[i];
@@ -1876,7 +1900,7 @@
                 '<td>' + escapeHtml(u.username) + '</td>' +
                 '<td>' + escapeHtml(roleMap[u.role] || u.role) + '</td>' +
                 '<td>' + escapeHtml(u.created_at || '-') + '</td>' +
-                '<td><button class="btn-danger btn-sm" onclick="deleteAdminUser(\'' + escapeHtml(u.id) + '\', \'' + escapeHtml(u.username) + '\')">删除</button></td>' +
+                '<td><button class="btn-danger btn-sm" onclick="deleteAdminUser(\'' + escapeHtml(u.id) + '\', \'' + escapeHtml(u.username) + '\')">' + i18n.t('admin_users_delete_btn') + '</button></td>' +
             '</tr>';
         }
         tbody.innerHTML = html;
@@ -1888,11 +1912,11 @@
         var role = (document.getElementById('admin-new-role') || {}).value || 'editor';
 
         if (!username.trim() || !password) {
-            showAdminToast('请输入用户名和密码', 'error');
+            showAdminToast(i18n.t('admin_users_create_empty'), 'error');
             return;
         }
         if (password.length < 6) {
-            showAdminToast('密码至少6位', 'error');
+            showAdminToast(i18n.t('admin_users_create_password_short'), 'error');
             return;
         }
 
@@ -1902,33 +1926,33 @@
             body: JSON.stringify({ username: username.trim(), password: password, role: role })
         })
         .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '创建失败'); });
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_users_create_failed')); });
             return res.json();
         })
         .then(function () {
-            showAdminToast('用户创建成功', 'success');
+            showAdminToast(i18n.t('admin_users_created'), 'success');
             if (document.getElementById('admin-new-username')) document.getElementById('admin-new-username').value = '';
             if (document.getElementById('admin-new-password')) document.getElementById('admin-new-password').value = '';
             loadAdminUsers();
         })
         .catch(function (err) {
-            showAdminToast(err.message || '创建失败', 'error');
+            showAdminToast(err.message || i18n.t('admin_users_create_failed'), 'error');
         });
     };
 
     window.deleteAdminUser = function (id, username) {
-        if (!confirm('确定要删除用户"' + username + '"吗？')) return;
+        if (!confirm(i18n.t('admin_users_delete_confirm', { name: username }))) return;
 
         adminFetch('/api/admin/users/' + encodeURIComponent(id), {
             method: 'DELETE'
         })
         .then(function (res) {
-            if (!res.ok) throw new Error('删除失败');
-            showAdminToast('用户已删除', 'success');
+            if (!res.ok) throw new Error(i18n.t('admin_delete_failed'));
+            showAdminToast(i18n.t('admin_users_deleted'), 'success');
             loadAdminUsers();
         })
         .catch(function (err) {
-            showAdminToast(err.message || '删除失败', 'error');
+            showAdminToast(err.message || i18n.t('admin_delete_failed'), 'error');
         });
     };
 
@@ -1946,16 +1970,71 @@
     // --- Init ---
 
     function init() {
-        // Fetch admin login route, then handle routing
-        fetch('/api/admin/status')
+        // Fetch admin login route and product name, then handle routing
+        var promises = [];
+
+        promises.push(
+            fetch('/api/admin/status')
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data.login_route) adminLoginRoute = data.login_route;
+                })
+                .catch(function () { /* use default */ })
+        );
+
+        promises.push(
+            fetchProductName()
+        );
+
+        Promise.all(promises).then(function () {
+            handleRoute();
+        });
+    }
+
+    // Fetch product name from server and apply to UI
+    function fetchProductName() {
+        var lang = window.i18n ? window.i18n.getLang() : 'zh-CN';
+        return fetch('/api/translate-product-name?lang=' + encodeURIComponent(lang))
             .then(function (res) { return res.json(); })
             .then(function (data) {
-                if (data.login_route) adminLoginRoute = data.login_route;
+                if (data.product_name) {
+                    applyProductName(data.product_name);
+                }
             })
-            .catch(function () { /* use default */ })
-            .finally(function () {
-                handleRoute();
-            });
+            .catch(function () { /* use default i18n */ });
+    }
+
+    // Apply product name to all relevant UI elements
+    function applyProductName(name) {
+        if (!name) return;
+        window._productName = name;
+
+        // Update page title
+        document.title = name;
+
+        // Update elements with data-product-name attribute
+        var els = document.querySelectorAll('[data-product-name]');
+        els.forEach(function (el) {
+            el.textContent = name;
+        });
+
+        // Update welcome title: "欢迎使用 + name"
+        var welcomeEls = document.querySelectorAll('[data-product-name-welcome]');
+        var lang = window.i18n ? window.i18n.getLang() : 'zh-CN';
+        var welcomePrefix = lang === 'en-US' ? 'Welcome to ' : '欢迎使用';
+        welcomeEls.forEach(function (el) {
+            el.textContent = welcomePrefix + name;
+        });
+    }
+
+    // Override i18n.applyI18nToPage to also refresh product name
+    var _origApplyI18n = window.i18n ? window.i18n.applyI18nToPage : null;
+    if (window.i18n) {
+        window.i18n.applyI18nToPage = function () {
+            if (_origApplyI18n) _origApplyI18n();
+            // Re-fetch translated product name when language changes
+            fetchProductName();
+        };
     }
 
     // Run on DOM ready

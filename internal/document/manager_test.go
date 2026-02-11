@@ -96,7 +96,7 @@ func TestUploadFile_UnsupportedTypes(t *testing.T) {
 
 	dm := newTestManager(t, database, &mockEmbeddingService{})
 
-	unsupported := []string{"txt", "csv", "html", "json", "xml", "zip", "mp3", "jpg"}
+	unsupported := []string{"txt", "csv", "json", "xml", "zip", "mp3", "jpg"}
 	for _, ft := range unsupported {
 		_, err := dm.UploadFile(UploadFileRequest{
 			FileName: "test." + ft,

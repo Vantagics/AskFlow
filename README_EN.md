@@ -32,6 +32,7 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 - **Batch Import**: CLI recursive directory scan for bulk document import
 - **Multimodal Retrieval**: Vectorize and search both text and images
 - **Knowledge Entries**: Admins can directly add text + image knowledge entries
+- **Content Deduplication**: Document-level SHA-256 hash dedup + chunk-level embedding reuse to prevent duplicate imports and redundant API calls
 - **Pending Questions**: Unanswered questions are automatically queued; admin answers are auto-indexed
 - **User Authentication**: OAuth 2.0 (Google / Apple / Amazon / Facebook) + email/password registration
 - **Admin Hierarchy**: Super admin + sub-admins (editor role) with role-based access control
@@ -427,13 +428,21 @@ File Upload / URL Import / CLI Batch Import
 Document Parsing (PDF/Word/Excel/PPT/Markdown)
    │
    ▼
-Text Chunking (512 chars, 128 char overlap)
+Content Dedup Check (SHA-256 hash against existing documents)
    │
-   ▼
-Vectorization (Embedding API, multimodal support)
-   │
-   ▼
-Store in SQLite + In-memory Cache
+   ├── Duplicate → Reject import, return existing document ID
+   └── New content ──▼
+                      │
+                Text Chunking (512 chars, 128 char overlap)
+                      │
+                      ▼
+                Chunk-level Dedup (reuse embeddings for identical text)
+                      │
+                      ▼
+                Call Embedding API only for new chunks
+                      │
+                      ▼
+                Store in SQLite + In-memory Cache
 ```
 
 ---
@@ -492,7 +501,7 @@ Critical data files:
 
 | Table | Description |
 |-------|-------------|
-| `documents` | Document metadata (ID, name, type, status, created_at) |
+| `documents` | Document metadata (ID, name, type, status, content hash, created_at) |
 | `chunks` | Document chunks (text, vector, parent document, image URL) |
 | `pending_questions` | Pending questions (question, status, answer, user ID) |
 | `users` | Registered users (email, password hash, verification status) |

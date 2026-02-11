@@ -116,7 +116,11 @@ Content-Type: multipart/form-data
 file: <文件>
 ```
 
-支持格式：PDF、Word、Excel、PPT、Markdown。上传后系统自动完成解析、分块、向量化和存储。
+支持格式：PDF、Word、Excel、PPT、Markdown。上传后系统自动完成解析、去重检查、分块、向量化和存储。
+
+系统会自动进行内容去重：
+- **文档级去重**：解析后计算内容 SHA-256 哈希，若已有相同内容的文档则拒绝导入并提示已有文档 ID
+- **分块级去重**：分块后检查数据库中是否已有相同文本的分块，有则直接复用其向量，仅对新文本调用 Embedding API，节省 API 调用
 
 ### 3.2 通过 URL 导入
 

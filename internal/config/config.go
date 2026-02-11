@@ -34,6 +34,7 @@ type Config struct {
 	Admin        AdminConfig     `json:"admin"`
 	SMTP         SMTPConfig      `json:"smtp"`
 	ProductIntro string          `json:"product_intro"`
+	ProductName  string          `json:"product_name"`
 }
 
 // ServerConfig holds HTTP server configuration.
@@ -489,6 +490,13 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 			return errors.New("expected string")
 		}
 		cm.config.ProductIntro = s
+
+	case "product_name":
+		s, ok := val.(string)
+		if !ok {
+			return errors.New("expected string")
+		}
+		cm.config.ProductName = s
 
 	// Server fields
 	case "server.port":

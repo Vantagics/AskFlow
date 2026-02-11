@@ -1375,12 +1375,18 @@ body {
 }
 .chat-msg-user-image {
     margin-top: 6px;
+    position: relative;
+    display: inline-block;
 }
 .chat-msg-user-image img {
     max-height: 150px;
     max-width: 250px;
     border-radius: 8px;
     object-fit: contain;
+    display: block;
+}
+.chat-msg-user-image .img-progress-overlay {
+    border-radius: 0 0 8px 8px;
 }
 
 
@@ -1445,4 +1451,32 @@ body {
     position: absolute;
     inset: 0;
     background: rgba(255,255,255,0.5);
+}
+
+/* Language Switch Button */
+.lang-switch-btn {
+    background: transparent;
+    border: 1.5px solid var(--color-border);
+    color: var(--color-text-secondary);
+    padding: 4px 12px;
+    border-radius: var(--radius);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+.lang-switch-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background: rgba(79, 70, 229, 0.05);
+}
+.lang-switch-corner {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+}
+.login-card {
+    position: relative;
 }
