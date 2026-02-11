@@ -651,7 +651,7 @@
 
         if (msg.role === 'user') {
             var userHtml = '<div class="chat-msg chat-msg-user">' +
-                '<div class="chat-msg-bubble">' + escapeHtml(msg.content);
+                '<div class="chat-msg-bubble">' + linkifyText(escapeHtml(msg.content));
             if (msg.imageUrl) {
                 userHtml += '<div class="chat-msg-user-image"><img src="' + msg.imageUrl + '" alt="用户图片" /></div>';
             }
@@ -669,7 +669,7 @@
         if (msg.isPending) {
             html += '<span class="pending-icon">⏳</span>';
         }
-        html += escapeHtml(msg.content);
+        html += linkifyText(escapeHtml(msg.content));
 
         // Display images from sources inline
         if (msg.sources && msg.sources.length > 0) {
@@ -739,6 +739,12 @@
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
+
+    function linkifyText(str) {
+        if (!str) return '';
+        return str.replace(/(https?:\/\/[^\s<&]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    }
+
 
     window.toggleSources = function (id, btn) {
         var list = document.getElementById(id);

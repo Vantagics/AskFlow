@@ -243,11 +243,25 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 
 	// Step 5: Build context from search results and call LLM
 	context := make([]string, len(results))
+	hasImages := false
 	for i, r := range results {
-		context[i] = r.ChunkText
+		if r.ImageURL != "" {
+			context[i] = r.ChunkText + " (图片已附带，将自动展示给用户)"
+			hasImages = true
+		} else {
+			context[i] = r.ChunkText
+		}
 	}
 
-	answer, err := qe.llmService.Generate("", context, req.Question)
+	systemPrompt := ""
+	if hasImages {
+		systemPrompt = "你是一个专业的软件技术支持助手。请根据提供的参考资料回答用户的问题。" +
+			"如果参考资料中没有相关信息，请如实告知用户。回答应简洁、准确、有条理。" +
+			"\n\n重要规则：你必须使用与用户提问相同的语言来回答。如果用户用英文提问，你必须用英文回答；如果用户用中文提问，你必须用中文回答；其他语言同理。无论参考资料是什么语言，都要翻译成用户提问的语言来回答。" +
+			"\n\n关于图片：参考资料中标记为[图片已附带]的内容，对应的图片会自动展示在你的回答下方。请在回答中自然地引导用户查看图片（例如：如下图所示、请参考下方图片），不要说无法提供图片或无法展示图片。"
+	}
+
+	answer, err := qe.llmService.Generate(systemPrompt, context, req.Question)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate answer: %w", err)
 	}

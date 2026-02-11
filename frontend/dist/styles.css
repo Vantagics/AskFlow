@@ -534,6 +534,20 @@ body {
     border-bottom-left-radius: 4px;
 }
 
+.chat-msg-bubble a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    word-break: break-all;
+}
+
+.chat-msg-bubble a:hover {
+    color: var(--color-primary-hover);
+}
+
+.chat-msg-user .chat-msg-bubble a {
+    color: #fff;
+}
+
 .chat-msg-time {
     font-size: 0.6875rem;
     color: var(--color-text-secondary);
