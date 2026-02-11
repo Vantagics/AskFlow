@@ -81,6 +81,11 @@ func (a *App) UploadURL(req document.UploadURLRequest) (*document.DocumentInfo, 
 	return a.docManager.UploadURL(req)
 }
 
+// PreviewURL fetches and parses URL content for preview.
+func (a *App) PreviewURL(url string) (*document.URLPreviewResult, error) {
+	return a.docManager.PreviewURL(url)
+}
+
 // ListDocuments returns all uploaded documents.
 func (a *App) ListDocuments() ([]document.DocumentInfo, error) {
 	return a.docManager.ListDocuments()

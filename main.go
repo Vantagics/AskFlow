@@ -292,6 +292,7 @@ func registerAPIHandlers(app *App) {
 
 	// Documents
 	http.HandleFunc("/api/documents/upload", secureAPI(handleDocumentUpload(app)))
+	http.HandleFunc("/api/documents/url/preview", secureAPI(handleDocumentURLPreview(app)))
 	http.HandleFunc("/api/documents/url", secureAPI(handleDocumentURL(app)))
 	http.HandleFunc("/api/documents", secureAPI(handleDocuments(app)))
 	// DELETE /api/documents/{id} - handled by prefix match
@@ -741,6 +742,33 @@ func handleDocumentUpload(app *App) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, doc)
+	}
+}
+
+func handleDocumentURLPreview(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := readJSONBody(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		result, err := app.PreviewURL(req.URL)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 

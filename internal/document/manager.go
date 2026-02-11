@@ -348,6 +348,73 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	return nil
 }
 
+// URLPreviewResult holds the preview of fetched URL content.
+type URLPreviewResult struct {
+	URL   string   `json:"url"`
+	Text  string   `json:"text"`
+	Images []string `json:"images,omitempty"` // image URLs found in HTML
+}
+
+// PreviewURL fetches and parses URL content for user preview before committing.
+func (dm *DocumentManager) PreviewURL(url string) (*URLPreviewResult, error) {
+	if url == "" {
+		return nil, fmt.Errorf("URL不能为空")
+	}
+
+	resp, err := dm.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("无法访问该URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 403 || resp.StatusCode == 401 {
+		return nil, fmt.Errorf("访问被拒绝 (HTTP %d)，该网站可能禁止抓取", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("请求失败 (HTTP %d)", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取内容失败: %w", err)
+	}
+
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return nil, fmt.Errorf("URL内容为空")
+	}
+
+	result := &URLPreviewResult{URL: url}
+
+	contentType := resp.Header.Get("Content-Type")
+	isHTML := strings.Contains(contentType, "text/html") || looksLikeHTML(text)
+	if isHTML {
+		parsed, err := dm.parser.ParseWithBaseURL(body, "html", url)
+		if err != nil {
+			return nil, fmt.Errorf("HTML解析失败: %w", err)
+		}
+		result.Text = parsed.Text
+		for _, img := range parsed.Images {
+			if img.URL != "" {
+				result.Images = append(result.Images, img.URL)
+			}
+		}
+	} else {
+		result.Text = text
+	}
+
+	if result.Text == "" {
+		return nil, fmt.Errorf("解析后内容为空")
+	}
+
+	// Truncate preview text to 5000 chars
+	if len(result.Text) > 5000 {
+		result.Text = result.Text[:5000] + "\n...(内容已截断，共 " + fmt.Sprintf("%d", len(text)) + " 字符)"
+	}
+
+	return result, nil
+}
+
 // processURL fetches URL content and processes it as plain text.
 func (dm *DocumentManager) processURL(docID, url string) error {
 	resp, err := dm.httpClient.Get(url)

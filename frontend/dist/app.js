@@ -1280,8 +1280,10 @@
         xhr.send(formData);
     }
 
-    window.handleAdminURLSubmit = function () {
+    window.handleAdminURLPreview = function () {
         var input = document.getElementById('admin-url-field');
+        var btn = document.getElementById('admin-url-preview-btn');
+        var spinner = document.getElementById('admin-url-spinner');
         if (!input) return;
         var url = input.value.trim();
         if (!url) {
@@ -1289,6 +1291,45 @@
             return;
         }
 
+        if (btn) btn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
+        showAdminToast(i18n.t('admin_doc_url_fetching'), 'info');
+
+        adminFetch('/api/documents/url/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: url })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_doc_url_fetch_failed')); });
+            return res.json();
+        })
+        .then(function (data) {
+            var previewArea = document.getElementById('admin-url-preview-area');
+            var previewContent = document.getElementById('admin-url-preview-content');
+            if (previewContent) previewContent.textContent = data.text || '';
+            if (previewArea) previewArea.classList.remove('hidden');
+            showAdminToast(i18n.t('admin_doc_url_fetched'), 'success');
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || i18n.t('admin_doc_url_fetch_failed'), 'error');
+        })
+        .finally(function () {
+            if (btn) btn.disabled = false;
+            if (spinner) spinner.classList.add('hidden');
+        });
+    };
+
+    window.handleAdminURLConfirm = function () {
+        var input = document.getElementById('admin-url-field');
+        var confirmBtn = document.getElementById('admin-url-confirm-btn');
+        var spinner = document.getElementById('admin-url-confirm-spinner');
+        if (!input) return;
+        var url = input.value.trim();
+        if (!url) return;
+
+        if (confirmBtn) confirmBtn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
         showAdminToast(i18n.t('admin_doc_url_submitting'), 'info');
 
         adminFetch('/api/documents/url', {
@@ -1297,17 +1338,27 @@
             body: JSON.stringify({ url: url })
         })
         .then(function (res) {
-            if (!res.ok) throw new Error(i18n.t('admin_doc_url_failed'));
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_doc_url_failed')); });
             return res.json();
         })
         .then(function () {
             showAdminToast(i18n.t('admin_doc_url_success'), 'success');
             input.value = '';
+            handleAdminURLCancel();
             loadDocumentList();
         })
         .catch(function (err) {
             showAdminToast(err.message || i18n.t('admin_doc_url_failed'), 'error');
+        })
+        .finally(function () {
+            if (confirmBtn) confirmBtn.disabled = false;
+            if (spinner) spinner.classList.add('hidden');
         });
+    };
+
+    window.handleAdminURLCancel = function () {
+        var previewArea = document.getElementById('admin-url-preview-area');
+        if (previewArea) previewArea.classList.add('hidden');
     };
 
     function loadDocumentList() {
@@ -1856,6 +1907,7 @@
     window.testLLM = function () {
         var btn = document.getElementById('btn-test-llm');
         var result = document.getElementById('test-llm-result');
+        var spinner = document.getElementById('spinner-test-llm');
         var endpoint = getVal('cfg-llm-endpoint');
         var apiKey = getVal('cfg-llm-apikey');
         var model = getVal('cfg-llm-model');
@@ -1867,6 +1919,7 @@
             return;
         }
         if (btn) btn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
         if (result) { result.textContent = i18n.t('admin_settings_test_testing'); result.style.color = '#6b7280'; result.classList.remove('hidden'); }
 
         adminFetch('/api/test/llm', {
@@ -1886,12 +1939,14 @@
         })
         .finally(function () {
             if (btn) btn.disabled = false;
+            if (spinner) spinner.classList.add('hidden');
         });
     };
 
     window.testEmbedding = function () {
         var btn = document.getElementById('btn-test-embedding');
         var result = document.getElementById('test-embedding-result');
+        var spinner = document.getElementById('spinner-test-embedding');
         var endpoint = getVal('cfg-emb-endpoint');
         var apiKey = getVal('cfg-emb-apikey');
         var model = getVal('cfg-emb-model');
@@ -1903,6 +1958,7 @@
             return;
         }
         if (btn) btn.disabled = true;
+        if (spinner) spinner.classList.remove('hidden');
         if (result) { result.textContent = i18n.t('admin_settings_test_testing'); result.style.color = '#6b7280'; result.classList.remove('hidden'); }
 
         adminFetch('/api/test/embedding', {
@@ -1922,6 +1978,7 @@
         })
         .finally(function () {
             if (btn) btn.disabled = false;
+            if (spinner) spinner.classList.add('hidden');
         });
     };
 

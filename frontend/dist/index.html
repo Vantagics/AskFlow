@@ -270,7 +270,17 @@
                                 </div>
                                 <div class="admin-url-input">
                                     <input type="text" id="admin-url-field" data-i18n-placeholder="admin_doc_url_placeholder" placeholder="输入文档URL地址">
-                                    <button class="btn-primary" onclick="handleAdminURLSubmit()" data-i18n="admin_doc_url_submit">提交URL</button>
+                                    <button class="btn-primary" id="admin-url-preview-btn" onclick="handleAdminURLPreview()" data-i18n="admin_doc_url_preview">预览内容</button>
+                                    <span id="admin-url-spinner" class="inline-spinner hidden"></span>
+                                </div>
+                                <div id="admin-url-preview-area" class="hidden" style="margin-top:0.75rem;">
+                                    <div style="font-size:0.85rem;color:#6b7280;margin-bottom:0.5rem;" data-i18n="admin_doc_url_preview_hint">以下是从URL获取的内容预览，确认无误后点击提交：</div>
+                                    <div id="admin-url-preview-content" style="max-height:300px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:0.75rem;font-size:0.85rem;background:#f9fafb;white-space:pre-wrap;word-break:break-all;"></div>
+                                    <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;">
+                                        <button class="btn-primary" id="admin-url-confirm-btn" onclick="handleAdminURLConfirm()" data-i18n="admin_doc_url_confirm">确认提交</button>
+                                        <button class="btn-secondary" onclick="handleAdminURLCancel()" data-i18n="admin_doc_url_cancel">取消</button>
+                                        <span id="admin-url-confirm-spinner" class="inline-spinner hidden"></span>
+                                    </div>
                                 </div>
                             </div>
 
@@ -361,6 +371,7 @@
                                     </div>
                                     <div class="admin-form-row" style="margin-top:0.5rem;">
                                         <button type="button" class="btn-secondary btn-sm" id="btn-test-llm" onclick="window.testLLM()" data-i18n="admin_settings_test_llm">测试 LLM 连接</button>
+                                        <span id="spinner-test-llm" class="inline-spinner hidden"></span>
                                         <span id="test-llm-result" class="admin-form-hint hidden"></span>
                                     </div>
                                 </fieldset>
@@ -392,6 +403,7 @@
                                     </div>
                                     <div class="admin-form-row" style="margin-top:0.5rem;">
                                         <button type="button" class="btn-secondary btn-sm" id="btn-test-embedding" onclick="window.testEmbedding()" data-i18n="admin_settings_test_embedding">测试 Embedding 连接</button>
+                                        <span id="spinner-test-embedding" class="inline-spinner hidden"></span>
                                         <span id="test-embedding-result" class="admin-form-hint hidden"></span>
                                     </div>
                                 </fieldset>

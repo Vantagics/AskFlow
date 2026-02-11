@@ -203,8 +203,12 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 	// If editing, clean up old vector store data first
 	if status == "answered" && req.IsEdit {
 		docID := "pending-answer-" + req.QuestionID
-		_ = pm.vectorStore.DeleteByDocID(docID)
-		_, _ = pm.db.Exec(`DELETE FROM documents WHERE id = ?`, docID)
+		if err := pm.vectorStore.DeleteByDocID(docID); err != nil {
+			fmt.Printf("Warning: failed to delete old vector data for %s: %v\n", docID, err)
+		}
+		if _, err := pm.db.Exec(`DELETE FROM documents WHERE id = ?`, docID); err != nil {
+			fmt.Printf("Warning: failed to delete old document record for %s: %v\n", docID, err)
+		}
 	}
 
 	// Step 2: Store the answer text in the record
@@ -240,7 +244,7 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 
 			// Insert a document record so the chunks FK constraint is satisfied
 			_, err = pm.db.Exec(
-				`INSERT INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
+				`INSERT OR REPLACE INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
 				docID, docName, "answer", "success", time.Now().UTC(),
 			)
 			if err != nil {
@@ -269,7 +273,7 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 	if len(req.ImageURLs) > 0 {
 		if !docCreated {
 			_, err = pm.db.Exec(
-				`INSERT INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
+				`INSERT OR REPLACE INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
 				docID, docName, "answer", "success", time.Now().UTC(),
 			)
 			if err != nil {
