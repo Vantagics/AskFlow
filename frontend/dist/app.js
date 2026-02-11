@@ -907,35 +907,50 @@
         }
         html += renderMarkdown(msg.content);
 
-        // Display images from sources inline
+        // Display images and video/audio from sources inline
         if (msg.sources && msg.sources.length > 0) {
-            var videoShown = {};
+            var videoSegments = {};
             for (var k = 0; k < msg.sources.length; k++) {
                 var s = msg.sources[k];
                 if (s.image_url) {
                     html += '<div class="chat-msg-image"><img src="' + escapeHtml(s.image_url) + '" alt="' + escapeHtml(s.document_name || 'image') + '" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;cursor:pointer;" onclick="window.open(this.src,\'_blank\')" /></div>';
                 }
-                // Render video/audio player for video-type documents (one per document)
-                if (s.document_type === 'video' && s.document_id && !videoShown[s.document_id]) {
-                    videoShown[s.document_id] = true;
-                    var mediaUrl = '/api/media/' + encodeURIComponent(s.document_id);
-                    var startSec = s.start_time || 0;
-                    var playerId = 'media-' + msg.timestamp + '-' + k;
-                    var ext = (s.document_name || '').split('.').pop().toLowerCase();
-                    var isAudio = (ext === 'mp3' || ext === 'wav' || ext === 'ogg' || ext === 'flac');
-                    html += '<div class="chat-media-player">';
-                    html += '<div class="chat-media-label">🎬 ' + escapeHtml(s.document_name || 'video');
-                    if (startSec > 0) {
-                        html += ' <span class="chat-media-time" onclick="seekMedia(\'' + playerId + '\',' + startSec + ')" title="' + i18n.t('chat_media_seek_hint') + '">⏱ ' + formatMediaTime(startSec) + '</span>';
+                if (s.document_type === 'video' && s.document_id) {
+                    if (!videoSegments[s.document_id]) {
+                        videoSegments[s.document_id] = { name: s.document_name, idx: k, times: [] };
                     }
-                    html += '</div>';
-                    if (isAudio) {
-                        html += '<audio id="' + playerId + '" controls preload="metadata" class="chat-audio-element"' + (startSec > 0 ? ' onloadedmetadata="this.currentTime=' + startSec + '"' : '') + '><source src="' + mediaUrl + '"></audio>';
-                    } else {
-                        html += '<video id="' + playerId + '" controls preload="metadata" class="chat-video-element"' + (startSec > 0 ? ' onloadedmetadata="this.currentTime=' + startSec + '"' : '') + '><source src="' + mediaUrl + '"></video>';
+                    if (s.start_time > 0 || s.end_time > 0) {
+                        videoSegments[s.document_id].times.push({ start: s.start_time || 0, end: s.end_time || 0 });
+                    }
+                }
+            }
+            var docIds = Object.keys(videoSegments);
+            for (var vi = 0; vi < docIds.length; vi++) {
+                var vDocId = docIds[vi];
+                var seg = videoSegments[vDocId];
+                var mediaUrl = '/api/media/' + encodeURIComponent(vDocId);
+                var firstStart = seg.times.length > 0 ? seg.times[0].start : 0;
+                var playerId = 'media-' + msg.timestamp + '-' + seg.idx;
+                var vExt = (seg.name || '').split('.').pop().toLowerCase();
+                var isAudio = (vExt === 'mp3' || vExt === 'wav' || vExt === 'ogg' || vExt === 'flac');
+                html += '<div class="chat-media-player">';
+                html += '<div class="chat-media-label">' + (isAudio ? '🎵' : '🎬') + ' ' + escapeHtml(seg.name || 'video') + '</div>';
+                if (isAudio) {
+                    html += '<audio id="' + playerId + '" controls preload="metadata" class="chat-audio-element"' + (firstStart > 0 ? ' onloadedmetadata="this.currentTime=' + firstStart + '"' : '') + '><source src="' + mediaUrl + '"></audio>';
+                } else {
+                    html += '<video id="' + playerId + '" controls preload="metadata" class="chat-video-element"' + (firstStart > 0 ? ' onloadedmetadata="this.currentTime=' + firstStart + '"' : '') + '><source src="' + mediaUrl + '"></video>';
+                }
+                if (seg.times.length > 0) {
+                    html += '<div class="chat-media-segments">';
+                    for (var ti = 0; ti < seg.times.length; ti++) {
+                        var tm = seg.times[ti];
+                        var tmLabel = formatMediaTime(tm.start);
+                        if (tm.end > 0 && tm.end !== tm.start) tmLabel += ' - ' + formatMediaTime(tm.end);
+                        html += '<button class="chat-media-seg-btn" onclick="seekMedia(\'' + playerId + '\',' + tm.start + ')">' + tmLabel + '</button>';
                     }
                     html += '</div>';
                 }
+                html += '</div>';
             }
         }
         html += '</div>';

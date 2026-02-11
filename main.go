@@ -1902,6 +1902,11 @@ func spaHandler(dir string) http.Handler {
 			return
 		}
 		p := filepath.Join(dir, cleanPath)
+		// Prevent caching of JS/CSS/HTML to avoid stale file issues
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+
 		info, err := os.Stat(p)
 		if err == nil && !info.IsDir() {
 			// Static file exists, serve it

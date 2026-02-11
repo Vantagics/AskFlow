@@ -932,6 +932,30 @@ body {
     background: #1f2937;
 }
 
+.chat-media-segments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    background: #1f2937;
+}
+
+.chat-media-seg-btn {
+    background: #374151;
+    color: #93c5fd;
+    border: 1px solid #4b5563;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.chat-media-seg-btn:hover {
+    background: #4b5563;
+    color: #bfdbfe;
+}
+
 /* Loading Indicator */
 .chat-msg-loading .chat-msg-bubble {
     display: flex;
