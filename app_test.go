@@ -59,6 +59,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT, name TEXT, provider TEXT NOT NULL, provider_id TEXT NOT NULL, password_hash TEXT, email_verified INTEGER DEFAULT 0, created_at DATETIME, last_login DATETIME)`,
 		`CREATE TABLE IF NOT EXISTS email_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token TEXT NOT NULL UNIQUE, type TEXT NOT NULL, expires_at DATETIME NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (user_id) REFERENCES users(id))`,
 		`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id TEXT, expires_at TEXT, created_at TEXT, FOREIGN KEY (user_id) REFERENCES users(id))`,
+		`CREATE TABLE IF NOT EXISTS admin_users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'editor', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatal(err)

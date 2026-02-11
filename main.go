@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,6 +57,19 @@ func main() {
 	es := embedding.NewAPIEmbeddingService(cfg.Embedding.Endpoint, cfg.Embedding.APIKey, cfg.Embedding.ModelName, cfg.Embedding.UseMultimodal)
 	ls := llm.NewAPILLMService(cfg.LLM.Endpoint, cfg.LLM.APIKey, cfg.LLM.ModelName, cfg.LLM.Temperature, cfg.LLM.MaxTokens)
 	dm := document.NewDocumentManager(dp, tc, es, vs, database)
+
+	// Check for CLI subcommands
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "import":
+			runBatchImport(os.Args[2:], dm)
+			return
+		case "help", "-h", "--help":
+			printUsage()
+			return
+		}
+	}
+
 	qe := query.NewQueryEngine(es, vs, ls, database, cfg)
 	pm := pending.NewPendingQuestionManager(database, tc, es, vs, ls)
 	oc := auth.NewOAuthClient(cfg.OAuth.Providers)
@@ -76,9 +90,128 @@ func main() {
 	http.Handle("/", spaHandler("frontend/dist"))
 
 	// 7. Start HTTP server
-	addr := "0.0.0.0:8080"
+	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
 	fmt.Printf("Helpdesk system starting on http://%s\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+// printUsage prints CLI usage information.
+func printUsage() {
+	fmt.Println(`用法:
+  helpdesk                     启动 HTTP 服务（默认端口 8080）
+  helpdesk import <目录> [...]  批量导入目录下的文档到知识库
+  helpdesk help                显示此帮助信息
+
+import 命令:
+  递归扫描指定目录及子目录，将支持的文件（PDF、Word、Excel、PPT、Markdown）
+  解析后存入向量数据库。可同时指定多个目录。
+
+  支持的文件格式: .pdf .doc .docx .xls .xlsx .ppt .pptx .md .markdown
+
+  示例:
+    helpdesk import ./docs
+    helpdesk import ./docs ./manuals /path/to/files`)
+}
+
+// supportedExtensions lists file extensions that can be imported.
+var supportedExtensions = map[string]string{
+	".pdf":      "pdf",
+	".doc":      "word",
+	".docx":     "word",
+	".xls":      "excel",
+	".xlsx":     "excel",
+	".ppt":      "ppt",
+	".pptx":     "ppt",
+	".md":       "markdown",
+	".markdown": "markdown",
+}
+
+// runBatchImport scans directories and imports supported files.
+func runBatchImport(args []string, dm *document.DocumentManager) {
+	if len(args) == 0 {
+		fmt.Println("错误: 请指定至少一个目录路径")
+		fmt.Println("用法: helpdesk import <目录> [...]")
+		os.Exit(1)
+	}
+
+	// Collect all files to import
+	var files []string
+	for _, dir := range args {
+		info, err := os.Stat(dir)
+		if err != nil {
+			fmt.Printf("警告: 无法访问 %s: %v\n", dir, err)
+			continue
+		}
+		if !info.IsDir() {
+			// Single file
+			if _, ok := supportedExtensions[strings.ToLower(filepath.Ext(dir))]; ok {
+				files = append(files, dir)
+			} else {
+				fmt.Printf("跳过: 不支持的文件格式 %s\n", dir)
+			}
+			continue
+		}
+		// Walk directory
+		filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
+			if err != nil {
+				fmt.Printf("警告: 无法访问 %s: %v\n", path, err)
+				return nil
+			}
+			if fi.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(fi.Name()))
+			if _, ok := supportedExtensions[ext]; ok {
+				files = append(files, path)
+			}
+			return nil
+		})
+	}
+
+	if len(files) == 0 {
+		fmt.Println("未找到支持的文件")
+		return
+	}
+
+	fmt.Printf("找到 %d 个文件，开始导入...\n\n", len(files))
+
+	var success, failed int
+	for i, filePath := range files {
+		fileName := filepath.Base(filePath)
+		ext := strings.ToLower(filepath.Ext(fileName))
+		fileType := supportedExtensions[ext]
+
+		fmt.Printf("[%d/%d] %s ... ", i+1, len(files), filePath)
+
+		fileData, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Printf("读取失败: %v\n", err)
+			failed++
+			continue
+		}
+
+		req := document.UploadFileRequest{
+			FileName: fileName,
+			FileData: fileData,
+			FileType: fileType,
+		}
+		doc, err := dm.UploadFile(req)
+		if err != nil {
+			fmt.Printf("导入失败: %v\n", err)
+			failed++
+			continue
+		}
+		if doc.Status == "failed" {
+			fmt.Printf("处理失败: %s\n", doc.Error)
+			failed++
+			continue
+		}
+
+		fmt.Printf("成功 (ID: %s)\n", doc.ID)
+		success++
+	}
+
+	fmt.Printf("\n导入完成: 成功 %d, 失败 %d, 共 %d\n", success, failed, len(files))
 }
 
 func registerAPIHandlers(app *App) {
@@ -114,11 +247,25 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/pending/answer", handlePendingAnswer(app))
 	http.HandleFunc("/api/pending", handlePending(app))
 
-	// Config
-	http.HandleFunc("/api/config", handleConfig(app))
+	// Config (with role check)
+	http.HandleFunc("/api/config", handleConfigWithRole(app))
 
 	// Email test
 	http.HandleFunc("/api/email/test", handleEmailTest(app))
+
+	// Admin sub-accounts
+	http.HandleFunc("/api/admin/users", handleAdminUsers(app))
+	http.HandleFunc("/api/admin/users/", handleAdminUserByID(app))
+	http.HandleFunc("/api/admin/role", handleAdminRole(app))
+
+	// Knowledge entry
+	http.HandleFunc("/api/knowledge", handleKnowledgeEntry(app))
+
+	// Image upload for knowledge entry
+	http.HandleFunc("/api/images/upload", handleImageUpload(app))
+
+	// Serve uploaded images
+	http.Handle("/api/images/", http.StripPrefix("/api/images/", http.FileServer(http.Dir("./data/images"))))
 }
 
 // --- JSON helpers ---
@@ -535,35 +682,6 @@ func handlePendingAnswer(app *App) http.HandlerFunc {
 	}
 }
 
-// --- Config handlers ---
-
-func handleConfig(app *App) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			cfg := app.GetConfig()
-			if cfg == nil {
-				writeError(w, http.StatusInternalServerError, "config not loaded")
-				return
-			}
-			writeJSON(w, http.StatusOK, cfg)
-		case http.MethodPut:
-			var updates map[string]interface{}
-			if err := readJSONBody(r, &updates); err != nil {
-				writeError(w, http.StatusBadRequest, "invalid request body")
-				return
-			}
-			if err := app.UpdateConfig(updates); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-		default:
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-		}
-	}
-}
-
 // --- Email test handler ---
 
 func handleEmailTest(app *App) http.HandlerFunc {
@@ -584,6 +702,282 @@ func handleEmailTest(app *App) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "测试邮件已发送"})
+	}
+}
+
+// --- Admin role check middleware helper ---
+
+// getAdminSession validates the session and checks if it's an admin session.
+// Returns (userID, role, error). role is "super_admin" or "editor".
+func getAdminSession(app *App, r *http.Request) (string, string, error) {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if token == "" {
+		return "", "", fmt.Errorf("未登录")
+	}
+	session, err := app.sessionManager.ValidateSession(token)
+	if err != nil {
+		return "", "", fmt.Errorf("会话无效")
+	}
+	if !app.IsAdminSession(session.UserID) {
+		return "", "", fmt.Errorf("无权限")
+	}
+	role := app.GetAdminRole(session.UserID)
+	if role == "" {
+		return "", "", fmt.Errorf("无权限")
+	}
+	return session.UserID, role, nil
+}
+
+// --- Admin sub-account handlers ---
+
+func handleAdminUsers(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			if role != "super_admin" {
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+				return
+			}
+			users, err := app.ListAdminUsers()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if users == nil {
+				users = []AdminUserInfo{}
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"users": users})
+
+		case http.MethodPost:
+			if role != "super_admin" {
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+				return
+			}
+			var req struct {
+				Username string `json:"username"`
+				Password string `json:"password"`
+				Role     string `json:"role"`
+			}
+			if err := readJSONBody(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body")
+				return
+			}
+			user, err := app.CreateAdminUser(req.Username, req.Password, req.Role)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, user)
+
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	}
+}
+
+func handleAdminUserByID(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		if role != "super_admin" {
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+			return
+		}
+
+		id := strings.TrimPrefix(r.URL.Path, "/api/admin/users/")
+		if id == "" {
+			writeError(w, http.StatusBadRequest, "missing user ID")
+			return
+		}
+
+		if r.Method != http.MethodDelete {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		if err := app.DeleteAdminUser(id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func handleAdminRole(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]string{"role": ""})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"role": role})
+	}
+}
+
+// --- Knowledge entry handler ---
+
+func handleImageUpload(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		// Parse multipart form (max 10MB)
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "failed to parse form")
+			return
+		}
+
+		file, header, err := r.FormFile("image")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "missing image in upload")
+			return
+		}
+		defer file.Close()
+
+		// Validate image type
+		ext := strings.ToLower(filepath.Ext(header.Filename))
+		allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true}
+		if !allowedExts[ext] {
+			writeError(w, http.StatusBadRequest, "不支持的图片格式，支持 jpg/png/gif/webp/bmp")
+			return
+		}
+
+		data, err := io.ReadAll(file)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read image")
+			return
+		}
+
+		// Generate unique filename
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to generate ID")
+			return
+		}
+		filename := fmt.Sprintf("%x%s", b, ext)
+
+		// Save to data/images/
+		imgDir := filepath.Join(".", "data", "images")
+		if err := os.MkdirAll(imgDir, 0755); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create image dir")
+			return
+		}
+		if err := os.WriteFile(filepath.Join(imgDir, filename), data, 0644); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save image")
+			return
+		}
+
+		url := "/api/images/" + filename
+		writeJSON(w, http.StatusOK, map[string]string{"url": url})
+	}
+}
+
+func handleKnowledgeEntry(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		var req KnowledgeEntryRequest
+		if err := readJSONBody(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if err := app.AddKnowledgeEntry(req); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// --- Config handler with role check ---
+
+func handleConfigWithRole(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			cfg := app.GetConfig()
+			if cfg == nil {
+				writeError(w, http.StatusInternalServerError, "config not loaded")
+				return
+			}
+			writeJSON(w, http.StatusOK, cfg)
+		case http.MethodPut:
+			if role != "super_admin" {
+				writeError(w, http.StatusForbidden, "仅超级管理员可修改系统设置")
+				return
+			}
+			var updates map[string]interface{}
+			if err := readJSONBody(r, &updates); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body")
+				return
+			}
+			if err := app.UpdateConfig(updates); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	}
+}
+
+// handleServerRestart restarts the server process (super_admin only).
+func handleServerRestart(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		if role != "super_admin" {
+			writeError(w, http.StatusForbidden, "仅超级管理员可重启服务")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "restarting"})
+
+		// Gracefully exit so the process supervisor (systemd, etc.) restarts us
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			os.Exit(0)
+		}()
 	}
 }
 

@@ -26,6 +26,7 @@ const encryptedPrefix = "enc:"
 
 // Config holds all system configuration.
 type Config struct {
+	Server       ServerConfig    `json:"server"`
 	LLM          LLMConfig       `json:"llm"`
 	Embedding    EmbeddingConfig `json:"embedding"`
 	Vector       VectorConfig    `json:"vector"`
@@ -33,6 +34,11 @@ type Config struct {
 	Admin        AdminConfig     `json:"admin"`
 	SMTP         SMTPConfig      `json:"smtp"`
 	ProductIntro string          `json:"product_intro"`
+}
+
+// ServerConfig holds HTTP server configuration.
+type ServerConfig struct {
+	Port int `json:"port"`
 }
 
 // LLMConfig holds LLM service configuration.
@@ -131,6 +137,9 @@ func NewConfigManagerWithKey(configPath string, key []byte) (*ConfigManager, err
 // Pre-configured with VolcEngine ARK API endpoints (OpenAI-compatible).
 func DefaultConfig() *Config {
 	return &Config{
+		Server: ServerConfig{
+			Port: 8080,
+		},
 		LLM: LLMConfig{
 			Endpoint:    "https://ark.cn-beijing.volces.com/api/v3",
 			APIKey:      "102e16bc-4afd-45bd-9dff-65464072cc1d",
@@ -470,6 +479,17 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		}
 		cm.config.ProductIntro = s
 
+	// Server fields
+	case "server.port":
+		n, err := toInt(val)
+		if err != nil {
+			return err
+		}
+		if n < 1 || n > 65535 {
+			return errors.New("port must be between 1 and 65535")
+		}
+		cm.config.Server.Port = n
+
 	default:
 		// Handle OAuth provider config: oauth.providers.<name>.<field>
 		if strings.HasPrefix(key, "oauth.providers.") {
@@ -536,6 +556,9 @@ func (cm *ConfigManager) applyOAuthUpdate(key string, val interface{}) error {
 // applyDefaults fills in zero-value fields with defaults.
 func (cm *ConfigManager) applyDefaults(cfg *Config) {
 	defaults := DefaultConfig()
+	if cfg.Server.Port == 0 {
+		cfg.Server.Port = defaults.Server.Port
+	}
 	if cfg.LLM.Endpoint == "" {
 		cfg.LLM.Endpoint = defaults.LLM.Endpoint
 	}

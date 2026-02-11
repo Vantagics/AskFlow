@@ -164,8 +164,8 @@ func TestQuery_PendingWhenNoResults(t *testing.T) {
 				intentCalled = true
 				return `{"intent":"product"}`, nil
 			}
-			t.Error("LLM should not be called for answer generation when no results found")
-			return "", nil
+			// Second call is translation of the pending message — return the original Chinese
+			return "该问题已转交人工处理，请稍后查看回复", nil
 		},
 	}
 

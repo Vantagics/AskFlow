@@ -36,6 +36,11 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	if err := createAdminUsersTable(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to create admin_users table: %w", err)
+	}
+
 	return db, nil
 }
 
@@ -125,6 +130,19 @@ func createTables(db *sql.DB) error {
 	}
 
 	return tx.Commit()
+}
+
+// createAdminUsersTable creates the admin_users table for sub-account management.
+// Called separately after main tables since it may not exist in older DBs.
+func createAdminUsersTable(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS admin_users (
+		id            TEXT PRIMARY KEY,
+		username      TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role          TEXT NOT NULL DEFAULT 'editor',
+		created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	return err
 }
 
 // migrateTables adds missing columns to existing tables for backward compatibility.

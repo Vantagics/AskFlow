@@ -401,6 +401,7 @@
             .then(function (data) {
                 if (data.session) {
                     saveSession(data.session, { name: username, provider: 'admin' });
+                    if (data.role) localStorage.setItem('admin_role', data.role);
                     navigate('/admin-panel');
                 } else {
                     throw new Error('设置失败');
@@ -452,6 +453,7 @@
             .then(function (data) {
                 if (data.session) {
                     saveSession(data.session, { name: username, provider: 'admin' });
+                    if (data.role) localStorage.setItem('admin_role', data.role);
                     navigate('/admin-panel');
                 } else {
                     throw new Error('登录失败');
@@ -487,6 +489,7 @@
 
     var chatMessages = [];
     var chatLoading = false;
+    var chatPendingImage = null; // base64 data URL of pasted image
 
     function getChatUserID() {
         try {
@@ -557,20 +560,63 @@
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
             // Enable/disable send button
-            if (sendBtn) {
-                sendBtn.disabled = !this.value.trim() || chatLoading;
-            }
+            updateSendBtnState();
         });
 
         input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (this.value.trim() && !chatLoading) {
+                if ((this.value.trim() || chatPendingImage) && !chatLoading) {
                     window.sendChatMessage();
                 }
             }
         });
+
+        // Paste image from clipboard
+        input.addEventListener('paste', function (e) {
+            var items = (e.clipboardData || e.originalEvent.clipboardData || {}).items;
+            if (!items) return;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    var file = items[i].getAsFile();
+                    if (!file) continue;
+                    var reader = new FileReader();
+                    reader.onload = function (ev) {
+                        chatPendingImage = ev.target.result;
+                        showChatImagePreview(chatPendingImage);
+                        updateSendBtnState();
+                    };
+                    reader.readAsDataURL(file);
+                    break;
+                }
+            }
+        });
     }
+
+    function updateSendBtnState() {
+        var input = document.getElementById('chat-input');
+        var sendBtn = document.getElementById('chat-send-btn');
+        if (sendBtn) {
+            sendBtn.disabled = (!(input && input.value.trim()) && !chatPendingImage) || chatLoading;
+        }
+    }
+
+    function showChatImagePreview(dataUrl) {
+        var preview = document.getElementById('chat-image-preview');
+        var img = document.getElementById('chat-image-preview-img');
+        if (preview && img) {
+            img.src = dataUrl;
+            preview.classList.remove('hidden');
+        }
+    }
+
+    window.removeChatImage = function () {
+        chatPendingImage = null;
+        var preview = document.getElementById('chat-image-preview');
+        if (preview) preview.classList.add('hidden');
+        updateSendBtnState();
+    };
 
     function renderChatMessages() {
         var container = document.getElementById('chat-messages');
@@ -604,10 +650,15 @@
         var timeStr = formatTime(msg.timestamp);
 
         if (msg.role === 'user') {
-            return '<div class="chat-msg chat-msg-user">' +
-                '<div class="chat-msg-bubble">' + escapeHtml(msg.content) + '</div>' +
+            var userHtml = '<div class="chat-msg chat-msg-user">' +
+                '<div class="chat-msg-bubble">' + escapeHtml(msg.content);
+            if (msg.imageUrl) {
+                userHtml += '<div class="chat-msg-user-image"><img src="' + msg.imageUrl + '" alt="用户图片" /></div>';
+            }
+            userHtml += '</div>' +
                 '<span class="chat-msg-time">' + timeStr + '</span>' +
             '</div>';
+            return userHtml;
         }
 
         // System message
@@ -702,23 +753,45 @@
         if (!input) return;
 
         var question = input.value.trim();
-        if (!question || chatLoading) return;
+        var imageData = chatPendingImage;
+        if ((!question && !imageData) || chatLoading) return;
+
+        // Default question text if only image
+        if (!question && imageData) {
+            question = '请识别这张图片的内容';
+        }
 
         // Add user message
-        chatMessages.push({
+        var userMsg = {
             role: 'user',
             content: question,
             timestamp: Date.now()
-        });
+        };
+        if (imageData) {
+            userMsg.imageUrl = imageData;
+        }
+        chatMessages.push(userMsg);
 
-        // Clear input and reset height
+        // Clear input, image, and reset height
         input.value = '';
         input.style.height = 'auto';
+        chatPendingImage = null;
+        var preview = document.getElementById('chat-image-preview');
+        if (preview) preview.classList.add('hidden');
         if (sendBtn) sendBtn.disabled = true;
 
         // Show loading
         chatLoading = true;
         renderChatMessages();
+
+        // Build request body
+        var reqBody = {
+            question: question,
+            user_id: getChatUserID()
+        };
+        if (imageData) {
+            reqBody.image_data = imageData;
+        }
 
         // Call API
         var token = getChatToken();
@@ -728,10 +801,7 @@
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + token
             },
-            body: JSON.stringify({
-                question: question,
-                user_id: getChatUserID()
-            })
+            body: JSON.stringify(reqBody)
         })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '请求失败'); });
@@ -775,6 +845,7 @@
     var adminDeleteTargetId = null;
     var adminAnswerTargetId = null;
     var adminToastTimer = null;
+    var adminRole = '';  // 'super_admin' or 'editor'
 
     function getAdminToken() {
         var session = getSession();
@@ -818,11 +889,39 @@
         if (tab === 'documents') loadDocumentList();
         if (tab === 'pending') loadPendingQuestions();
         if (tab === 'settings') loadAdminSettings();
+        if (tab === 'users') loadAdminUsers();
     };
 
     function initAdmin() {
         setupDropZone();
-        switchAdminTab('documents');
+        initKnowledgeImageZone();
+        // Fetch role and apply visibility
+        adminFetch('/api/admin/role')
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                adminRole = data.role || '';
+                applyAdminRoleVisibility();
+            })
+            .catch(function () {
+                adminRole = localStorage.getItem('admin_role') || '';
+                applyAdminRoleVisibility();
+            })
+            .finally(function () {
+                switchAdminTab('documents');
+            });
+    }
+
+    function applyAdminRoleVisibility() {
+        // Hide settings and users tabs for non-super_admin
+        var settingsNav = document.querySelector('.admin-nav-item[data-tab="settings"]');
+        var usersNav = document.querySelector('.admin-nav-item[data-tab="users"]');
+        if (adminRole !== 'super_admin') {
+            if (settingsNav) settingsNav.style.display = 'none';
+            if (usersNav) usersNav.style.display = 'none';
+        } else {
+            if (settingsNav) settingsNav.style.display = '';
+            if (usersNav) usersNav.style.display = '';
+        }
     }
 
     // --- Document Management ---
@@ -1133,10 +1232,13 @@
                 return res.json();
             })
             .then(function (cfg) {
+                var server = cfg.server || {};
                 var llm = cfg.llm || {};
                 var emb = cfg.embedding || {};
                 var vec = cfg.vector || {};
                 var admin = cfg.admin || {};
+
+                setVal('cfg-server-port', server.port);
 
                 setVal('cfg-llm-endpoint', llm.endpoint);
                 setVal('cfg-llm-model', llm.model_name);
@@ -1192,6 +1294,23 @@
         return el ? el.value : '';
     }
 
+    window.restartServer = function () {
+        if (!confirm('确定要重启服务吗？重启期间服务将短暂不可用。')) return;
+        var btn = document.getElementById('server-restart-btn');
+        if (btn) btn.disabled = true;
+
+        adminFetch('/api/server/restart', { method: 'POST' })
+            .then(function (res) {
+                if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '重启失败'); });
+                showAdminToast('服务正在重启，请稍候刷新页面...', 'success');
+                setTimeout(function () { location.reload(); }, 3000);
+            })
+            .catch(function (err) {
+                showAdminToast(err.message || '重启失败', 'error');
+                if (btn) btn.disabled = false;
+            });
+    };
+
     window.testSmtpEmail = function () {
         var emailInput = document.getElementById('cfg-smtp-test-email');
         var resultEl = document.getElementById('smtp-test-result');
@@ -1230,6 +1349,8 @@
     window.saveAdminSettings = function () {
         var updates = {};
 
+        var serverPort = getVal('cfg-server-port');
+
         var llmEndpoint = getVal('cfg-llm-endpoint');
         var llmModel = getVal('cfg-llm-model');
         var llmApiKey = getVal('cfg-llm-apikey');
@@ -1246,6 +1367,7 @@
         var vecThreshold = getVal('cfg-vec-threshold');
 
         if (llmEndpoint) updates['llm.endpoint'] = llmEndpoint;
+        if (serverPort !== '') updates['server.port'] = parseInt(serverPort, 10);
         if (llmModel) updates['llm.model_name'] = llmModel;
         if (llmApiKey) updates['llm.api_key'] = llmApiKey;
         if (llmTemp !== '') updates['llm.temperature'] = parseFloat(llmTemp);
@@ -1306,11 +1428,254 @@
         });
     };
 
+    // --- Knowledge Entry ---
+
+    var knowledgeImageURLs = [];
+
+    function initKnowledgeImageZone() {
+        var area = document.getElementById('knowledge-image-upload-area');
+        var input = document.getElementById('knowledge-image-input');
+        if (!area || !input) return;
+
+        // Click to select files
+        area.addEventListener('click', function () {
+            input.click();
+        });
+
+        // File input change
+        input.addEventListener('change', function () {
+            if (input.files && input.files.length > 0) {
+                for (var i = 0; i < input.files.length; i++) {
+                    uploadKnowledgeImage(input.files[i]);
+                }
+                input.value = '';
+            }
+        });
+
+        // Drag and drop
+        area.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            area.classList.add('dragover');
+        });
+        area.addEventListener('dragleave', function () {
+            area.classList.remove('dragover');
+        });
+        area.addEventListener('drop', function (e) {
+            e.preventDefault();
+            area.classList.remove('dragover');
+            var files = e.dataTransfer.files;
+            for (var i = 0; i < files.length; i++) {
+                if (files[i].type.indexOf('image/') === 0) {
+                    uploadKnowledgeImage(files[i]);
+                }
+            }
+        });
+
+        // Clipboard paste - listen on the whole knowledge tab
+        var knowledgeTab = document.getElementById('admin-tab-knowledge');
+        if (knowledgeTab) {
+            knowledgeTab.addEventListener('paste', function (e) {
+                var items = (e.clipboardData || e.originalEvent.clipboardData || {}).items;
+                if (!items) return;
+                for (var i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf('image/') === 0) {
+                        e.preventDefault();
+                        var blob = items[i].getAsFile();
+                        if (blob) uploadKnowledgeImage(blob);
+                    }
+                }
+            });
+        }
+    }
+
+    function uploadKnowledgeImage(file) {
+        if (file.type.indexOf('image/') !== 0) {
+            showAdminToast('请选择图片文件', 'error');
+            return;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+            showAdminToast('图片大小不能超过10MB', 'error');
+            return;
+        }
+
+        // Create preview placeholder
+        var preview = document.getElementById('knowledge-image-preview');
+        var item = document.createElement('div');
+        item.className = 'knowledge-image-item uploading';
+        var img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        item.appendChild(img);
+        preview.appendChild(item);
+
+        var formData = new FormData();
+        formData.append('image', file, file.name || 'paste.png');
+
+        adminFetch('/api/images/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '上传失败'); });
+            return res.json();
+        })
+        .then(function (data) {
+            item.classList.remove('uploading');
+            var idx = knowledgeImageURLs.length;
+            knowledgeImageURLs.push(data.url);
+
+            // Add remove button
+            var removeBtn = document.createElement('button');
+            removeBtn.className = 'knowledge-image-remove';
+            removeBtn.textContent = '×';
+            removeBtn.setAttribute('aria-label', '删除图片');
+            removeBtn.onclick = function () {
+                knowledgeImageURLs[idx] = null;
+                item.remove();
+            };
+            item.appendChild(removeBtn);
+        })
+        .catch(function (err) {
+            item.remove();
+            showAdminToast(err.message || '图片上传失败', 'error');
+        });
+    }
+
+    window.submitKnowledgeEntry = function () {
+        var title = (document.getElementById('knowledge-title') || {}).value || '';
+        var content = (document.getElementById('knowledge-content') || {}).value || '';
+
+        if (!title.trim() || !content.trim()) {
+            showAdminToast('请输入标题和内容', 'error');
+            return;
+        }
+
+        var imageURLs = knowledgeImageURLs.filter(function (u) { return u; });
+
+        var btn = document.getElementById('knowledge-submit-btn');
+        if (btn) btn.disabled = true;
+        showAdminToast('正在录入知识...', 'info');
+
+        adminFetch('/api/knowledge', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: title.trim(), content: content.trim(), image_urls: imageURLs })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '录入失败'); });
+            return res.json();
+        })
+        .then(function () {
+            showAdminToast('知识录入成功', 'success');
+            if (document.getElementById('knowledge-title')) document.getElementById('knowledge-title').value = '';
+            if (document.getElementById('knowledge-content')) document.getElementById('knowledge-content').value = '';
+            var preview = document.getElementById('knowledge-image-preview');
+            if (preview) preview.innerHTML = '';
+            knowledgeImageURLs = [];
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || '录入失败', 'error');
+        })
+        .finally(function () {
+            if (btn) btn.disabled = false;
+        });
+    };
+
+    // --- Admin User Management ---
+
+    function loadAdminUsers() {
+        adminFetch('/api/admin/users')
+            .then(function (res) {
+                if (!res.ok) throw new Error('加载失败');
+                return res.json();
+            })
+            .then(function (data) {
+                renderAdminUsers(data.users || []);
+            })
+            .catch(function () {
+                renderAdminUsers([]);
+            });
+    }
+
+    function renderAdminUsers(users) {
+        var tbody = document.getElementById('admin-users-tbody');
+        if (!tbody) return;
+
+        if (!users || users.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="admin-table-empty">暂无子账号</td></tr>';
+            return;
+        }
+
+        var roleMap = { 'editor': '编辑员', 'super_admin': '超级管理员' };
+        var html = '';
+        for (var i = 0; i < users.length; i++) {
+            var u = users[i];
+            html += '<tr>' +
+                '<td>' + escapeHtml(u.username) + '</td>' +
+                '<td>' + escapeHtml(roleMap[u.role] || u.role) + '</td>' +
+                '<td>' + escapeHtml(u.created_at || '-') + '</td>' +
+                '<td><button class="btn-danger btn-sm" onclick="deleteAdminUser(\'' + escapeHtml(u.id) + '\', \'' + escapeHtml(u.username) + '\')">删除</button></td>' +
+            '</tr>';
+        }
+        tbody.innerHTML = html;
+    }
+
+    window.createAdminUser = function () {
+        var username = (document.getElementById('admin-new-username') || {}).value || '';
+        var password = (document.getElementById('admin-new-password') || {}).value || '';
+        var role = (document.getElementById('admin-new-role') || {}).value || 'editor';
+
+        if (!username.trim() || !password) {
+            showAdminToast('请输入用户名和密码', 'error');
+            return;
+        }
+        if (password.length < 6) {
+            showAdminToast('密码至少6位', 'error');
+            return;
+        }
+
+        adminFetch('/api/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username.trim(), password: password, role: role })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '创建失败'); });
+            return res.json();
+        })
+        .then(function () {
+            showAdminToast('用户创建成功', 'success');
+            if (document.getElementById('admin-new-username')) document.getElementById('admin-new-username').value = '';
+            if (document.getElementById('admin-new-password')) document.getElementById('admin-new-password').value = '';
+            loadAdminUsers();
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || '创建失败', 'error');
+        });
+    };
+
+    window.deleteAdminUser = function (id, username) {
+        if (!confirm('确定要删除用户"' + username + '"吗？')) return;
+
+        adminFetch('/api/admin/users/' + encodeURIComponent(id), {
+            method: 'DELETE'
+        })
+        .then(function (res) {
+            if (!res.ok) throw new Error('删除失败');
+            showAdminToast('用户已删除', 'success');
+            loadAdminUsers();
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || '删除失败', 'error');
+        });
+    };
+
     // --- Logout ---
 
     window.logout = function () {
         chatMessages = [];
         chatLoading = false;
+        adminRole = '';
+        localStorage.removeItem('admin_role');
         clearSession();
         navigate('/login');
     };

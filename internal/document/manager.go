@@ -369,3 +369,18 @@ func (dm *DocumentManager) GetFilePath(docID string) (string, string, error) {
 	filePath := filepath.Join(dir, entries[0].Name())
 	return filePath, entries[0].Name(), nil
 }
+
+// ChunkEmbedStore is a public wrapper around chunkEmbedStore for external callers.
+func (dm *DocumentManager) ChunkEmbedStore(docID, docName, text string) error {
+	return dm.chunkEmbedStore(docID, docName, text)
+}
+
+// GetEmbeddingService returns the current embedding service.
+func (dm *DocumentManager) GetEmbeddingService() embedding.EmbeddingService {
+	return dm.embeddingService
+}
+
+// StoreChunks stores pre-built vector chunks into the vector store.
+func (dm *DocumentManager) StoreChunks(docID string, chunks []vectorstore.VectorChunk) error {
+	return dm.vectorStore.Store(docID, chunks)
+}

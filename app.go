@@ -20,6 +20,7 @@ import (
 	"helpdesk/internal/llm"
 	"helpdesk/internal/pending"
 	"helpdesk/internal/query"
+	"helpdesk/internal/vectorstore"
 )
 
 // App is the API facade that binds all backend services for the frontend.
@@ -137,6 +138,15 @@ func (a *App) HandleOAuthCallback(provider, code string) (*OAuthCallbackResponse
 // AdminLoginResponse contains the session created after admin login.
 type AdminLoginResponse struct {
 	Session *auth.Session `json:"session"`
+	Role    string        `json:"role,omitempty"`
+}
+
+// AdminUserInfo holds info about an admin sub-account.
+type AdminUserInfo struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Role      string `json:"role"`
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 // IsAdminConfigured returns whether the admin account has been set up.
@@ -177,34 +187,74 @@ func (a *App) AdminSetup(username, password string) (*AdminLoginResponse, error)
 		return nil, err
 	}
 
-	return &AdminLoginResponse{Session: session}, nil
+	return &AdminLoginResponse{Session: session, Role: "super_admin"}, nil
+}
+
+// GetAdminRole returns the role for a session user ID.
+// "admin" → super_admin, "admin_xxx" → lookup from admin_users table.
+func (a *App) GetAdminRole(userID string) string {
+	if userID == "admin" {
+		return "super_admin"
+	}
+	if strings.HasPrefix(userID, "admin_") {
+		subID := strings.TrimPrefix(userID, "admin_")
+		var role string
+		err := a.db.QueryRow(`SELECT role FROM admin_users WHERE id = ?`, subID).Scan(&role)
+		if err == nil {
+			return role
+		}
+	}
+	return ""
+}
+
+// IsAdminSession checks if a user ID belongs to any admin (super or sub).
+func (a *App) IsAdminSession(userID string) bool {
+	return userID == "admin" || strings.HasPrefix(userID, "admin_")
 }
 
 // AdminLogin verifies the admin username and password and creates a session.
+// Checks the super admin first, then admin sub-accounts.
 func (a *App) AdminLogin(username, password string) (*AdminLoginResponse, error) {
 	cfg := a.configManager.Get()
-	if cfg.Admin.Username == "" || cfg.Admin.PasswordHash == "" {
-		return nil, fmt.Errorf("管理员账号未设置")
+
+	// Check super admin
+	if cfg.Admin.Username != "" && cfg.Admin.PasswordHash != "" && username == cfg.Admin.Username {
+		if err := auth.VerifyAdminPassword(password, cfg.Admin.PasswordHash); err != nil {
+			return nil, fmt.Errorf("用户名或密码错误")
+		}
+		if err := a.ensureAdminUser(); err != nil {
+			return nil, err
+		}
+		session, err := a.sessionManager.CreateSession("admin")
+		if err != nil {
+			return nil, err
+		}
+		return &AdminLoginResponse{Session: session, Role: "super_admin"}, nil
 	}
-	if username != cfg.Admin.Username {
+
+	// Check admin sub-accounts
+	var id, passwordHash, role string
+	err := a.db.QueryRow(
+		`SELECT id, password_hash, role FROM admin_users WHERE username = ?`, username,
+	).Scan(&id, &passwordHash, &role)
+	if err != nil {
 		return nil, fmt.Errorf("用户名或密码错误")
 	}
-	if err := auth.VerifyAdminPassword(password, cfg.Admin.PasswordHash); err != nil {
+	if err := auth.VerifyAdminPassword(password, passwordHash); err != nil {
 		return nil, fmt.Errorf("用户名或密码错误")
 	}
 
-	if err := a.ensureAdminUser(); err != nil {
-		return nil, err
-	}
+	// Ensure user record exists for FK
+	a.db.Exec(
+		`INSERT OR IGNORE INTO users (id, email, name, provider, provider_id) VALUES (?, ?, ?, ?, ?)`,
+		"admin_"+id, "", username, "admin_sub", id,
+	)
 
-	session, err := a.sessionManager.CreateSession("admin")
+	session, err := a.sessionManager.CreateSession("admin_" + id)
 	if err != nil {
 		return nil, err
 	}
-
-	return &AdminLoginResponse{
-		Session: session,
-	}, nil
+	return &AdminLoginResponse{Session: session, Role: role}, nil
 }
 
 // ensureAdminUser inserts the admin user record into the users table if it doesn't exist.
@@ -492,6 +542,7 @@ func (a *App) TestEmail(toEmail string) error {
 
 // MaskedConfig is a copy of Config with API keys replaced by "***".
 type MaskedConfig struct {
+	Server       config.ServerConfig    `json:"server"`
 	LLM          config.LLMConfig       `json:"llm"`
 	Embedding    config.EmbeddingConfig `json:"embedding"`
 	Vector       config.VectorConfig    `json:"vector"`
@@ -524,6 +575,7 @@ func (a *App) GetConfig() *MaskedConfig {
 	}
 
 	masked := &MaskedConfig{
+		Server:       cfg.Server,
 		LLM:          cfg.LLM,
 		Embedding:    cfg.Embedding,
 		Vector:       cfg.Vector,
@@ -579,4 +631,146 @@ func maskSecret(s string) string {
 		return ""
 	}
 	return "***"
+}
+
+// --- Admin Sub-Account Management ---
+
+// CreateAdminUser creates a new admin sub-account.
+func (a *App) CreateAdminUser(username, password, role string) (*AdminUserInfo, error) {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return nil, fmt.Errorf("用户名和密码不能为空")
+	}
+	if len(password) < 6 {
+		return nil, fmt.Errorf("密码至少6位")
+	}
+	if role != "editor" && role != "super_admin" {
+		role = "editor"
+	}
+
+	// Check conflict with super admin
+	cfg := a.configManager.Get()
+	if username == cfg.Admin.Username {
+		return nil, fmt.Errorf("用户名已存在")
+	}
+
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := generateToken()
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = a.db.Exec(
+		`INSERT INTO admin_users (id, username, password_hash, role) VALUES (?, ?, ?, ?)`,
+		id, username, hash, role,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return nil, fmt.Errorf("用户名已存在")
+		}
+		return nil, fmt.Errorf("创建用户失败: %w", err)
+	}
+
+	return &AdminUserInfo{ID: id, Username: username, Role: role}, nil
+}
+
+// ListAdminUsers returns all admin sub-accounts.
+func (a *App) ListAdminUsers() ([]AdminUserInfo, error) {
+	rows, err := a.db.Query(`SELECT id, username, role, created_at FROM admin_users ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []AdminUserInfo
+	for rows.Next() {
+		var u AdminUserInfo
+		var createdAt sql.NullTime
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &createdAt); err != nil {
+			return nil, err
+		}
+		if createdAt.Valid {
+			u.CreatedAt = createdAt.Time.Format("2006-01-02 15:04:05")
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
+// DeleteAdminUser removes an admin sub-account.
+func (a *App) DeleteAdminUser(id string) error {
+	_, err := a.db.Exec(`DELETE FROM admin_users WHERE id = ?`, id)
+	return err
+}
+
+// --- Knowledge Entry (直接录入图文) ---
+
+// KnowledgeEntryRequest represents a direct knowledge entry from admin.
+type KnowledgeEntryRequest struct {
+	Title    string   `json:"title"`
+	Content  string   `json:"content"`
+	ImageURLs []string `json:"image_urls,omitempty"`
+}
+
+// AddKnowledgeEntry stores a text+image knowledge entry into the vector store.
+func (a *App) AddKnowledgeEntry(req KnowledgeEntryRequest) error {
+	title := strings.TrimSpace(req.Title)
+	content := strings.TrimSpace(req.Content)
+	if title == "" || content == "" {
+		return fmt.Errorf("标题和内容不能为空")
+	}
+
+	docID, err := generateToken()
+	if err != nil {
+		return err
+	}
+	docName := "知识录入: " + title
+
+	// Insert document record
+	_, err = a.db.Exec(
+		`INSERT INTO documents (id, name, type, status, created_at) VALUES (?, ?, ?, ?, ?)`,
+		docID, docName, "knowledge", "success", time.Now().UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("创建文档记录失败: %w", err)
+	}
+
+	// Embed and store text content
+	if err := a.docManager.ChunkEmbedStore(docID, docName, content); err != nil {
+		return fmt.Errorf("存储文本失败: %w", err)
+	}
+
+	// Embed and store images
+	cfg := a.configManager.Get()
+	if cfg.Embedding.UseMultimodal && len(req.ImageURLs) > 0 {
+		es := a.docManager.GetEmbeddingService()
+		for i, imgURL := range req.ImageURLs {
+			imgURL = strings.TrimSpace(imgURL)
+			if imgURL == "" {
+				continue
+			}
+			vec, err := es.EmbedImageURL(imgURL)
+			if err != nil {
+				fmt.Printf("Warning: failed to embed image %d: %v\n", i, err)
+				continue
+			}
+			imgChunk := []vectorstore.VectorChunk{{
+				ChunkText:    fmt.Sprintf("[图片: %s]", title),
+				ChunkIndex:   1000 + i,
+				DocumentID:   docID,
+				DocumentName: docName,
+				Vector:       vec,
+				ImageURL:     imgURL,
+			}}
+			if err := a.docManager.StoreChunks(docID, imgChunk); err != nil {
+				fmt.Printf("Warning: failed to store image vector %d: %v\n", i, err)
+			}
+		}
+	}
+
+	return nil
 }

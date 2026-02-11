@@ -19,8 +19,9 @@ import (
 
 // QueryRequest represents a user's question submission.
 type QueryRequest struct {
-	Question string `json:"question"`
-	UserID   string `json:"user_id"`
+	Question  string `json:"question"`
+	UserID    string `json:"user_id"`
+	ImageData string `json:"image_data,omitempty"` // base64 data URL from clipboard paste
 }
 
 // QueryResponse represents the result of a RAG query.
@@ -145,16 +146,33 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	if err == nil {
 		switch intent.Intent {
 		case "greeting":
-			// Return product intro as greeting response
+			// Return product intro as greeting response, in the user's language
 			intro := "您好！欢迎使用我们的产品。"
 			if qe.config != nil && qe.config.ProductIntro != "" {
 				intro = qe.config.ProductIntro
+			}
+			// Use LLM to translate the greeting to match the user's question language
+			translated, tErr := qe.llmService.Generate(
+				"你是一个翻译助手。将以下内容翻译为与用户提问相同的语言。如果用户用英文提问，翻译为英文；如果用户用中文提问，保持中文。只输出翻译结果，不要添加任何解释。",
+				[]string{intro},
+				req.Question,
+			)
+			if tErr == nil && translated != "" {
+				intro = translated
 			}
 			return &QueryResponse{Answer: intro}, nil
 		case "irrelevant":
 			msg := "抱歉，这个问题与我们的产品无关。请问有什么产品方面的问题需要帮助吗？"
 			if intent.Reason != "" {
 				msg = "抱歉，" + intent.Reason + "。请问有什么产品方面的问题需要帮助吗？"
+			}
+			translated, tErr := qe.llmService.Generate(
+				"你是一个翻译助手。将以下内容翻译为与用户提问相同的语言。如果用户用英文提问，翻译为英文；如果用户用中文提问，保持中文。只输出翻译结果，不要添加任何解释。",
+				[]string{msg},
+				req.Question,
+			)
+			if tErr == nil && translated != "" {
+				msg = translated
 			}
 			return &QueryResponse{Answer: msg}, nil
 		}
@@ -176,6 +194,21 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	}
 	log.Printf("[Query] search topK=%d threshold=%.2f results=%d", topK, threshold, len(results))
 
+	// Step 2.5: If image provided, also search with image embedding and merge results
+	if req.ImageData != "" {
+		imgVec, imgErr := qe.embeddingService.EmbedImageURL(req.ImageData)
+		if imgErr != nil {
+			log.Printf("[Query] image embedding failed: %v", imgErr)
+		} else {
+			log.Printf("[Query] image vector_dim=%d", len(imgVec))
+			imgResults, imgSearchErr := qe.vectorStore.Search(imgVec, topK, threshold)
+			if imgSearchErr == nil && len(imgResults) > 0 {
+				log.Printf("[Query] image search results=%d", len(imgResults))
+				results = mergeSearchResults(results, imgResults, topK)
+			}
+		}
+	}
+
 	// Step 3: If no results above threshold, try with lower threshold before giving up
 	if len(results) == 0 {
 		relaxedResults, _ := qe.vectorStore.Search(queryVector, 3, 0.0)
@@ -193,9 +226,18 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 		if err := qe.createPendingQuestion(req.Question, req.UserID); err != nil {
 			return nil, fmt.Errorf("failed to create pending question: %w", err)
 		}
+		pendingMsg := "该问题已转交人工处理，请稍后查看回复"
+		translated, tErr := qe.llmService.Generate(
+			"你是一个翻译助手。将以下内容翻译为与用户提问相同的语言。如果用户用英文提问，翻译为英文；如果用户用中文提问，保持中文。只输出翻译结果，不要添加任何解释。",
+			[]string{pendingMsg},
+			req.Question,
+		)
+		if tErr == nil && translated != "" {
+			pendingMsg = translated
+		}
 		return &QueryResponse{
 			IsPending: true,
-			Message:   "该问题已转交人工处理，请稍后查看回复",
+			Message:   pendingMsg,
 		}, nil
 	}
 
@@ -251,4 +293,46 @@ func generateID() (string, error) {
 		return "", fmt.Errorf("failed to generate ID: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// mergeSearchResults merges two search result sets, deduplicating by (documentID, chunkIndex),
+// keeping the higher score, and returning the top-K results sorted by score descending.
+func mergeSearchResults(a, b []vectorstore.SearchResult, topK int) []vectorstore.SearchResult {
+	type key struct {
+		docID      string
+		chunkIndex int
+	}
+	seen := make(map[key]int) // key → index in merged
+	merged := make([]vectorstore.SearchResult, 0, len(a)+len(b))
+
+	for _, r := range a {
+		k := key{r.DocumentID, r.ChunkIndex}
+		seen[k] = len(merged)
+		merged = append(merged, r)
+	}
+	for _, r := range b {
+		k := key{r.DocumentID, r.ChunkIndex}
+		if idx, ok := seen[k]; ok {
+			if r.Score > merged[idx].Score {
+				merged[idx] = r
+			}
+		} else {
+			seen[k] = len(merged)
+			merged = append(merged, r)
+		}
+	}
+
+	// Sort by score descending
+	for i := 0; i < len(merged)-1; i++ {
+		for j := i + 1; j < len(merged); j++ {
+			if merged[j].Score > merged[i].Score {
+				merged[i], merged[j] = merged[j], merged[i]
+			}
+		}
+	}
+
+	if len(merged) > topK {
+		merged = merged[:topK]
+	}
+	return merged
 }

@@ -151,8 +151,12 @@
 
                 <!-- Chat Input Area -->
                 <div class="chat-input-area">
+                    <div id="chat-image-preview" class="chat-image-preview hidden">
+                        <img id="chat-image-preview-img" src="" alt="预览">
+                        <button class="chat-image-remove" onclick="removeChatImage()" title="移除图片">&times;</button>
+                    </div>
                     <div class="chat-input-wrapper">
-                        <textarea id="chat-input" class="chat-input" placeholder="输入您的问题..." rows="1"></textarea>
+                        <textarea id="chat-input" class="chat-input" placeholder="输入您的问题...（可粘贴图片）" rows="1"></textarea>
                         <button id="chat-send-btn" class="chat-send-btn" onclick="sendChatMessage()" disabled>
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -185,9 +189,17 @@
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                             <span>待回答问题</span>
                         </button>
+                        <button class="admin-nav-item" data-tab="knowledge" onclick="switchAdminTab('knowledge')">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                            <span>知识录入</span>
+                        </button>
                         <button class="admin-nav-item" data-tab="settings" onclick="switchAdminTab('settings')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                             <span>系统设置</span>
+                        </button>
+                        <button class="admin-nav-item" data-tab="users" onclick="switchAdminTab('users')">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                            <span>用户管理</span>
                         </button>
                     </nav>
                     <div class="admin-sidebar-footer">
@@ -267,6 +279,20 @@
                         </div>
                         <div class="admin-tab-body">
                             <div id="admin-settings-form" class="admin-settings-form">
+                                <fieldset class="admin-fieldset">
+                                    <legend>服务端口</legend>
+                                    <div class="admin-form-row admin-form-row-half">
+                                        <div>
+                                            <label>HTTP 端口</label>
+                                            <input type="number" id="cfg-server-port" min="1" max="65535" placeholder="8080">
+                                            <span class="admin-form-hint">修改端口后需重启服务才能生效</span>
+                                        </div>
+                                        <div style="display:flex;align-items:flex-end;">
+                                            <button class="btn-secondary" id="server-restart-btn" onclick="restartServer()">重启服务</button>
+                                        </div>
+                                    </div>
+                                </fieldset>
+
                                 <fieldset class="admin-fieldset">
                                     <legend>LLM 配置</legend>
                                     <div class="admin-form-row">
@@ -409,6 +435,94 @@
                                 <div class="admin-form-actions">
                                     <button class="btn-primary" onclick="saveAdminSettings()">保存设置</button>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Knowledge Entry Tab -->
+                    <div id="admin-tab-knowledge" class="admin-tab hidden">
+                        <div class="admin-tab-header">
+                            <h2>知识录入</h2>
+                        </div>
+                        <div class="admin-tab-body">
+                            <div class="admin-settings-form">
+                                <fieldset class="admin-fieldset">
+                                    <legend>录入图文知识</legend>
+                                    <div class="admin-form-row">
+                                        <label>标题</label>
+                                        <input type="text" id="knowledge-title" placeholder="知识条目标题">
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label>内容</label>
+                                        <textarea id="knowledge-content" rows="6" placeholder="输入知识内容（支持详细描述）"></textarea>
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label>图片（可选）</label>
+                                        <div id="knowledge-image-zone" class="knowledge-image-zone">
+                                            <div class="knowledge-image-upload-area" id="knowledge-image-upload-area">
+                                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                                <p>点击上传图片、拖拽图片到此处，或从剪贴板粘贴</p>
+                                                <span class="admin-drop-hint">支持 JPG、PNG、GIF、WebP、BMP 格式</span>
+                                                <input type="file" id="knowledge-image-input" accept="image/*" multiple style="display:none">
+                                            </div>
+                                            <div id="knowledge-image-preview" class="knowledge-image-preview"></div>
+                                        </div>
+                                    </div>
+                                </fieldset>
+                                <div class="admin-form-actions">
+                                    <button class="btn-primary" id="knowledge-submit-btn" onclick="submitKnowledgeEntry()">提交录入</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin Users Tab -->
+                    <div id="admin-tab-users" class="admin-tab hidden">
+                        <div class="admin-tab-header">
+                            <h2>用户管理</h2>
+                        </div>
+                        <div class="admin-tab-body">
+                            <div class="admin-settings-form">
+                                <fieldset class="admin-fieldset">
+                                    <legend>添加管理员账号</legend>
+                                    <div class="admin-form-row">
+                                        <label>用户名</label>
+                                        <input type="text" id="admin-new-username" placeholder="用户名">
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label>密码</label>
+                                        <input type="password" id="admin-new-password" placeholder="密码（至少6位）">
+                                    </div>
+                                    <div class="admin-form-row">
+                                        <label>角色</label>
+                                        <select id="admin-new-role">
+                                            <option value="editor">编辑员（内容管理/问题回答）</option>
+                                            <option value="super_admin">超级管理员（全部权限）</option>
+                                        </select>
+                                        <span class="admin-form-hint">编辑员仅可管理文档、回答问题和录入知识，不能修改系统设置和管理用户</span>
+                                    </div>
+                                    <div class="admin-form-actions">
+                                        <button class="btn-primary" onclick="createAdminUser()">添加用户</button>
+                                    </div>
+                                </fieldset>
+                                <fieldset class="admin-fieldset">
+                                    <legend>管理员账号列表</legend>
+                                    <div id="admin-users-table-wrap">
+                                        <table class="admin-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>用户名</th>
+                                                    <th>角色</th>
+                                                    <th>创建时间</th>
+                                                    <th>操作</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="admin-users-tbody">
+                                                <tr><td colspan="4" class="admin-table-empty">暂无子账号</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </fieldset>
                             </div>
                         </div>
                     </div>

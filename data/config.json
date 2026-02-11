@@ -1,0 +1,43 @@
+{
+  "server": {
+    "port": 8080
+  },
+  "llm": {
+    "endpoint": "https://ark.cn-beijing.volces.com/api/v3",
+    "api_key": "enc:8b96121d7a8c66568b3075f49ff1e2ced57f2ecb5090568e06cdb9117c5483c6158b2946604dc305bb92dc8281ee349a629220867a68527cac5f2b97d482fc35",
+    "model_name": "ep-20260128175239-jdkhh",
+    "temperature": 0.3,
+    "max_tokens": 2048
+  },
+  "embedding": {
+    "endpoint": "https://ark.cn-beijing.volces.com/api/v3",
+    "api_key": "enc:e95bda48aebd948cab14d114b81e5139ddb862830a103e6a90fd0e8b2f581a50be6ed253756a33f05de8536461820ab563eb4474d6e5047cb80ec395602bef29",
+    "model_name": "ep-20260211131413-rzhcx",
+    "use_multimodal": true
+  },
+  "vector": {
+    "db_path": "./data/helpdesk.db",
+    "chunk_size": 512,
+    "overlap": 128,
+    "top_k": 5,
+    "threshold": 0.5
+  },
+  "oauth": {
+    "providers": {}
+  },
+  "admin": {
+    "username": "",
+    "password_hash": "",
+    "login_route": "/admin"
+  },
+  "smtp": {
+    "host": "",
+    "port": 587,
+    "username": "",
+    "password": "",
+    "from_addr": "",
+    "from_name": "",
+    "use_tls": true
+  },
+  "product_intro": ""
+}

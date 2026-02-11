@@ -78,7 +78,8 @@ func BuildMessages(prompt string, context []string, question string) []chatMessa
 	systemContent := prompt
 	if systemContent == "" {
 		systemContent = "你是一个专业的软件技术支持助手。请根据提供的参考资料回答用户的问题。" +
-			"如果参考资料中没有相关信息，请如实告知用户。回答应简洁、准确、有条理。"
+			"如果参考资料中没有相关信息，请如实告知用户。回答应简洁、准确、有条理。" +
+			"\n\n重要规则：你必须使用与用户提问相同的语言来回答。如果用户用英文提问，你必须用英文回答；如果用户用中文提问，你必须用中文回答；其他语言同理。无论参考资料是什么语言，都要翻译成用户提问的语言来回答。"
 	}
 
 	var userParts []string
