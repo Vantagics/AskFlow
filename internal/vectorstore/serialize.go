@@ -109,6 +109,52 @@ func deserializeFloat32(data []byte, n int) []float64 {
 	return vec
 }
 
+// DeserializeVectorF32 converts a byte slice directly to a float32 slice,
+// avoiding the intermediate float64 conversion. This is used by the in-memory
+// cache to halve memory usage.
+func DeserializeVectorF32(data []byte) []float32 {
+	if len(data) == 0 {
+		return nil
+	}
+	if len(data)%4 != 0 {
+		return nil
+	}
+	// Use the same format detection logic as DeserializeVector
+	if len(data)%8 == 0 {
+		n64 := len(data) / 8
+		n32 := len(data) / 4
+		if isCommonDim(n64) && !isCommonDim(n32) {
+			return deserializeFloat64AsF32(data, n64)
+		}
+		if isCommonDim(n64) && isCommonDim(n32) {
+			if looksLikeFloat64Embedding(data, n64) {
+				return deserializeFloat64AsF32(data, n64)
+			}
+		}
+		return deserializeFloat32Direct(data, n32)
+	}
+	n := len(data) / 4
+	return deserializeFloat32Direct(data, n)
+}
+
+// deserializeFloat64AsF32 reads float64 data and converts to float32.
+func deserializeFloat64AsF32(data []byte, n int) []float32 {
+	vec := make([]float32, n)
+	for i := 0; i < n; i++ {
+		vec[i] = float32(math.Float64frombits(binary.LittleEndian.Uint64(data[i*8:])))
+	}
+	return vec
+}
+
+// deserializeFloat32Direct reads float32 data directly into a float32 slice.
+func deserializeFloat32Direct(data []byte, n int) []float32 {
+	vec := make([]float32, n)
+	for i := 0; i < n; i++ {
+		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[i*4:]))
+	}
+	return vec
+}
+
 // CosineSimilarity computes the cosine similarity between two float64 vectors.
 // Returns 0 if either vector has zero magnitude.
 func CosineSimilarity(a, b []float64) float64 {

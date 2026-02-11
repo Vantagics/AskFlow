@@ -7,6 +7,8 @@
 
     var SESSION_KEY = 'helpdesk_session';
     var USER_KEY = 'helpdesk_user';
+    var ADMIN_SESSION_KEY = 'helpdesk_admin_session';
+    var ADMIN_USER_KEY = 'helpdesk_admin_user';
     var adminLoginRoute = '/admin'; // default, will be fetched from server
     var systemReady = true; // assume ready until checked
     var loginCaptchaId = '';
@@ -42,7 +44,9 @@
         var route = getRoute();
         var session = getSession();
         var user = getUser();
-        var isAdmin = session && user && user.provider === 'admin';
+        var adminSession = getAdminSession();
+        var adminUser = getAdminUser();
+        var isAdmin = adminSession && adminUser && adminUser.provider === 'admin';
 
         // OAuth callback is handled in init(), skip routing
         if (route === '/oauth/callback') return;
@@ -143,6 +147,45 @@
     function getUser() {
         try {
             var data = localStorage.getItem(USER_KEY);
+            if (!data) return null;
+            return JSON.parse(data);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // --- Admin Session Management (isolated from user session) ---
+
+    function getAdminSession() {
+        try {
+            var data = localStorage.getItem(ADMIN_SESSION_KEY);
+            if (!data) return null;
+            var session = JSON.parse(data);
+            if (session.expires_at && new Date(session.expires_at) < new Date()) {
+                clearAdminSession();
+                return null;
+            }
+            return session;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function saveAdminSession(session, user) {
+        localStorage.setItem(ADMIN_SESSION_KEY, JSON.stringify(session));
+        if (user) {
+            localStorage.setItem(ADMIN_USER_KEY, JSON.stringify(user));
+        }
+    }
+
+    function clearAdminSession() {
+        localStorage.removeItem(ADMIN_SESSION_KEY);
+        localStorage.removeItem(ADMIN_USER_KEY);
+    }
+
+    function getAdminUser() {
+        try {
+            var data = localStorage.getItem(ADMIN_USER_KEY);
             if (!data) return null;
             return JSON.parse(data);
         } catch (e) {
@@ -489,7 +532,7 @@
             })
             .then(function (data) {
                 if (data.session) {
-                    saveSession(data.session, { name: username, provider: 'admin' });
+                    saveAdminSession(data.session, { name: username, provider: 'admin' });
                     if (data.role) localStorage.setItem('admin_role', data.role);
                     navigate('/admin-panel');
                 } else {
@@ -548,7 +591,7 @@
             })
             .then(function (data) {
                 if (data.session) {
-                    saveSession(data.session, { name: username, provider: 'admin' });
+                    saveAdminSession(data.session, { name: username, provider: 'admin' });
                     if (data.role) localStorage.setItem('admin_role', data.role);
                     navigate('/admin-panel');
                 } else {
@@ -1281,7 +1324,7 @@
     var adminRole = '';  // 'super_admin' or 'editor'
 
     function getAdminToken() {
-        var session = getSession();
+        var session = getAdminSession();
         return session ? session.id || session.session_id || '' : '';
     }
 
@@ -1319,8 +1362,9 @@
         var target = document.getElementById('admin-tab-' + tab);
         if (target) target.classList.remove('hidden');
         // Auto-refresh data on tab switch
-        if (tab === 'documents') loadDocumentList();
+        if (tab === 'documents') { loadAdminProductSelectors(); loadDocumentList(); }
         if (tab === 'pending') loadPendingQuestions();
+        if (tab === 'knowledge') loadAdminProductSelectors();
         if (tab === 'settings') loadAdminSettings();
         if (tab === 'users') { loadAdminUsers(); loadProductCheckboxes(); }
         if (tab === 'products') loadProducts();
@@ -1392,6 +1436,7 @@
     function uploadFile(file) {
         var formData = new FormData();
         formData.append('file', file);
+        formData.append('product_id', getDocProductID());
 
         showAdminToast(i18n.t('admin_doc_uploading', { name: file.name }), 'info');
 
@@ -1490,7 +1535,7 @@
         adminFetch('/api/documents/url', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: url })
+            body: JSON.stringify({ url: url, product_id: getDocProductID() })
         })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_doc_url_failed')); });
@@ -1516,6 +1561,57 @@
         if (previewArea) previewArea.classList.add('hidden');
     };
 
+    // --- Admin Product Selectors (for documents & knowledge) ---
+
+    var adminProductsCache = null;
+
+    function loadAdminProductSelectors() {
+        adminFetch('/api/products')
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                adminProductsCache = data.products || [];
+                populateProductSelect('doc-product-select', adminProductsCache);
+                populateProductSelect('knowledge-product-select', adminProductsCache);
+            })
+            .catch(function () {
+                adminProductsCache = [];
+            });
+    }
+
+    function populateProductSelect(selectId, products) {
+        var select = document.getElementById(selectId);
+        if (!select) return;
+        var currentVal = select.value;
+        select.innerHTML = '<option value="">' + i18n.t('admin_doc_product_public') + '</option>';
+        for (var i = 0; i < products.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = products[i].id;
+            opt.textContent = products[i].name;
+            select.appendChild(opt);
+        }
+        // Restore previous selection if still valid
+        if (currentVal) select.value = currentVal;
+    }
+
+    function getDocProductID() {
+        var select = document.getElementById('doc-product-select');
+        return select ? select.value : '';
+    }
+
+    function getKnowledgeProductID() {
+        var select = document.getElementById('knowledge-product-select');
+        return select ? select.value : '';
+    }
+
+    function getProductNameByID(productId) {
+        if (!productId) return i18n.t('admin_doc_product_public');
+        if (!adminProductsCache) return productId;
+        for (var i = 0; i < adminProductsCache.length; i++) {
+            if (adminProductsCache[i].id === productId) return adminProductsCache[i].name;
+        }
+        return productId;
+    }
+
     function loadDocumentList() {
         adminFetch('/api/documents')
             .then(function (res) {
@@ -1535,7 +1631,7 @@
         if (!tbody) return;
 
         if (!docs || docs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="admin-table-empty">' + i18n.t('admin_doc_empty') + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="admin-table-empty">' + i18n.t('admin_doc_empty') + '</td></tr>';
             return;
         }
 
@@ -1546,6 +1642,7 @@
             var statusMap = { processing: i18n.t('admin_doc_status_processing'), success: i18n.t('admin_doc_status_success'), failed: i18n.t('admin_doc_status_failed') };
             var statusText = statusMap[doc.status] || doc.status;
             var timeStr = doc.created_at ? new Date(doc.created_at).toLocaleString(i18n.getLang()) : '-';
+            var productName = getProductNameByID(doc.product_id || '');
 
             var nameCell = '';
             if (doc.type === 'url') {
@@ -1558,6 +1655,7 @@
 
             html += '<tr>' +
                 '<td>' + nameCell + '</td>' +
+                '<td>' + escapeHtml(productName) + '</td>' +
                 '<td>' + escapeHtml(doc.type || '-') + '</td>' +
                 '<td><span class="admin-badge ' + statusClass + '">' + escapeHtml(statusText) + '</span></td>' +
                 '<td>' + escapeHtml(timeStr) + '</td>' +
@@ -2641,7 +2739,7 @@
         adminFetch('/api/knowledge', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: title.trim(), content: content.trim(), image_urls: imageURLs })
+            body: JSON.stringify({ title: title.trim(), content: content.trim(), image_urls: imageURLs, product_id: getKnowledgeProductID() })
         })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_knowledge_failed')); });
@@ -2883,12 +2981,17 @@
     window.logout = function () {
         chatMessages = [];
         chatLoading = false;
-        adminRole = '';
-        localStorage.removeItem('admin_role');
         localStorage.removeItem('helpdesk_product_id');
         localStorage.removeItem('helpdesk_product_name');
         clearSession();
         navigate('/login');
+    };
+
+    window.adminLogout = function () {
+        adminRole = '';
+        localStorage.removeItem('admin_role');
+        clearAdminSession();
+        navigate(adminLoginRoute);
     };
 
     // --- Init ---

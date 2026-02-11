@@ -256,7 +256,7 @@
                     </nav>
                     <div class="admin-sidebar-footer">
                         <button class="lang-switch-btn" style="margin-bottom:8px;width:100%;" onclick="i18n.toggleLang(); i18n.applyI18nToPage();">EN</button>
-                        <button class="admin-logout-btn" onclick="logout()">
+                        <button class="admin-logout-btn" onclick="adminLogout()">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                             <span data-i18n="admin_sidebar_logout">退出登录</span>
                         </button>
@@ -271,6 +271,13 @@
                             <h2 data-i18n="admin_doc_title">文档管理</h2>
                         </div>
                         <div class="admin-tab-body">
+                            <!-- Product Selector for Documents -->
+                            <div class="admin-product-selector" style="margin-bottom:1rem;">
+                                <label data-i18n="admin_doc_product_label" style="font-weight:500;margin-right:0.5rem;">目标产品：</label>
+                                <select id="doc-product-select" class="login-product-select" style="width:auto;min-width:200px;display:inline-block;">
+                                    <option value="" data-i18n="admin_doc_product_public">公共库</option>
+                                </select>
+                            </div>
                             <!-- Upload Area -->
                             <div class="admin-upload-section">
                                 <div id="admin-drop-zone" class="admin-drop-zone" onclick="document.getElementById('admin-file-input').click()">
@@ -303,6 +310,7 @@
                                         <thead>
                                             <tr>
                                                 <th data-i18n="admin_doc_th_name">文档名称</th>
+                                                <th data-i18n="admin_doc_th_product">所属产品</th>
                                                 <th data-i18n="admin_doc_th_type">文件类型</th>
                                                 <th data-i18n="admin_doc_th_status">处理状态</th>
                                                 <th data-i18n="admin_doc_th_time">上传时间</th>
@@ -310,7 +318,7 @@
                                             </tr>
                                         </thead>
                                         <tbody id="admin-doc-tbody">
-                                            <tr><td colspan="5" class="admin-table-empty" data-i18n="admin_doc_empty">暂无文档</td></tr>
+                                            <tr><td colspan="6" class="admin-table-empty" data-i18n="admin_doc_empty">暂无文档</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -575,6 +583,12 @@
                             <div class="admin-settings-form">
                                 <fieldset class="admin-fieldset">
                                     <legend data-i18n="admin_knowledge_legend">录入图文知识</legend>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_knowledge_product_label">目标产品</label>
+                                        <select id="knowledge-product-select" class="login-product-select" style="width:100%;">
+                                            <option value="" data-i18n="admin_doc_product_public">公共库</option>
+                                        </select>
+                                    </div>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_knowledge_title_label">标题</label>
                                         <input type="text" id="knowledge-title" data-i18n-placeholder="admin_knowledge_title_placeholder" placeholder="知识条目标题">

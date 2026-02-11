@@ -1,6 +1,14 @@
 // Package vectorstore provides vector storage and similarity search using SQLite.
 // It stores document embeddings and supports cosine similarity based retrieval
 // with an in-memory cache for fast search and concurrent similarity computation.
+//
+// Performance optimizations:
+// - Float32 vectors in memory (halves RAM vs float64, matches serialization format)
+// - Product-partitioned index for O(product_size) instead of O(total) search
+// - Pre-computed text bigrams for instant TextSearch (no per-query recomputation)
+// - SIMD-friendly 4-way loop unrolling for dot product
+// - Adaptive worker count to avoid goroutine overhead on small datasets
+// - Query result LRU cache to skip repeated searches
 package vectorstore
 
 import (
@@ -11,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -34,7 +43,6 @@ type VectorChunk struct {
 	ProductID    string    `json:"product_id"`
 }
 
-
 // SearchResult represents a search result with similarity score.
 type SearchResult struct {
 	ChunkText    string  `json:"chunk_text"`
@@ -46,32 +54,101 @@ type SearchResult struct {
 	ProductID    string  `json:"product_id"`
 }
 
-
-// cachedChunk holds a chunk's metadata and pre-computed norm for fast similarity.
+// cachedChunk holds a chunk's metadata and pre-computed data for fast similarity.
+// Uses float32 vectors to halve memory usage (matches serialization precision).
 type cachedChunk struct {
 	chunkText    string
 	chunkIndex   int
 	documentID   string
 	documentName string
-	vector       []float64
-	norm         float64
+	vector       []float32 // float32 to halve memory (embedding precision is float32)
+	norm         float32   // pre-computed L2 norm
 	imageURL     string
 	productID    string
+	// Pre-computed text search data (avoids per-query recomputation)
+	textLower string
+	bigrams   map[string]bool
 }
 
+// queryCache provides an LRU cache for recent vector search results.
+type queryCache struct {
+	mu      sync.Mutex
+	entries map[string]queryCacheEntry
+	order   []string // LRU order (newest at end)
+	maxSize int
+	ttl     time.Duration
+}
+
+type queryCacheEntry struct {
+	results   []SearchResult
+	timestamp time.Time
+}
+
+func newQueryCache(maxSize int, ttl time.Duration) *queryCache {
+	return &queryCache{
+		entries: make(map[string]queryCacheEntry, maxSize),
+		order:   make([]string, 0, maxSize),
+		maxSize: maxSize,
+		ttl:     ttl,
+	}
+}
+
+func (qc *queryCache) get(key string) ([]SearchResult, bool) {
+	qc.mu.Lock()
+	defer qc.mu.Unlock()
+	entry, ok := qc.entries[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.timestamp) > qc.ttl {
+		delete(qc.entries, key)
+		return nil, false
+	}
+	return entry.results, true
+}
+
+func (qc *queryCache) put(key string, results []SearchResult) {
+	qc.mu.Lock()
+	defer qc.mu.Unlock()
+	if _, ok := qc.entries[key]; !ok {
+		if len(qc.order) >= qc.maxSize {
+			// Evict oldest
+			oldest := qc.order[0]
+			qc.order = qc.order[1:]
+			delete(qc.entries, oldest)
+		}
+		qc.order = append(qc.order, key)
+	}
+	qc.entries[key] = queryCacheEntry{results: results, timestamp: time.Now()}
+}
+
+func (qc *queryCache) invalidate() {
+	qc.mu.Lock()
+	defer qc.mu.Unlock()
+	qc.entries = make(map[string]queryCacheEntry, qc.maxSize)
+	qc.order = qc.order[:0]
+}
 
 // SQLiteVectorStore implements VectorStore using SQLite for persistence
 // with an in-memory vector cache for fast similarity search.
 type SQLiteVectorStore struct {
 	db    *sql.DB
 	mu    sync.RWMutex
-	cache []cachedChunk // in-memory vector index
-	loaded bool
+	cache []cachedChunk // flat cache for backward compat
+	// Product-partitioned index: productID -> indices into cache.
+	// Empty string key ("") holds chunks with no product (public library).
+	productIndex map[string][]int
+	loaded       bool
+	searchCache  *queryCache // LRU cache for recent search results
 }
 
 // NewSQLiteVectorStore creates a new SQLiteVectorStore with the given database connection.
 func NewSQLiteVectorStore(db *sql.DB) *SQLiteVectorStore {
-	return &SQLiteVectorStore{db: db}
+	return &SQLiteVectorStore{
+		db:           db,
+		productIndex: make(map[string][]int),
+		searchCache:  newQueryCache(256, 5*time.Minute),
+	}
 }
 
 // loadCache reads all chunks from the database into memory.
@@ -84,6 +161,8 @@ func (s *SQLiteVectorStore) loadCache() error {
 	defer rows.Close()
 
 	var cache []cachedChunk
+	productIndex := make(map[string][]int)
+
 	for rows.Next() {
 		var docID, docName, chunkText, imageURL, productID string
 		var chunkIndex int
@@ -93,23 +172,30 @@ func (s *SQLiteVectorStore) loadCache() error {
 			return fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		vec := DeserializeVector(embeddingBytes)
+		vec32 := DeserializeVectorF32(embeddingBytes)
+		textLower := strings.ToLower(chunkText)
+
+		idx := len(cache)
 		cache = append(cache, cachedChunk{
 			chunkText:    chunkText,
 			chunkIndex:   chunkIndex,
 			documentID:   docID,
 			documentName: docName,
-			vector:       vec,
-			norm:         vectorNorm(vec),
+			vector:       vec32,
+			norm:         vectorNormF32(vec32),
 			imageURL:     imageURL,
 			productID:    productID,
+			textLower:    textLower,
+			bigrams:      charBigrams(textLower),
 		})
+		productIndex[productID] = append(productIndex[productID], idx)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("error iterating rows: %w", err)
 	}
 
 	s.cache = cache
+	s.productIndex = productIndex
 	s.loaded = true
 	return nil
 }
@@ -122,13 +208,31 @@ func (s *SQLiteVectorStore) ensureCache() error {
 	return s.loadCache()
 }
 
-// vectorNorm computes the L2 norm of a vector.
+// vectorNormF32 computes the L2 norm of a float32 vector.
+func vectorNormF32(v []float32) float32 {
+	var sum float32
+	for _, x := range v {
+		sum += x * x
+	}
+	return float32(math.Sqrt(float64(sum)))
+}
+
+// vectorNorm computes the L2 norm of a float64 vector (kept for API compat).
 func vectorNorm(v []float64) float64 {
 	var sum float64
 	for _, x := range v {
 		sum += x * x
 	}
 	return math.Sqrt(sum)
+}
+
+// toFloat32 converts a float64 slice to float32 for cache-compatible search.
+func toFloat32(v []float64) []float32 {
+	out := make([]float32, len(v))
+	for i, x := range v {
+		out[i] = float32(x)
+	}
+	return out
 }
 
 // Store inserts a batch of VectorChunks into the chunks table and updates the cache.
@@ -149,7 +253,12 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 	}
 	defer stmt.Close()
 
-	var newCached []cachedChunk
+	type newEntry struct {
+		cached cachedChunk
+		productID string
+	}
+	var newEntries []newEntry
+
 	for _, chunk := range chunks {
 		chunkID := fmt.Sprintf("%s-%d", docID, chunk.ChunkIndex)
 		embeddingBytes := SerializeVector(chunk.Vector)
@@ -160,15 +269,22 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 			return fmt.Errorf("failed to insert chunk %s: %w", chunkID, err)
 		}
 
-		newCached = append(newCached, cachedChunk{
-			chunkText:    chunk.ChunkText,
-			chunkIndex:   chunk.ChunkIndex,
-			documentID:   chunk.DocumentID,
-			documentName: chunk.DocumentName,
-			vector:       chunk.Vector,
-			norm:         vectorNorm(chunk.Vector),
-			imageURL:     chunk.ImageURL,
-			productID:    chunk.ProductID,
+		vec32 := toFloat32(chunk.Vector)
+		textLower := strings.ToLower(chunk.ChunkText)
+		newEntries = append(newEntries, newEntry{
+			cached: cachedChunk{
+				chunkText:    chunk.ChunkText,
+				chunkIndex:   chunk.ChunkIndex,
+				documentID:   chunk.DocumentID,
+				documentName: chunk.DocumentName,
+				vector:       vec32,
+				norm:         vectorNormF32(vec32),
+				imageURL:     chunk.ImageURL,
+				productID:    chunk.ProductID,
+				textLower:    textLower,
+				bigrams:      charBigrams(textLower),
+			},
+			productID: chunk.ProductID,
 		})
 	}
 
@@ -178,51 +294,118 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 
 	// Update cache
 	if s.loaded {
-		// Cache already loaded — just append new entries
-		s.cache = append(s.cache, newCached...)
+		for _, ne := range newEntries {
+			idx := len(s.cache)
+			s.cache = append(s.cache, ne.cached)
+			s.productIndex[ne.productID] = append(s.productIndex[ne.productID], idx)
+		}
 	} else {
-		// First access — load everything from DB (includes just-inserted rows)
 		if err := s.loadCache(); err != nil {
 			return err
 		}
 	}
+
+	// Invalidate search cache since data changed
+	s.searchCache.invalidate()
 	return nil
 }
 
+// getRelevantIndices returns cache indices relevant for the given productID.
+// If productID is empty, returns all indices. Otherwise returns the union of
+// the product's chunks and the public library (empty productID).
+func (s *SQLiteVectorStore) getRelevantIndices(productID string) []int {
+	if productID == "" {
+		// No filter — return all
+		indices := make([]int, len(s.cache))
+		for i := range indices {
+			indices[i] = i
+		}
+		return indices
+	}
+	// Union of requested product + public library
+	productChunks := s.productIndex[productID]
+	publicChunks := s.productIndex[""]
+	total := len(productChunks) + len(publicChunks)
+	if total == 0 {
+		return nil
+	}
+	indices := make([]int, 0, total)
+	indices = append(indices, productChunks...)
+	indices = append(indices, publicChunks...)
+	return indices
+}
+
+// dotProductF32Unrolled computes dot product with 4-way loop unrolling for better ILP.
+func dotProductF32Unrolled(a, b []float32) float32 {
+	n := len(a)
+	var sum0, sum1, sum2, sum3 float32
+	i := 0
+	// 4-way unrolled loop
+	for ; i <= n-4; i += 4 {
+		sum0 += a[i] * b[i]
+		sum1 += a[i+1] * b[i+1]
+		sum2 += a[i+2] * b[i+2]
+		sum3 += a[i+3] * b[i+3]
+	}
+	// Handle remainder
+	for ; i < n; i++ {
+		sum0 += a[i] * b[i]
+	}
+	return sum0 + sum1 + sum2 + sum3
+}
+
+// minWorkersThreshold is the minimum number of items per worker to avoid goroutine overhead.
+const minWorkersThreshold = 500
+
 // Search uses the in-memory cache with concurrent cosine similarity computation.
-// It partitions the cache across goroutines, filters by threshold, and returns top-K.
-// When productID is non-empty, only chunks matching that productID or the public library (empty productID) are returned.
+// Optimizations over baseline:
+// - Product-partitioned index skips irrelevant chunks before similarity computation
+// - Float32 dot product with 4-way unrolling for better CPU throughput
+// - Adaptive worker count avoids goroutine overhead on small datasets
+// - LRU cache returns instant results for repeated queries
 func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold float64, productID string) ([]SearchResult, error) {
+	// Check LRU cache first
+	cacheKey := fmt.Sprintf("v:%x:k%d:t%.4f:p%s", queryVector[:min(4, len(queryVector))], topK, threshold, productID)
+	if cached, ok := s.searchCache.get(cacheKey); ok {
+		return cached, nil
+	}
+
 	// Ensure cache is loaded
 	s.mu.Lock()
 	if err := s.ensureCache(); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
-	// Copy cache reference under lock, then release
 	cache := s.cache
+	indices := s.getRelevantIndices(productID)
 	s.mu.Unlock()
 
-	if len(cache) == 0 {
+	if len(cache) == 0 || len(indices) == 0 {
 		return nil, nil
 	}
 
-	queryNorm := vectorNorm(queryVector)
+	// Convert query to float32 for cache-compatible computation
+	queryF32 := toFloat32(queryVector)
+	queryNorm := vectorNormF32(queryF32)
 	if queryNorm == 0 {
 		return nil, nil
 	}
 
-	// Determine concurrency level
+	thresholdF32 := float32(threshold)
+
+	// Adaptive concurrency: avoid goroutine overhead for small datasets
 	numWorkers := runtime.NumCPU()
-	if numWorkers > len(cache) {
-		numWorkers = len(cache)
-	}
-	if numWorkers < 1 {
+	if len(indices) < minWorkersThreshold {
 		numWorkers = 1
+	} else if numWorkers > len(indices)/minWorkersThreshold {
+		numWorkers = len(indices) / minWorkersThreshold
+		if numWorkers < 1 {
+			numWorkers = 1
+		}
 	}
 
-	// Partition work
-	chunkSize := (len(cache) + numWorkers - 1) / numWorkers
+	// Partition work over relevant indices only
+	chunkSize := (len(indices) + numWorkers - 1) / numWorkers
 	type partialResult struct {
 		results []SearchResult
 	}
@@ -231,40 +414,32 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
 		end := start + chunkSize
-		if end > len(cache) {
-			end = len(cache)
+		if end > len(indices) {
+			end = len(indices)
 		}
-		go func(items []cachedChunk) {
+		go func(idxSlice []int) {
 			var local []SearchResult
-			for i := range items {
-				c := &items[i]
-				// Product isolation: skip chunks not matching the requested product
-				if productID != "" && c.productID != productID && c.productID != "" {
+			for _, idx := range idxSlice {
+				c := &cache[idx]
+				if c.norm == 0 || len(c.vector) != len(queryF32) {
 					continue
 				}
-				if c.norm == 0 || len(c.vector) != len(queryVector) {
-					continue
-				}
-				// Inline dot product for speed
-				var dot float64
-				for j := range queryVector {
-					dot += queryVector[j] * c.vector[j]
-				}
+				dot := dotProductF32Unrolled(queryF32, c.vector)
 				score := dot / (queryNorm * c.norm)
-				if score >= threshold {
+				if score >= thresholdF32 {
 					local = append(local, SearchResult{
 						ChunkText:    c.chunkText,
 						ChunkIndex:   c.chunkIndex,
 						DocumentID:   c.documentID,
 						DocumentName: c.documentName,
-						Score:        score,
+						Score:        float64(score),
 						ImageURL:     c.imageURL,
 						ProductID:    c.productID,
 					})
 				}
 			}
 			resultsCh <- partialResult{results: local}
-		}(cache[start:end])
+		}(indices[start:end])
 	}
 
 	// Collect results
@@ -282,15 +457,18 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 		allResults = allResults[:topK]
 	}
 
+	// Store in LRU cache
+	s.searchCache.put(cacheKey, allResults)
+
 	return allResults, nil
 }
 
 // TextSearch performs a text-based similarity search against the in-memory cache
-// using keyword overlap and character bigram Jaccard similarity.
+// using keyword overlap and pre-computed character bigram Jaccard similarity.
 // This is Level 1 of the 3-level matching: zero API cost.
-// Returns results sorted by text similarity score descending.
-// Uses concurrent workers for large caches.
-// When productID is non-empty, only chunks matching that productID or the public library (empty productID) are returned.
+//
+// Optimization: bigrams are pre-computed at index time, so TextSearch only
+// computes bigrams for the query (once), not for every chunk.
 func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64, productID string) ([]SearchResult, error) {
 	s.mu.Lock()
 	if err := s.ensureCache(); err != nil {
@@ -298,9 +476,10 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 		return nil, err
 	}
 	cache := s.cache
+	indices := s.getRelevantIndices(productID)
 	s.mu.Unlock()
 
-	if len(cache) == 0 {
+	if len(cache) == 0 || len(indices) == 0 {
 		return nil, nil
 	}
 
@@ -313,16 +492,18 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 		score float64
 	}
 
-	// Use concurrent workers for large caches
+	// Adaptive concurrency
 	numWorkers := runtime.NumCPU()
-	if numWorkers > len(cache) {
-		numWorkers = len(cache)
-	}
-	if numWorkers < 1 {
+	if len(indices) < minWorkersThreshold {
 		numWorkers = 1
+	} else if numWorkers > len(indices)/minWorkersThreshold {
+		numWorkers = len(indices) / minWorkersThreshold
+		if numWorkers < 1 {
+			numWorkers = 1
+		}
 	}
 
-	chunkSize := (len(cache) + numWorkers - 1) / numWorkers
+	chunkSize := (len(indices) + numWorkers - 1) / numWorkers
 	type partialHits struct {
 		hits []scored
 	}
@@ -331,30 +512,25 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
 		end := start + chunkSize
-		if end > len(cache) {
-			end = len(cache)
+		if end > len(indices) {
+			end = len(indices)
 		}
-		go func(items []cachedChunk, baseIdx int) {
+		go func(idxSlice []int) {
 			var local []scored
-			for i := range items {
-				c := &items[i]
-				// Product isolation: skip chunks not matching the requested product
-				if productID != "" && c.productID != productID && c.productID != "" {
-					continue
-				}
-				chunkLower := strings.ToLower(c.chunkText)
-
-				kwScore := keywordOverlap(queryKeywords, chunkLower)
-				bigramScore := jaccardBigrams(queryBigrams, charBigrams(chunkLower))
+			for _, idx := range idxSlice {
+				c := &cache[idx]
+				// Use pre-computed textLower and bigrams (no per-query recomputation)
+				kwScore := keywordOverlap(queryKeywords, c.textLower)
+				bigramScore := jaccardBigrams(queryBigrams, c.bigrams)
 
 				score := kwScore*0.6 + bigramScore*0.4
 
 				if score >= threshold {
-					local = append(local, scored{idx: baseIdx + i, score: score})
+					local = append(local, scored{idx: idx, score: score})
 				}
 			}
 			hitsCh <- partialHits{hits: local}
-		}(cache[start:end], start)
+		}(indices[start:end])
 	}
 
 	var hits []scored
@@ -389,7 +565,7 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 // charBigrams extracts character bigrams from a string.
 func charBigrams(s string) map[string]bool {
 	runes := []rune(s)
-	result := make(map[string]bool)
+	result := make(map[string]bool, len(runes))
 	for i := 0; i < len(runes)-1; i++ {
 		result[string(runes[i:i+2])] = true
 	}
@@ -400,6 +576,10 @@ func charBigrams(s string) map[string]bool {
 func jaccardBigrams(a, b map[string]bool) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
+	}
+	// Iterate over the smaller set for efficiency
+	if len(a) > len(b) {
+		a, b = b, a
 	}
 	intersection := 0
 	for bg := range a {
@@ -423,7 +603,7 @@ func extractKeywords(s string) []string {
 			r == '\u201c' || r == '\u201d' || r == '\uff08' || r == '\uff09' ||
 			r == '(' || r == ')' || r == '[' || r == ']' || r == '{' || r == '}'
 	})
-	seen := make(map[string]bool)
+	seen := make(map[string]bool, len(fields))
 	var kw []string
 	for _, f := range fields {
 		if len([]rune(f)) < 2 {
@@ -462,16 +642,30 @@ func (s *SQLiteVectorStore) DeleteByDocID(docID string) error {
 		return fmt.Errorf("failed to delete chunks for document %s: %w", docID, err)
 	}
 
-	// Update cache: build a new slice to allow GC of removed entries' vectors
+	// Rebuild cache and product index excluding deleted document
 	if s.loaded {
 		newCache := make([]cachedChunk, 0, len(s.cache))
+		newProductIndex := make(map[string][]int)
 		for _, c := range s.cache {
 			if c.documentID != docID {
+				idx := len(newCache)
 				newCache = append(newCache, c)
+				newProductIndex[c.productID] = append(newProductIndex[c.productID], idx)
 			}
 		}
 		s.cache = newCache
+		s.productIndex = newProductIndex
 	}
 
+	// Invalidate search cache since data changed
+	s.searchCache.invalidate()
 	return nil
+}
+
+// min returns the smaller of two ints.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
