@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package svc provides Windows service support for the Helpdesk application.
 package svc
 

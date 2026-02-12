@@ -1539,6 +1539,11 @@
     };
 
     function uploadFile(file) {
+        // Check file size against configured max upload size
+        if (file.size > maxUploadSizeMB * 1024 * 1024) {
+            showAdminToast(i18n.t('admin_doc_upload_failed') + ' - ' + i18n.t('video_size_error', { size: maxUploadSizeMB }), 'error');
+            return;
+        }
         var formData = new FormData();
         formData.append('file', file);
         formData.append('product_id', getDocProductID());

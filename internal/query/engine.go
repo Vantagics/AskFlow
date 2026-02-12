@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -818,22 +817,6 @@ func charBigrams(s string) map[string]bool {
 	return result
 }
 
-// cosineSimilarity computes the cosine similarity between two vectors.
-func cosineSimilarity(a, b []float64) float64 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		dot += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
-}
 
 // createPendingQuestion inserts a new pending question record into the database.
 func (qe *QueryEngine) createPendingQuestion(question, userID, imageData, productID string) error {

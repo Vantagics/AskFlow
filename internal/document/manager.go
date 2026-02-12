@@ -80,6 +80,64 @@ type UploadFileRequest struct {
 	ProductID string `json:"product_id"`
 }
 
+func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, error) {
+	fileType := strings.ToLower(req.FileType)
+	if !supportedFileTypes[fileType] {
+		return nil, fmt.Errorf("不支持的文件格式")
+	}
+
+	docID, err := generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	doc := &DocumentInfo{
+		ID:        docID,
+		Name:      req.FileName,
+		Type:      fileType,
+		Status:    "processing",
+		CreatedAt: time.Now(),
+		ProductID: req.ProductID,
+	}
+
+	if err := dm.insertDocument(doc); err != nil {
+		return nil, fmt.Errorf("failed to insert document record: %w", err)
+	}
+
+	// Save original file to disk
+	if err := dm.saveOriginalFile(docID, req.FileName, req.FileData); err != nil {
+		// Non-fatal: log but continue processing
+		fmt.Printf("Warning: failed to save original file: %v\n", err)
+	}
+
+	// For video files, process asynchronously to avoid HTTP timeout
+	if videoFileTypes[fileType] {
+		go func() {
+			if processErr := dm.processVideo(docID, req.FileName, req.FileData, req.ProductID); processErr != nil {
+				dm.updateDocumentStatus(docID, "failed", processErr.Error())
+				fmt.Printf("Video processing failed for %s: %v\n", docID, processErr)
+			} else {
+				dm.updateDocumentStatus(docID, "success", "")
+				fmt.Printf("Video processing completed for %s\n", docID)
+			}
+		}()
+		return doc, nil
+	}
+
+	// Non-video files: process synchronously
+	if processErr := dm.processFile(docID, req.FileName, req.FileData, fileType, req.ProductID); processErr != nil {
+		dm.updateDocumentStatus(docID, "failed", processErr.Error())
+		doc.Status = "failed"
+		doc.Error = processErr.Error()
+		return doc, nil
+	}
+
+	dm.updateDocumentStatus(docID, "success", "")
+	doc.Status = "success"
+	return doc, nil
+}
+
+
 // UploadURLRequest represents a URL upload request.
 type UploadURLRequest struct {
 	URL       string `json:"url"`
@@ -195,59 +253,6 @@ func (dm *DocumentManager) getExistingChunkEmbeddings(texts []string) map[string
 		rows.Close()
 	}
 	return result
-}
-
-// UploadFile validates the file type, parses the file, chunks the text,
-// generates embeddings, and stores everything. The document record tracks
-// processing status in the documents table.
-func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, error) {
-	fileType := strings.ToLower(req.FileType)
-	if !supportedFileTypes[fileType] {
-		return nil, fmt.Errorf("不支持的文件格式")
-	}
-
-	docID, err := generateID()
-	if err != nil {
-		return nil, err
-	}
-
-	doc := &DocumentInfo{
-		ID:        docID,
-		Name:      req.FileName,
-		Type:      fileType,
-		Status:    "processing",
-		CreatedAt: time.Now(),
-		ProductID: req.ProductID,
-	}
-
-	if err := dm.insertDocument(doc); err != nil {
-		return nil, fmt.Errorf("failed to insert document record: %w", err)
-	}
-
-	// Save original file to disk
-	if err := dm.saveOriginalFile(docID, req.FileName, req.FileData); err != nil {
-		// Non-fatal: log but continue processing
-		fmt.Printf("Warning: failed to save original file: %v\n", err)
-	}
-
-	// Dispatch based on file type
-	var processErr error
-	if videoFileTypes[fileType] {
-		processErr = dm.processVideo(docID, req.FileName, req.FileData, req.ProductID)
-	} else {
-		processErr = dm.processFile(docID, req.FileName, req.FileData, fileType, req.ProductID)
-	}
-
-	if processErr != nil {
-		dm.updateDocumentStatus(docID, "failed", processErr.Error())
-		doc.Status = "failed"
-		doc.Error = processErr.Error()
-		return doc, nil
-	}
-
-	dm.updateDocumentStatus(docID, "success", "")
-	doc.Status = "success"
-	return doc, nil
 }
 
 // UploadURL fetches the content at the given URL, chunks it, generates embeddings,

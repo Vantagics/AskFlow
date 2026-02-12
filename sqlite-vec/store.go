@@ -133,7 +133,10 @@ func (qc *queryCache) get(key uint64) ([]SearchResult, bool) {
 		delete(qc.entries, key)
 		return nil, false
 	}
-	return entry.results, true
+	// Return a copy to prevent callers from mutating cached data.
+	out := make([]SearchResult, len(entry.results))
+	copy(out, entry.results)
+	return out, true
 }
 
 func (qc *queryCache) put(key uint64, results []SearchResult) {
@@ -141,16 +144,19 @@ func (qc *queryCache) put(key uint64, results []SearchResult) {
 	defer qc.mu.Unlock()
 	if _, ok := qc.entries[key]; !ok {
 		if qc.count >= qc.maxSize {
-			// Evict the oldest entry at the current head position
-			evictIdx := (qc.head - qc.count + qc.maxSize) % qc.maxSize
+			// Evict the oldest entry — it sits at the tail of the ring.
+			evictIdx := (qc.head + qc.maxSize - qc.count) % qc.maxSize
 			delete(qc.entries, qc.ring[evictIdx])
-		} else {
-			qc.count++
+			qc.count-- // keep count accurate before incrementing below
 		}
 		qc.ring[qc.head] = key
 		qc.head = (qc.head + 1) % qc.maxSize
+		qc.count++
 	}
-	qc.entries[key] = queryCacheEntry{results: results, timestamp: time.Now()}
+	// Store a defensive copy so external mutations don't corrupt the cache.
+	stored := make([]SearchResult, len(results))
+	copy(stored, results)
+	qc.entries[key] = queryCacheEntry{results: stored, timestamp: time.Now()}
 }
 
 func (qc *queryCache) invalidate() {
@@ -167,18 +173,129 @@ type scoredItem struct {
 	idx   int
 }
 
-type topKHeap []scoredItem
+// heapSiftUpF32 restores the min-heap property after appending at position i.
+func heapSiftUpF32(h []scoredItem, i int) {
+	for i > 0 {
+		parent := (i - 1) / 2
+		if h[parent].score <= h[i].score {
+			break
+		}
+		h[parent], h[i] = h[i], h[parent]
+		i = parent
+	}
+}
 
-func (h topKHeap) Len() int            { return len(h) }
-func (h topKHeap) Less(i, j int) bool   { return h[i].score < h[j].score }
-func (h topKHeap) Swap(i, j int)        { h[i], h[j] = h[j], h[i] }
-func (h *topKHeap) Push(x interface{})  { *h = append(*h, x.(scoredItem)) }
-func (h *topKHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[:n-1]
-	return item
+// heapSiftDownF32 restores the min-heap property after replacing the root.
+func heapSiftDownF32(h []scoredItem, n int) {
+	i := 0
+	for {
+		left := 2*i + 1
+		if left >= n {
+			break
+		}
+		smallest := left
+		if right := left + 1; right < n && h[right].score < h[left].score {
+			smallest = right
+		}
+		if h[i].score <= h[smallest].score {
+			break
+		}
+		h[i], h[smallest] = h[smallest], h[i]
+		i = smallest
+	}
+}
+
+// heapPushF32 inserts an item into a min-heap of capacity topK.
+// Returns the new length. h must have len >= hLen and cap >= topK+1.
+func heapPushF32(h []scoredItem, hLen, topK int, item scoredItem) ([]scoredItem, int) {
+	if hLen < topK {
+		h = append(h[:hLen], item)
+		hLen++
+		heapSiftUpF32(h, hLen-1)
+	} else if item.score > h[0].score {
+		h[0] = item
+		heapSiftDownF32(h, hLen)
+	}
+	return h, hLen
+}
+
+// heapExtractAllF32 pops all items from the min-heap in descending score order.
+func heapExtractAllF32(h []scoredItem, n int) []scoredItem {
+	sorted := make([]scoredItem, n)
+	for i := n - 1; i >= 0; i-- {
+		sorted[i] = h[0]
+		n--
+		if n > 0 {
+			h[0] = h[n]
+			heapSiftDownF32(h, n)
+		}
+	}
+	return sorted
+}
+
+// scored64 is used by TextSearch for float64 scoring.
+type scored64 struct {
+	idx   int
+	score float64
+}
+
+// heapSiftUp64 restores the min-heap property for scored64 after appending at position i.
+func heapSiftUp64(h []scored64, i int) {
+	for i > 0 {
+		parent := (i - 1) / 2
+		if h[parent].score <= h[i].score {
+			break
+		}
+		h[parent], h[i] = h[i], h[parent]
+		i = parent
+	}
+}
+
+// heapSiftDown64 restores the min-heap property for scored64 after replacing the root.
+func heapSiftDown64(h []scored64, n int) {
+	i := 0
+	for {
+		left := 2*i + 1
+		if left >= n {
+			break
+		}
+		smallest := left
+		if right := left + 1; right < n && h[right].score < h[left].score {
+			smallest = right
+		}
+		if h[i].score <= h[smallest].score {
+			break
+		}
+		h[i], h[smallest] = h[smallest], h[i]
+		i = smallest
+	}
+}
+
+// heapPush64 inserts an item into a min-heap of capacity topK.
+func heapPush64(h []scored64, hLen, topK int, item scored64) ([]scored64, int) {
+	if hLen < topK {
+		h = append(h[:hLen], item)
+		hLen++
+		heapSiftUp64(h, hLen-1)
+	} else if item.score > h[0].score {
+		h[0] = item
+		heapSiftDown64(h, hLen)
+	}
+	return h, hLen
+}
+
+// heapExtractAll64 pops all items from the min-heap in descending score order.
+func heapExtractAll64(h []scored64, n int) []scored64 {
+	sorted := make([]scored64, n)
+	for i := n - 1; i >= 0; i-- {
+		sorted[i] = h[0]
+		n--
+		if n > 0 {
+			h[0] = h[n]
+			heapSiftDown64(h, n)
+		}
+	}
+	return sorted
 }
 
 // SQLiteVectorStore implements VectorStore using SQLite for persistence
@@ -267,6 +384,7 @@ func (s *SQLiteVectorStore) loadCache() error {
 	norms := make([]float32, 0, count)
 	partitionIndex := make(map[string][]int)
 	dimDetected := false
+	// Pre-allocate arena assuming a common dimension; will grow if needed.
 	var arenaData []float32
 
 	for rows.Next() {
@@ -336,11 +454,14 @@ func (s *SQLiteVectorStore) rebuildGlobalIndex() {
 	}
 }
 
-func (s *SQLiteVectorStore) ensureCache() error {
-	if s.loaded {
-		return nil
+// clearMergedPartitionCache removes cached merged index slices (keys containing
+// the "\x00merged" sentinel) from partitionIndex. Must be called under write lock.
+func (s *SQLiteVectorStore) clearMergedPartitionCache() {
+	for k := range s.partitionIndex {
+		if len(k) > 7 && k[len(k)-7:] == "\x00merged" {
+			delete(s.partitionIndex, k)
+		}
 	}
-	return s.loadCache()
 }
 
 // vectorNormF32 computes the L2 norm of a float32 vector.
@@ -440,6 +561,8 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 	}
 
 	if s.loaded {
+		// Clear merged partition caches since indices are changing.
+		s.clearMergedPartitionCache()
 		for _, ne := range newEntries {
 			idx := len(s.meta)
 			s.meta = append(s.meta, ne.meta)
@@ -463,11 +586,12 @@ func (s *SQLiteVectorStore) Store(docID string, chunks []VectorChunk) error {
 
 // hashQueryVector produces a cache key by sampling elements spread across the
 // entire vector, reducing collision risk for high-dimensional embeddings.
+// Uses 32 samples plus head/tail mixing for robust collision resistance.
 func hashQueryVector(qv []float32, topK int, threshold float64, partitionID string) uint64 {
 	const (
 		offset64   = 14695981039346656037
 		prime64    = 1099511628211
-		numSamples = 16
+		numSamples = 32
 	)
 	h := uint64(offset64)
 	n := len(qv)
@@ -493,13 +617,43 @@ func hashQueryVector(qv []float32, topK int, threshold float64, partitionID stri
 		}
 	}
 
-	// Also mix in the last element for tail sensitivity
+	// Mix in first and last elements for head/tail sensitivity
 	if n > 0 {
-		bits := math.Float32bits(qv[n-1])
-		h ^= uint64(bits)
+		h ^= uint64(math.Float32bits(qv[0]))
+		h *= prime64
+		h ^= uint64(math.Float32bits(qv[n-1]))
 		h *= prime64
 	}
 
+	// Mix in vector length for dimension sensitivity
+	h ^= uint64(n)
+	h *= prime64
+
+	h ^= uint64(topK)
+	h *= prime64
+	h ^= math.Float64bits(threshold)
+	h *= prime64
+	for i := 0; i < len(partitionID); i++ {
+		h ^= uint64(partitionID[i])
+		h *= prime64
+	}
+	return h
+}
+
+// hashTextQuery computes an FNV-1a hash for text search cache keys.
+func hashTextQuery(query string, topK int, threshold float64, partitionID string) uint64 {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	h := uint64(offset64)
+	// Mix in a tag byte to avoid collisions with vector search cache keys.
+	h ^= uint64(0xFF)
+	h *= prime64
+	for i := 0; i < len(query); i++ {
+		h ^= uint64(query[i])
+		h *= prime64
+	}
 	h ^= uint64(topK)
 	h *= prime64
 	h ^= math.Float64bits(threshold)
@@ -562,10 +716,13 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 	s.mu.RLock()
 	if !s.loaded {
 		s.mu.RUnlock()
+		// Upgrade to write lock for one-time cache load.
 		s.mu.Lock()
-		if err := s.ensureCache(); err != nil {
-			s.mu.Unlock()
-			return nil, err
+		if !s.loaded { // re-check after acquiring write lock
+			if err := s.loadCache(); err != nil {
+				s.mu.Unlock()
+				return nil, err
+			}
 		}
 		s.mu.Unlock()
 		s.mu.RLock()
@@ -624,38 +781,7 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 				score := dot * invQueryNorm * invNorm
 
 				if score >= thresholdF32 {
-					if hLen < topK {
-						h = append(h, scoredItem{score: score, idx: idx})
-						hLen++
-						i := hLen - 1
-						for i > 0 {
-							parent := (i - 1) / 2
-							if h[parent].score <= h[i].score {
-								break
-							}
-							h[parent], h[i] = h[i], h[parent]
-							i = parent
-						}
-					} else if score > h[0].score {
-						h[0] = scoredItem{score: score, idx: idx}
-						i := 0
-						for {
-							left := 2*i + 1
-							if left >= hLen {
-								break
-							}
-							smallest := left
-							right := left + 1
-							if right < hLen && h[right].score < h[left].score {
-								smallest = right
-							}
-							if h[i].score <= h[smallest].score {
-								break
-							}
-							h[i], h[smallest] = h[smallest], h[i]
-							i = smallest
-						}
-					}
+					h, hLen = heapPushF32(h, hLen, topK, scoredItem{score: score, idx: idx})
 				}
 			}
 			resultsCh <- partialResult{items: h[:hLen]}
@@ -667,65 +793,13 @@ func (s *SQLiteVectorStore) Search(queryVector []float64, topK int, threshold fl
 	for w := 0; w < numWorkers; w++ {
 		pr := <-resultsCh
 		for _, item := range pr.items {
-			if mergedLen < topK {
-				merged = append(merged, item)
-				mergedLen++
-				i := mergedLen - 1
-				for i > 0 {
-					parent := (i - 1) / 2
-					if merged[parent].score <= merged[i].score {
-						break
-					}
-					merged[parent], merged[i] = merged[i], merged[parent]
-					i = parent
-				}
-			} else if item.score > merged[0].score {
-				merged[0] = item
-				i := 0
-				for {
-					left := 2*i + 1
-					if left >= mergedLen {
-						break
-					}
-					smallest := left
-					right := left + 1
-					if right < mergedLen && merged[right].score < merged[left].score {
-						smallest = right
-					}
-					if merged[i].score <= merged[smallest].score {
-						break
-					}
-					merged[i], merged[smallest] = merged[smallest], merged[i]
-					i = smallest
-				}
-			}
+			merged, mergedLen = heapPushF32(merged, mergedLen, topK, item)
 		}
 	}
 
-	allResults := make([]SearchResult, mergedLen)
-	for i := mergedLen - 1; i >= 0; i-- {
-		item := merged[0]
-		mergedLen--
-		if mergedLen > 0 {
-			merged[0] = merged[mergedLen]
-			j := 0
-			for {
-				left := 2*j + 1
-				if left >= mergedLen {
-					break
-				}
-				smallest := left
-				right := left + 1
-				if right < mergedLen && merged[right].score < merged[left].score {
-					smallest = right
-				}
-				if merged[j].score <= merged[smallest].score {
-					break
-				}
-				merged[j], merged[smallest] = merged[smallest], merged[j]
-				j = smallest
-			}
-		}
+	sorted := heapExtractAllF32(merged, mergedLen)
+	allResults := make([]SearchResult, len(sorted))
+	for i, item := range sorted {
 		m := &meta[item.idx]
 		allResults[i] = SearchResult{
 			ChunkText:    m.chunkText,
@@ -746,6 +820,11 @@ func (s *SQLiteVectorStore) getRelevantIndices(partitionID string) []int {
 	if partitionID == "" {
 		return s.globalIndex
 	}
+	// Check merged partition cache first to avoid repeated allocation.
+	cacheKey := partitionID + "\x00merged"
+	if cached, ok := s.partitionIndex[cacheKey]; ok {
+		return cached
+	}
 	partChunks := s.partitionIndex[partitionID]
 	publicChunks := s.partitionIndex[""]
 	total := len(partChunks) + len(publicChunks)
@@ -755,6 +834,8 @@ func (s *SQLiteVectorStore) getRelevantIndices(partitionID string) []int {
 	indices := make([]int, 0, total)
 	indices = append(indices, partChunks...)
 	indices = append(indices, publicChunks...)
+	// Cache the merged result (invalidated on Store/Delete via cache rebuild).
+	s.partitionIndex[cacheKey] = indices
 	return indices
 }
 
@@ -762,13 +843,21 @@ func (s *SQLiteVectorStore) getRelevantIndices(partitionID string) []int {
 // and pre-computed character bigram Jaccard similarity.
 // Uses per-worker top-K min-heaps to avoid sorting all hits.
 func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64, partitionID string) ([]SearchResult, error) {
+	// Check text search cache using FNV hash of the query string.
+	textCacheKey := hashTextQuery(query, topK, threshold, partitionID)
+	if cached, ok := s.searchCache.get(textCacheKey); ok {
+		return cached, nil
+	}
+
 	s.mu.RLock()
 	if !s.loaded {
 		s.mu.RUnlock()
 		s.mu.Lock()
-		if err := s.ensureCache(); err != nil {
-			s.mu.Unlock()
-			return nil, err
+		if !s.loaded {
+			if err := s.loadCache(); err != nil {
+				s.mu.Unlock()
+				return nil, err
+			}
 		}
 		s.mu.Unlock()
 		s.mu.RLock()
@@ -785,15 +874,10 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 	queryBigrams := charBigrams(queryLower)
 	queryKeywords := extractKeywords(queryLower)
 
-	type scored struct {
-		idx   int
-		score float64
-	}
-
 	numWorkers := adaptiveWorkers(len(indices))
 	chunkSize := (len(indices) + numWorkers - 1) / numWorkers
 	type partialHits struct {
-		hits []scored
+		hits []scored64
 	}
 	hitsCh := make(chan partialHits, numWorkers)
 
@@ -804,8 +888,7 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 			end = len(indices)
 		}
 		go func(idxSlice []int) {
-			// Per-worker top-K min-heap to avoid collecting all hits
-			h := make([]scored, 0, topK+1)
+			h := make([]scored64, 0, topK+1)
 			hLen := 0
 			for _, idx := range idxSlice {
 				m := &meta[idx]
@@ -815,111 +898,26 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 				if score < threshold {
 					continue
 				}
-				if hLen < topK {
-					h = append(h, scored{idx: idx, score: score})
-					hLen++
-					// Sift up
-					i := hLen - 1
-					for i > 0 {
-						parent := (i - 1) / 2
-						if h[parent].score <= h[i].score {
-							break
-						}
-						h[parent], h[i] = h[i], h[parent]
-						i = parent
-					}
-				} else if score > h[0].score {
-					h[0] = scored{idx: idx, score: score}
-					// Sift down
-					i := 0
-					for {
-						left := 2*i + 1
-						if left >= hLen {
-							break
-						}
-						smallest := left
-						right := left + 1
-						if right < hLen && h[right].score < h[left].score {
-							smallest = right
-						}
-						if h[i].score <= h[smallest].score {
-							break
-						}
-						h[i], h[smallest] = h[smallest], h[i]
-						i = smallest
-					}
-				}
+				h, hLen = heapPush64(h, hLen, topK, scored64{idx: idx, score: score})
 			}
 			hitsCh <- partialHits{hits: h[:hLen]}
 		}(indices[start:end])
 	}
 
 	// Merge per-worker heaps into final top-K
-	merged := make([]scored, 0, topK+1)
+	merged := make([]scored64, 0, topK+1)
 	mergedLen := 0
 	for w := 0; w < numWorkers; w++ {
 		ph := <-hitsCh
 		for _, item := range ph.hits {
-			if mergedLen < topK {
-				merged = append(merged, item)
-				mergedLen++
-				i := mergedLen - 1
-				for i > 0 {
-					parent := (i - 1) / 2
-					if merged[parent].score <= merged[i].score {
-						break
-					}
-					merged[parent], merged[i] = merged[i], merged[parent]
-					i = parent
-				}
-			} else if item.score > merged[0].score {
-				merged[0] = item
-				i := 0
-				for {
-					left := 2*i + 1
-					if left >= mergedLen {
-						break
-					}
-					smallest := left
-					right := left + 1
-					if right < mergedLen && merged[right].score < merged[left].score {
-						smallest = right
-					}
-					if merged[i].score <= merged[smallest].score {
-						break
-					}
-					merged[i], merged[smallest] = merged[smallest], merged[i]
-					i = smallest
-				}
-			}
+			merged, mergedLen = heapPush64(merged, mergedLen, topK, item)
 		}
 	}
 
 	// Extract results in descending score order
-	results := make([]SearchResult, mergedLen)
-	for i := mergedLen - 1; i >= 0; i-- {
-		item := merged[0]
-		mergedLen--
-		if mergedLen > 0 {
-			merged[0] = merged[mergedLen]
-			j := 0
-			for {
-				left := 2*j + 1
-				if left >= mergedLen {
-					break
-				}
-				smallest := left
-				right := left + 1
-				if right < mergedLen && merged[right].score < merged[left].score {
-					smallest = right
-				}
-				if merged[j].score <= merged[smallest].score {
-					break
-				}
-				merged[j], merged[smallest] = merged[smallest], merged[j]
-				j = smallest
-			}
-		}
+	sorted := heapExtractAll64(merged, mergedLen)
+	results := make([]SearchResult, len(sorted))
+	for i, item := range sorted {
 		m := &meta[item.idx]
 		results[i] = SearchResult{
 			ChunkText:    m.chunkText,
@@ -931,13 +929,19 @@ func (s *SQLiteVectorStore) TextSearch(query string, topK int, threshold float64
 			PartitionID:  m.partitionID,
 		}
 	}
+
+	s.searchCache.put(textCacheKey, results)
 	return results, nil
 }
 
 func charBigrams(s string) map[string]bool {
 	runes := []rune(s)
-	result := make(map[string]bool, len(runes))
-	for i := 0; i < len(runes)-1; i++ {
+	n := len(runes) - 1
+	if n <= 0 {
+		return nil
+	}
+	result := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
 		result[string(runes[i:i+2])] = true
 	}
 	return result
@@ -947,6 +951,7 @@ func jaccardBigrams(a, b map[string]bool) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
 	}
+	// Iterate over the smaller map for fewer lookups.
 	if len(a) > len(b) {
 		a, b = b, a
 	}
@@ -1055,17 +1060,19 @@ func min(a, b int) int {
 }
 
 // DeserializeVectorF32Unsafe performs zero-copy deserialization for float32 format data.
+// Falls back to safe copy when alignment requirements are not met.
 func DeserializeVectorF32Unsafe(data []byte) []float32 {
 	if len(data) == 0 || len(data)%4 != 0 {
 		return nil
 	}
-	if len(data)%8 != 0 {
-		n := len(data) / 4
-		vec := make([]float32, n)
-		for i := 0; i < n; i++ {
-			vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[i*4:]))
-		}
-		return vec
+	// For data that might be float64 format, use the safe path.
+	if len(data)%8 == 0 {
+		return DeserializeVectorF32(data)
 	}
-	return DeserializeVectorF32(data)
+	n := len(data) / 4
+	vec := make([]float32, n)
+	for i := 0; i < n; i++ {
+		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[i*4:]))
+	}
+	return vec
 }

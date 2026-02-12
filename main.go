@@ -26,10 +26,7 @@ import (
 	"helpdesk/internal/product"
 	"helpdesk/internal/query"
 	"helpdesk/internal/service"
-	helpdeskSvc "helpdesk/internal/svc"
 	"helpdesk/internal/video"
-
-	"golang.org/x/sys/windows/svc"
 )
 
 const (
@@ -40,10 +37,7 @@ const (
 
 func main() {
 	// Check if running as Windows service
-	isService, err := svc.IsWindowsService()
-	if err != nil {
-		log.Fatalf("Failed to determine if running as service: %v", err)
-	}
+	isService := isWindowsService()
 
 	// Parse datadir flag from command line
 	dataDir := parseDataDirFlag()
@@ -109,93 +103,6 @@ func parseDataDirFlag() string {
 		}
 	}
 	return "./data"
-}
-
-// handleInstall installs the Windows service.
-func handleInstall(args []string) {
-	dataDir := parseDataDirFlag()
-	exePath, err := os.Executable()
-	if err != nil {
-		log.Fatalf("Failed to get executable path: %v", err)
-	}
-
-	// Build service startup arguments
-	var serviceArgs []string
-	if dataDir != "./data" {
-		serviceArgs = append(serviceArgs, "--datadir="+dataDir)
-	}
-
-	err = helpdeskSvc.InstallService(serviceName, displayName, description, exePath, serviceArgs)
-	if err != nil {
-		log.Fatalf("Failed to install service: %v", err)
-	}
-
-	fmt.Println("✓ Service installed successfully")
-	if dataDir != "./data" {
-		fmt.Printf("  Data directory: %s\n", dataDir)
-	}
-	fmt.Println("\nTo start the service, run:")
-	fmt.Println("  helpdesk start")
-	fmt.Println("\nOr use Windows Services Manager (services.msc)")
-}
-
-// handleRemove uninstalls the Windows service.
-func handleRemove() {
-	err := helpdeskSvc.RemoveService(serviceName)
-	if err != nil {
-		log.Fatalf("Failed to remove service: %v", err)
-	}
-	fmt.Println("✓ Service removed successfully")
-}
-
-// handleStart starts the Windows service.
-func handleStart() {
-	err := helpdeskSvc.StartService(serviceName)
-	if err != nil {
-		log.Fatalf("Failed to start service: %v", err)
-	}
-	fmt.Println("✓ Service started successfully")
-}
-
-// handleStop stops the Windows service.
-func handleStop() {
-	err := helpdeskSvc.StopService(serviceName)
-	if err != nil {
-		log.Fatalf("Failed to stop service: %v", err)
-	}
-	fmt.Println("✓ Service stopped successfully")
-}
-
-// runAsService runs the application as a Windows service.
-func runAsService(dataDir string) {
-	// Initialize service logger
-	logger, err := helpdeskSvc.NewServiceLogger(serviceName, true, filepath.Join(dataDir, "logs"))
-	if err != nil {
-		log.Fatalf("Failed to create service logger: %v", err)
-	}
-	defer logger.Close()
-
-	// Initialize application service
-	appSvc := &service.AppService{}
-	if err := appSvc.Initialize(dataDir); err != nil {
-		logger.Error("Failed to initialize application: %v", err)
-		log.Fatalf("Failed to initialize application: %v", err)
-	}
-
-	// Create App and register handlers
-	app := createApp(appSvc)
-	registerAPIHandlers(app)
-	http.Handle("/", spaHandler("frontend/dist"))
-
-	// Create Windows service handler
-	helpdeskService := helpdeskSvc.NewHelpdeskService(appSvc, logger)
-
-	// Run as Windows service
-	logger.Info("Starting Helpdesk service...")
-	if err := svc.Run(serviceName, helpdeskService); err != nil {
-		logger.Error("Service failed: %v", err)
-		log.Fatalf("Service failed: %v", err)
-	}
 }
 
 // runAsConsoleApp runs the application in console mode.
@@ -1065,9 +972,8 @@ func handleDocumentUpload(app *App) http.HandlerFunc {
 			return
 		}
 
-		// Parse multipart form (use configured max upload size)
-		maxSize := int64(app.configManager.Get().Video.MaxUploadSizeMB) << 20
-		if err := r.ParseMultipartForm(maxSize); err != nil {
+		// Parse multipart form (32MB in memory, rest goes to temp files)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			writeError(w, http.StatusBadRequest, "failed to parse multipart form")
 			return
 		}
@@ -1079,9 +985,15 @@ func handleDocumentUpload(app *App) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		fileData, err := io.ReadAll(file)
+		// Check file size against configured max
+		maxSize := int64(app.configManager.Get().Video.MaxUploadSizeMB) << 20
+		fileData, err := io.ReadAll(io.LimitReader(file, maxSize+1))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read file")
+			return
+		}
+		if int64(len(fileData)) > maxSize {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("文件大小超过限制 (%dMB)", app.configManager.Get().Video.MaxUploadSizeMB))
 			return
 		}
 
@@ -1646,9 +1558,8 @@ func handleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 			return
 		}
 
-		// Parse multipart form (use configured max upload size)
-		maxSize := int64(app.configManager.Get().Video.MaxUploadSizeMB) << 20
-		if err := r.ParseMultipartForm(maxSize); err != nil {
+		// Parse multipart form (32MB in memory, rest goes to temp files)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			writeError(w, http.StatusBadRequest, "failed to parse form")
 			return
 		}
@@ -1668,9 +1579,15 @@ func handleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 			return
 		}
 
-		data, err := io.ReadAll(file)
+		// Read with size limit
+		maxSize := int64(app.configManager.Get().Video.MaxUploadSizeMB) << 20
+		data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read video")
+			return
+		}
+		if int64(len(data)) > maxSize {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("视频文件大小超过限制 (%dMB)", app.configManager.Get().Video.MaxUploadSizeMB))
 			return
 		}
 
