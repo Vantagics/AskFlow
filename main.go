@@ -1902,10 +1902,26 @@ func spaHandler(dir string) http.Handler {
 			return
 		}
 		p := filepath.Join(dir, cleanPath)
-		// Prevent caching of JS/CSS/HTML to avoid stale file issues
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
+
+		// Smart caching strategy:
+		// - Files with version query parameters (e.g., ?v=xxx) can be cached long-term
+		// - HTML files should not be cached (entry point needs to be fresh)
+		// - Other static files without version params use moderate caching
+		hasVersionParam := r.URL.Query().Get("v") != ""
+		isHTML := strings.HasSuffix(strings.ToLower(cleanPath), ".html") || strings.HasSuffix(strings.ToLower(cleanPath), ".htm")
+
+		if isHTML {
+			// HTML files: no caching (need fresh entry point)
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+		} else if hasVersionParam {
+			// Versioned static files: long-term caching (1 year)
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			// Other static files: short-term caching (5 minutes)
+			w.Header().Set("Cache-Control", "public, max-age=300")
+		}
 
 		info, err := os.Stat(p)
 		if err == nil && !info.IsDir() {

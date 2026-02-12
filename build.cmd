@@ -1,16 +1,11 @@
 @echo off
 setlocal
 
-REM Read credentials from environment variables, or prompt interactively
-if "%DEPLOY_SERVER%"=="" (
-    set /p DEPLOY_SERVER="Enter server address: "
-)
-if "%DEPLOY_USER%"=="" (
-    set /p DEPLOY_USER="Enter SSH username: "
-)
-if "%DEPLOY_PASS%"=="" (
-    set /p DEPLOY_PASS="Enter SSH password: "
-)
+REM Default server configuration
+set DEPLOY_SERVER=service.vantagedata.chat
+set DEPLOY_USER=root
+set DEPLOY_PASS=sunion123
+
 set SERVER=%DEPLOY_SERVER%
 set USER=%DEPLOY_USER%
 set PASS=%DEPLOY_PASS%
@@ -66,6 +61,14 @@ echo.
 
 echo [4/4] Restarting service...
 %PLINK% -batch -pw %PASS% -no-antispoof %USER%@%SERVER% "chmod +x %REMOTE_DIR%/start.sh && bash %REMOTE_DIR%/start.sh"
+echo.
+
+echo [5/6] Configuring ffmpeg in config.json...
+%PLINK% -batch -pw %PASS% -no-antispoof %USER%@%SERVER% "cd %REMOTE_DIR%/data && if [ -f config.json ]; then sed -i 's/\"ffmpeg_path\": \"[^\"]*\"/\"ffmpeg_path\": \"\/usr\/bin\/ffmpeg\"/' config.json && echo '  Config updated'; fi"
+echo.
+
+echo [6/6] Removing nginx cache headers...
+%PLINK% -batch -pw %PASS% -no-antispoof %USER%@%SERVER% "sed -i '/# 禁用缓存/,/expires -1;/d' /etc/nginx/conf.d/vantagedata.chat.conf && sed -i '/add_header Cache-Control.*no-store/d; /add_header Pragma.*no-cache/d; /add_header Expires.*0/d; /proxy_no_cache/d; /proxy_cache_bypass/d' /etc/nginx/conf.d/vantagedata.chat.conf && nginx -t && systemctl reload nginx && echo '  Nginx cache disabled'"
 echo.
 
 REM --- Cleanup ---
