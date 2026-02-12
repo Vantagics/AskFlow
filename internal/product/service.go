@@ -45,6 +45,15 @@ func (s *ProductService) Create(name, productType, description, welcomeMessage s
 	if name == "" {
 		return nil, fmt.Errorf("product name cannot be empty")
 	}
+	if len(name) > 200 {
+		return nil, fmt.Errorf("product name too long (max 200 characters)")
+	}
+	if len(description) > 5000 {
+		return nil, fmt.Errorf("description too long (max 5000 characters)")
+	}
+	if len(welcomeMessage) > 10000 {
+		return nil, fmt.Errorf("welcome message too long (max 10000 characters)")
+	}
 
 	// Validate product type
 	if productType != ProductTypeService && productType != ProductTypeKnowledgeBase {

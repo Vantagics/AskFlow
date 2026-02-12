@@ -56,6 +56,11 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to migrate product tables: %w", err)
 	}
 
+	if err := createLoginAttemptsTable(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to create login_attempts table: %w", err)
+	}
+
 	if err := createIndexes(db); err != nil {
 		db.Close()
 		return nil, err
@@ -68,6 +73,8 @@ func configurePragmas(db *sql.DB) error {
 	pragmas := []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA foreign_keys=ON",
+		"PRAGMA busy_timeout=5000",
+		"PRAGMA secure_delete=ON",
 	}
 	for _, p := range pragmas {
 		if _, err := db.Exec(p); err != nil {
@@ -226,6 +233,29 @@ func migrateProductTables(db *sql.DB) error {
 	return nil
 }
 
+// createLoginAttemptsTable creates the table for tracking admin login attempts.
+func createLoginAttemptsTable(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS login_attempts (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		username   TEXT NOT NULL,
+		ip         TEXT NOT NULL,
+		success    INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL
+	)`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS login_bans (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		username   TEXT NOT NULL DEFAULT '',
+		ip         TEXT NOT NULL DEFAULT '',
+		reason     TEXT NOT NULL DEFAULT '',
+		unlocks_at TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`)
+	return err
+}
+
 // createIndexes adds indexes for frequently queried columns.
 // Called after migrations to ensure all columns exist.
 func createIndexes(db *sql.DB) error {
@@ -239,6 +269,8 @@ func createIndexes(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_chunks_product_id ON chunks(product_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_video_segments_chunk_id ON video_segments(chunk_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_video_segments_document_id ON video_segments(document_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts(username, created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, created_at)`,
 	}
 	for _, idx := range indexes {
 		if _, err := db.Exec(idx); err != nil {

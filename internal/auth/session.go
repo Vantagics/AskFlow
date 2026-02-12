@@ -102,6 +102,15 @@ func (sm *SessionManager) ValidateSession(sessionID string) (*Session, error) {
 		return nil, fmt.Errorf("session expired")
 	}
 
+	// Absolute session timeout: sessions older than 7 days are always invalid
+	// regardless of the sliding expiry window
+	const maxSessionAge = 7 * 24 * time.Hour
+	if time.Now().UTC().Sub(s.CreatedAt) > maxSessionAge {
+		// Clean up the stale session
+		sm.db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
+		return nil, fmt.Errorf("session expired (max age)")
+	}
+
 	return &s, nil
 }
 
@@ -123,6 +132,16 @@ func (sm *SessionManager) DeleteSession(sessionID string) error {
 	_, err := sm.db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
+}
+
+// DeleteSessionsByUserID removes all sessions for a given user ID.
+// Used for session rotation on login and user cleanup.
+func (sm *SessionManager) DeleteSessionsByUserID(userID string) error {
+	_, err := sm.db.Exec("DELETE FROM sessions WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("delete sessions by user ID: %w", err)
 	}
 	return nil
 }
@@ -149,9 +168,10 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-// generateSessionID creates a random UUID-like hex string for session IDs.
+// generateSessionID creates a cryptographically random hex string for session IDs.
+// Uses 32 bytes (256 bits) of entropy for strong session security.
 func generateSessionID() (string, error) {
-	b := make([]byte, 16)
+	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate session ID: %w", err)
 	}

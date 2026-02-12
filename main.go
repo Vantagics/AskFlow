@@ -8,13 +8,17 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
+	"helpdesk/internal/auth"
 	"helpdesk/internal/backup"
 	"helpdesk/internal/captcha"
 	"helpdesk/internal/config"
@@ -473,30 +477,175 @@ func runListProducts(ps *product.ProductService) {
 
 
 
+// --- Rate Limiter ---
+
+// rateLimiter provides per-IP rate limiting using a sliding window counter.
+type rateLimiter struct {
+	mu       sync.Mutex
+	requests map[string][]time.Time
+	limit    int           // max requests per window
+	window   time.Duration // time window
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	rl := &rateLimiter{
+		requests: make(map[string][]time.Time),
+		limit:    limit,
+		window:   window,
+	}
+	// Background cleanup of stale entries every 5 minutes
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			rl.cleanup()
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+
+	// Prevent memory exhaustion: if too many unique IPs, force cleanup
+	if len(rl.requests) > 100000 {
+		for k := range rl.requests {
+			delete(rl.requests, k)
+			if len(rl.requests) <= 50000 {
+				break
+			}
+		}
+	}
+
+	// Filter out expired entries
+	times := rl.requests[ip]
+	valid := times[:0]
+	for _, t := range times {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+
+	if len(valid) >= rl.limit {
+		rl.requests[ip] = valid
+		return false
+	}
+
+	rl.requests[ip] = append(valid, now)
+	return true
+}
+
+func (rl *rateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	cutoff := time.Now().Add(-rl.window)
+	for ip, times := range rl.requests {
+		valid := times[:0]
+		for _, t := range times {
+			if t.After(cutoff) {
+				valid = append(valid, t)
+			}
+		}
+		if len(valid) == 0 {
+			delete(rl.requests, ip)
+		} else {
+			rl.requests[ip] = valid
+		}
+	}
+}
+
+// getClientIP extracts the client IP from the request, respecting X-Forwarded-For
+// but only using the first (leftmost) IP to avoid spoofing.
+func getClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Use only the first IP (client IP set by the first proxy)
+		if idx := strings.IndexByte(xff, ','); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// Auth rate limiter: 10 attempts per minute per IP
+var authRateLimiter = newRateLimiter(10, 1*time.Minute)
+
+// rateLimit wraps a handler with per-IP rate limiting for auth endpoints.
+func rateLimit(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := getClientIP(r)
+		if !authRateLimiter.allow(ip) {
+			writeError(w, http.StatusTooManyRequests, "请求过于频繁，请稍后再试")
+			return
+		}
+		handler(w, r)
+	}
+}
+
 func registerAPIHandlers(app *App) {
 	// Wrap all API handlers with security headers
 	secureAPI := func(handler http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			// Handle CORS preflight
+			// Only allow same-origin requests — reflect the Host as allowed origin
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				// Validate that the origin matches the request host
+				// This prevents cross-origin requests from arbitrary domains
+				requestHost := r.Host
+				if requestHost != "" && (origin == "http://"+requestHost || origin == "https://"+requestHost) {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+					w.Header().Set("Access-Control-Max-Age", "3600")
+					w.Header().Set("Vary", "Origin")
+				}
+			}
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "0") // Disabled per OWASP recommendation; CSP is the modern replacement
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self'")
+			w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+			w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+			// Add request ID for tracing
+			reqID := make([]byte, 8)
+			rand.Read(reqID)
+			w.Header().Set("X-Request-Id", fmt.Sprintf("%x", reqID))
 			handler(w, r)
 		}
 	}
 
 	// OAuth
 	http.HandleFunc("/api/oauth/url", secureAPI(handleOAuthURL(app)))
-	http.HandleFunc("/api/oauth/callback", secureAPI(handleOAuthCallback(app)))
+	http.HandleFunc("/api/oauth/callback", secureAPI(rateLimit(handleOAuthCallback(app))))
 	http.HandleFunc("/api/oauth/providers/", secureAPI(handleOAuthProviderDelete(app)))
 
 	// Admin login
-	http.HandleFunc("/api/admin/login", secureAPI(handleAdminLogin(app)))
-	http.HandleFunc("/api/admin/setup", secureAPI(handleAdminSetup(app)))
+	http.HandleFunc("/api/admin/login", secureAPI(rateLimit(handleAdminLogin(app))))
+	http.HandleFunc("/api/admin/setup", secureAPI(rateLimit(handleAdminSetup(app))))
 	http.HandleFunc("/api/admin/status", secureAPI(handleAdminStatus(app)))
 
 	// User registration & login
-	http.HandleFunc("/api/auth/register", secureAPI(handleRegister(app)))
-	http.HandleFunc("/api/auth/login", secureAPI(handleUserLogin(app)))
+	http.HandleFunc("/api/auth/register", secureAPI(rateLimit(handleRegister(app))))
+	http.HandleFunc("/api/auth/login", secureAPI(rateLimit(handleUserLogin(app))))
 	http.HandleFunc("/api/auth/verify", secureAPI(handleVerifyEmail(app)))
 	http.HandleFunc("/api/captcha", secureAPI(handleCaptcha()))
 	http.HandleFunc("/api/captcha/image", secureAPI(handleCaptchaImage()))
@@ -506,8 +655,8 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/app-info", secureAPI(handleAppInfo(app)))
 	http.HandleFunc("/api/translate-product-name", secureAPI(handleTranslateProductName(app)))
 
-	// Query
-	http.HandleFunc("/api/query", secureAPI(handleQuery(app)))
+	// Query (rate limited to prevent abuse)
+	http.HandleFunc("/api/query", secureAPI(rateLimit(handleQuery(app))))
 
 	// Documents
 	http.HandleFunc("/api/documents/upload", secureAPI(handleDocumentUpload(app)))
@@ -543,7 +692,7 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/test/embedding", secureAPI(handleTestEmbedding(app)))
 
 	// Email test
-	http.HandleFunc("/api/email/test", secureAPI(handleEmailTest(app)))
+	http.HandleFunc("/api/email/test", secureAPI(rateLimit(handleEmailTest(app))))
 
 	// Video dependency check
 	http.HandleFunc("/api/video/check-deps", secureAPI(handleVideoCheckDeps(app)))
@@ -552,6 +701,11 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/admin/users", secureAPI(handleAdminUsers(app)))
 	http.HandleFunc("/api/admin/users/", secureAPI(handleAdminUserByID(app)))
 	http.HandleFunc("/api/admin/role", secureAPI(handleAdminRole(app)))
+
+	// Login ban management
+	http.HandleFunc("/api/admin/bans", secureAPI(handleAdminBans(app)))
+	http.HandleFunc("/api/admin/bans/unban", secureAPI(handleAdminUnban(app)))
+	http.HandleFunc("/api/admin/bans/add", secureAPI(handleAdminAddBan(app)))
 
 	// Products — register /my before / to avoid prefix matching issues
 	http.HandleFunc("/api/products/my", secureAPI(handleMyProducts(app)))
@@ -567,11 +721,43 @@ func registerAPIHandlers(app *App) {
 	// Video upload for knowledge entry
 	http.HandleFunc("/api/videos/upload", secureAPI(handleKnowledgeVideoUpload(app)))
 
-	// Serve uploaded images
-	http.Handle("/api/images/", http.StripPrefix("/api/images/", http.FileServer(http.Dir("./data/images"))))
+	// Serve uploaded images (no directory listing, with path validation)
+	http.HandleFunc("/api/images/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/api/images/")
+		if name == "" || name == "upload" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+			http.NotFound(w, r)
+			return
+		}
+		filePath := filepath.Join(".", "data", "images", name)
+		// Verify the resolved path stays within the images directory
+		absDir, _ := filepath.Abs(filepath.Join(".", "data", "images"))
+		absFile, _ := filepath.Abs(filePath)
+		if !strings.HasPrefix(absFile, absDir) {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeFile(w, r, filePath)
+	})
 
-	// Serve uploaded videos for knowledge entries
-	http.Handle("/api/videos/knowledge/", http.StripPrefix("/api/videos/knowledge/", http.FileServer(http.Dir("./data/videos/knowledge"))))
+	// Serve uploaded videos for knowledge entries (no directory listing, with path validation)
+	http.HandleFunc("/api/videos/knowledge/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/api/videos/knowledge/")
+		if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+			http.NotFound(w, r)
+			return
+		}
+		filePath := filepath.Join(".", "data", "videos", "knowledge", name)
+		// Verify the resolved path stays within the videos directory
+		absDir, _ := filepath.Abs(filepath.Join(".", "data", "videos", "knowledge"))
+		absFile, _ := filepath.Abs(filePath)
+		if !strings.HasPrefix(absFile, absDir) {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeFile(w, r, filePath)
+	})
 
 	// Public media streaming endpoint for video/audio playback in chat
 	http.HandleFunc("/api/media/", secureAPI(handleMediaStream(app)))
@@ -590,10 +776,24 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func readJSONBody(r *http.Request, v interface{}) error {
+	// Validate content type
+	ct := r.Header.Get("Content-Type")
+	if ct != "" && !strings.HasPrefix(ct, "application/json") {
+		return fmt.Errorf("expected Content-Type application/json")
+	}
 	defer r.Body.Close()
 	// Limit request body to 1MB to prevent large payload attacks
 	limited := io.LimitReader(r.Body, 1<<20)
-	return json.NewDecoder(limited).Decode(v)
+	decoder := json.NewDecoder(limited)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(v); err != nil {
+		return err
+	}
+	// Ensure no trailing data (prevents request smuggling)
+	if decoder.More() {
+		return fmt.Errorf("unexpected trailing data in request body")
+	}
+	return nil
 }
 
 // --- OAuth handlers ---
@@ -614,6 +814,8 @@ func handleOAuthURL(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// Extract state from the generated URL for the frontend to store
+		// The state is the value of the 'state' query parameter in the auth URL
 		writeJSON(w, http.StatusOK, map[string]string{"url": url})
 	}
 }
@@ -627,10 +829,18 @@ func handleOAuthCallback(app *App) http.HandlerFunc {
 		var req struct {
 			Provider string `json:"provider"`
 			Code     string `json:"code"`
+			State    string `json:"state"`
 		}
 		if err := readJSONBody(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
+		}
+		// Validate OAuth state to prevent CSRF
+		if req.State != "" {
+			if !app.oauthClient.ValidateState(req.State) {
+				writeError(w, http.StatusBadRequest, "invalid or expired OAuth state")
+				return
+			}
 		}
 		resp, err := app.HandleOAuthCallback(req.Provider, req.Code)
 		if err != nil {
@@ -689,7 +899,7 @@ func handleAdminLogin(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "验证码错误")
 			return
 		}
-		resp, err := app.AdminLogin(req.Username, req.Password)
+		resp, err := app.AdminLogin(req.Username, req.Password, getClientIP(r))
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, err.Error())
 			return
@@ -782,7 +992,7 @@ func handleRegister(app *App) http.HandlerFunc {
 		if r.TLS != nil {
 			baseURL = "https://" + r.Host
 		}
-		if fwd := r.Header.Get("X-Forwarded-Proto"); fwd != "" {
+		if fwd := r.Header.Get("X-Forwarded-Proto"); fwd == "https" || fwd == "http" {
 			baseURL = fwd + "://" + r.Host
 		}
 		if err := app.Register(req.RegisterRequest, baseURL); err != nil {
@@ -829,6 +1039,11 @@ func handleVerifyEmail(app *App) http.HandlerFunc {
 			return
 		}
 		token := r.URL.Query().Get("token")
+		// Validate token format (32 hex chars)
+		if len(token) != 32 || !isValidHexID(token) {
+			writeError(w, http.StatusBadRequest, "无效的验证链接")
+			return
+		}
 		if err := app.VerifyEmail(token); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -847,6 +1062,10 @@ func handleProductIntro(app *App) http.HandlerFunc {
 		}
 		productID := r.URL.Query().Get("product_id")
 		if productID != "" {
+			if !isValidOptionalID(productID) {
+				writeError(w, http.StatusBadRequest, "invalid product_id")
+				return
+			}
 			p, err := app.GetProduct(productID)
 			if err == nil && p != nil && p.WelcomeMessage != "" {
 				writeJSON(w, http.StatusOK, map[string]string{"product_intro": p.WelcomeMessage})
@@ -886,6 +1105,11 @@ func handleTranslateProductName(app *App) http.HandlerFunc {
 			return
 		}
 		lang := r.URL.Query().Get("lang")
+		// Validate lang parameter to prevent injection
+		if len(lang) > 20 {
+			writeError(w, http.StatusBadRequest, "invalid language parameter")
+			return
+		}
 		cfg := app.configManager.Get()
 		name := cfg.ProductName
 		if name == "" {
@@ -918,13 +1142,21 @@ func handleQuery(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		if strings.TrimSpace(req.Question) == "" {
+		question := strings.TrimSpace(req.Question)
+		if question == "" {
 			writeError(w, http.StatusBadRequest, "question is required")
 			return
 		}
+		// Limit question length to prevent abuse
+		if len(question) > 10000 {
+			writeError(w, http.StatusBadRequest, "question too long (max 10000 characters)")
+			return
+		}
+		req.Question = question
 		resp, err := app.queryEngine.Query(req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Query] error: %v", err)
+			writeError(w, http.StatusInternalServerError, "查询处理失败，请稍后重试")
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)
@@ -946,9 +1178,14 @@ func handleDocuments(app *App) http.HandlerFunc {
 			return
 		}
 		productID := r.URL.Query().Get("product_id")
+		if !isValidOptionalID(productID) {
+			writeError(w, http.StatusBadRequest, "invalid product_id")
+			return
+		}
 		docs, err := app.ListDocuments(productID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Documents] list error: %v", err)
+			writeError(w, http.StatusInternalServerError, "获取文档列表失败")
 			return
 		}
 		if docs == nil {
@@ -971,6 +1208,10 @@ func handleDocumentUpload(app *App) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
+
+		// Limit request body size to prevent memory exhaustion
+		maxUploadSize := int64(app.configManager.Get().Video.MaxUploadSizeMB)<<20 + 10<<20 // file limit + 10MB overhead
+		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 
 		// Parse multipart form (32MB in memory, rest goes to temp files)
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -1080,6 +1321,10 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 		// Handle /api/documents/{id}/download
 		if strings.HasSuffix(path, "/download") {
 			docID := strings.TrimSuffix(path, "/download")
+			if !isValidHexID(docID) {
+				writeError(w, http.StatusBadRequest, "invalid document ID")
+				return
+			}
 			if r.Method != http.MethodGet {
 				writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 				return
@@ -1092,20 +1337,28 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 			}
 			filePath, fileName, err := app.docManager.GetFilePath(docID)
 			if err != nil {
-				writeError(w, http.StatusNotFound, err.Error())
+				writeError(w, http.StatusNotFound, "文件未找到")
 				return
 			}
 			// Sanitize filename to prevent header injection
-			safeName := strings.ReplaceAll(fileName, "\"", "")
-			safeName = strings.ReplaceAll(safeName, "\n", "")
-			safeName = strings.ReplaceAll(safeName, "\r", "")
-			w.Header().Set("Content-Disposition", "inline; filename=\""+safeName+"\"")
+			safeName := strings.Map(func(r rune) rune {
+				if r == '"' || r == '\n' || r == '\r' || r == '\\' {
+					return '_'
+				}
+				return r
+			}, fileName)
+			w.Header().Set("Content-Disposition", "attachment; filename=\""+safeName+"\"")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
 			http.ServeFile(w, r, filePath)
 			return
 		}
 
 		// Handle DELETE /api/documents/{id}
 		docID := path
+		if !isValidHexID(docID) {
+			writeError(w, http.StatusBadRequest, "invalid document ID")
+			return
+		}
 		if r.Method != http.MethodDelete {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -1119,7 +1372,8 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 		}
 
 		if err := app.DeleteDocument(docID); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Documents] delete error for %s: %v", docID, err)
+			writeError(w, http.StatusInternalServerError, "删除文档失败")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -1141,10 +1395,20 @@ func handlePending(app *App) http.HandlerFunc {
 			return
 		}
 		status := r.URL.Query().Get("status")
+		// Validate status parameter
+		if status != "" && status != "pending" && status != "answered" && status != "rejected" {
+			writeError(w, http.StatusBadRequest, "invalid status parameter")
+			return
+		}
 		productID := r.URL.Query().Get("product_id")
+		if !isValidOptionalID(productID) {
+			writeError(w, http.StatusBadRequest, "invalid product_id")
+			return
+		}
 		questions, err := app.ListPendingQuestions(status, productID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Pending] list error: %v", err)
+			writeError(w, http.StatusInternalServerError, "获取问题列表失败")
 			return
 		}
 		if questions == nil {
@@ -1172,7 +1436,8 @@ func handlePendingAnswer(app *App) http.HandlerFunc {
 			return
 		}
 		if err := app.AnswerQuestion(req); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Pending] answer error: %v", err)
+			writeError(w, http.StatusInternalServerError, "回答问题失败")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -1199,9 +1464,20 @@ func handlePendingCreate(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "question is required")
 			return
 		}
+		// Limit question length to prevent abuse
+		if len(req.Question) > 10000 {
+			writeError(w, http.StatusBadRequest, "question too long")
+			return
+		}
+		// Limit image data size (base64 encoded, ~4MB decoded)
+		if len(req.ImageData) > 5*1024*1024 {
+			writeError(w, http.StatusBadRequest, "image data too large")
+			return
+		}
 		pq, err := app.CreatePendingQuestion(req.Question, req.UserID, req.ImageData, req.ProductID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Pending] create error: %v", err)
+			writeError(w, http.StatusInternalServerError, "创建问题失败")
 			return
 		}
 		writeJSON(w, http.StatusOK, pq)
@@ -1215,6 +1491,11 @@ func handlePendingByID(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "missing question ID")
 			return
 		}
+		// Validate ID format (hex string only)
+		if !isValidHexID(id) {
+			writeError(w, http.StatusBadRequest, "invalid question ID")
+			return
+		}
 		if r.Method != http.MethodDelete {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -1226,7 +1507,8 @@ func handlePendingByID(app *App) http.HandlerFunc {
 			return
 		}
 		if err := app.DeletePendingQuestion(id); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Pending] delete error for %s: %v", id, err)
+			writeError(w, http.StatusInternalServerError, "删除问题失败")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -1239,6 +1521,12 @@ func handleEmailTest(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		// Require admin session for email testing
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
 		var req struct {
@@ -1279,12 +1567,14 @@ func handleEmailTest(app *App) http.HandlerFunc {
 			}
 			svc := email.NewService(func() config.SMTPConfig { return smtpCfg })
 			if err := svc.SendTest(req.Email); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				log.Printf("[EmailTest] error: %v", err)
+				writeError(w, http.StatusBadRequest, "发送测试邮件失败，请检查SMTP配置")
 				return
 			}
 		} else {
 			if err := app.TestEmail(req.Email); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
+				log.Printf("[EmailTest] error: %v", err)
+				writeError(w, http.StatusBadRequest, "发送测试邮件失败，请检查SMTP配置")
 				return
 			}
 		}
@@ -1325,6 +1615,13 @@ func handleMediaStream(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "missing document ID")
 			return
 		}
+		// Validate document ID format to prevent path traversal
+		for _, c := range docID {
+			if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
+				writeError(w, http.StatusBadRequest, "invalid document ID")
+				return
+			}
+		}
 		filePath, fileName, err := app.docManager.GetFilePath(docID)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "media not found")
@@ -1346,6 +1643,15 @@ func handleMediaStream(app *App) http.HandlerFunc {
 		if ct, ok := contentTypes[ext]; ok {
 			w.Header().Set("Content-Type", ct)
 		}
+		// Set Content-Disposition to inline with sanitized filename
+		safeName := strings.Map(func(r rune) rune {
+			if r == '"' || r == '\n' || r == '\r' || r == '\\' {
+				return '_'
+			}
+			return r
+		}, fileName)
+		w.Header().Set("Content-Disposition", "inline; filename=\""+safeName+"\"")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		// ServeFile handles Range requests automatically for seeking
 		http.ServeFile(w, r, filePath)
 	}
@@ -1392,7 +1698,8 @@ func handleAdminUsers(app *App) http.HandlerFunc {
 			}
 			users, err := app.ListAdminUsers()
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				log.Printf("[Admin] list users error: %v", err)
+				writeError(w, http.StatusInternalServerError, "获取用户列表失败")
 				return
 			}
 			if users == nil {
@@ -1422,7 +1729,8 @@ func handleAdminUsers(app *App) http.HandlerFunc {
 			}
 			if len(req.ProductIDs) > 0 {
 				if err := app.AssignProductsToAdminUser(user.ID, req.ProductIDs); err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
+					log.Printf("[Admin] assign products error: %v", err)
+					writeError(w, http.StatusInternalServerError, "分配产品失败")
 					return
 				}
 			}
@@ -1451,6 +1759,11 @@ func handleAdminUserByID(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "missing user ID")
 			return
 		}
+		// Validate ID format
+		if !isValidHexID(id) {
+			writeError(w, http.StatusBadRequest, "invalid user ID")
+			return
+		}
 
 		if r.Method != http.MethodDelete {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -1458,7 +1771,8 @@ func handleAdminUserByID(app *App) http.HandlerFunc {
 		}
 
 		if err := app.DeleteAdminUser(id); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Admin] delete user error for %s: %v", id, err)
+			writeError(w, http.StatusInternalServerError, "删除用户失败")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -1477,6 +1791,99 @@ func handleAdminRole(app *App) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"role": role})
+	}
+}
+
+// --- Login ban management handlers ---
+
+func handleAdminBans(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		if role != "super_admin" {
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			return
+		}
+		bans := app.loginLimiter.ListBans()
+		if bans == nil {
+			bans = []auth.BanEntry{}
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"bans": bans})
+	}
+}
+
+func handleAdminUnban(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		if role != "super_admin" {
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			return
+		}
+		var req struct {
+			Username string `json:"username"`
+			IP       string `json:"ip"`
+		}
+		if err := readJSONBody(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		app.loginLimiter.Unban(req.Username, req.IP)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func handleAdminAddBan(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, role, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		if role != "super_admin" {
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			return
+		}
+		var req struct {
+			Username string `json:"username"`
+			IP       string `json:"ip"`
+			Reason   string `json:"reason"`
+			Days     int    `json:"days"`
+		}
+		if err := readJSONBody(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Username == "" && req.IP == "" {
+			writeError(w, http.StatusBadRequest, "请输入用户名或IP")
+			return
+		}
+		if req.Days <= 0 {
+			req.Days = 1
+		}
+		if req.Reason == "" {
+			req.Reason = "管理员手动封禁"
+		}
+		app.loginLimiter.AddManualBan(req.Username, req.IP, req.Reason, time.Duration(req.Days)*24*time.Hour)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
 }
 
@@ -1507,6 +1914,12 @@ func handleImageUpload(app *App) http.HandlerFunc {
 		}
 		defer file.Close()
 
+		// Limit file size to 10MB
+		if header.Size > 10<<20 {
+			writeError(w, http.StatusBadRequest, "图片文件过大（最大10MB）")
+			return
+		}
+
 		// Validate image type
 		ext := strings.ToLower(filepath.Ext(header.Filename))
 		allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true}
@@ -1515,9 +1928,20 @@ func handleImageUpload(app *App) http.HandlerFunc {
 			return
 		}
 
-		data, err := io.ReadAll(file)
+		data, err := io.ReadAll(io.LimitReader(file, 10<<20+1))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read image")
+			return
+		}
+		if len(data) > 10<<20 {
+			writeError(w, http.StatusBadRequest, "图片文件过大（最大10MB）")
+			return
+		}
+
+		// Validate image content by checking magic bytes
+		contentType := http.DetectContentType(data)
+		if !strings.HasPrefix(contentType, "image/") {
+			writeError(w, http.StatusBadRequest, "文件内容不是有效的图片")
 			return
 		}
 
@@ -1591,6 +2015,12 @@ func handleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 			return
 		}
 
+		// Validate video content by checking magic bytes
+		if !isValidVideoMagicBytes(data) {
+			writeError(w, http.StatusBadRequest, "文件内容不是有效的视频格式")
+			return
+		}
+
 		// Generate unique filename
 		b := make([]byte, 16)
 		if _, err := rand.Read(b); err != nil {
@@ -1623,7 +2053,8 @@ func handleProducts(app *App) http.HandlerFunc {
 		case http.MethodGet:
 			products, err := app.ListProducts()
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				log.Printf("[Products] list error: %v", err)
+				writeError(w, http.StatusInternalServerError, "获取产品列表失败")
 				return
 			}
 			if products == nil {
@@ -1671,6 +2102,10 @@ func handleProductByID(app *App) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "missing product ID")
 			return
 		}
+		if !isValidHexID(id) {
+			writeError(w, http.StatusBadRequest, "invalid product ID")
+			return
+		}
 
 		switch r.Method {
 		case http.MethodPut:
@@ -1714,7 +2149,8 @@ func handleProductByID(app *App) http.HandlerFunc {
 			if confirm != "true" {
 				hasData, err := app.HasProductDocumentsOrKnowledge(id)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
+					log.Printf("[Products] check data error for %s: %v", id, err)
+					writeError(w, http.StatusInternalServerError, "检查产品数据失败")
 					return
 				}
 				if hasData {
@@ -1726,7 +2162,8 @@ func handleProductByID(app *App) http.HandlerFunc {
 				}
 			}
 			if err := app.DeleteProduct(id); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				log.Printf("[Products] delete error for %s: %v", id, err)
+				writeError(w, http.StatusInternalServerError, "删除产品失败")
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -1750,7 +2187,8 @@ func handleMyProducts(app *App) http.HandlerFunc {
 		}
 		products, err := app.GetProductsByAdminUserID(userID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[Products] get my products error: %v", err)
+			writeError(w, http.StatusInternalServerError, "获取产品列表失败")
 			return
 		}
 		if products == nil {
@@ -1852,7 +2290,8 @@ func handleTestLLM(app *App) http.HandlerFunc {
 		svc := llm.NewAPILLMService(req.Endpoint, req.APIKey, req.ModelName, req.Temperature, req.MaxTokens)
 		answer, err := svc.Generate("", nil, "请回复：OK")
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("[TestLLM] error: %v", err)
+			writeError(w, http.StatusBadRequest, "LLM 连接测试失败，请检查配置")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "reply": answer})
@@ -1897,7 +2336,8 @@ func handleTestEmbedding(app *App) http.HandlerFunc {
 		svc := embedding.NewAPIEmbeddingService(req.Endpoint, req.APIKey, req.ModelName, req.UseMultimodal)
 		vec, err := svc.Embed("hello")
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			log.Printf("[TestEmbedding] error: %v", err)
+			writeError(w, http.StatusBadRequest, "Embedding 连接测试失败，请检查配置")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "dimensions": len(vec)})
@@ -1934,7 +2374,8 @@ func handleConfigWithRole(app *App) http.HandlerFunc {
 				return
 			}
 			if err := app.UpdateConfig(updates); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				log.Printf("[Config] update error: %v", err)
+				writeError(w, http.StatusInternalServerError, "更新配置失败")
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -1945,6 +2386,55 @@ func handleConfigWithRole(app *App) http.HandlerFunc {
 }
 
 // --- Helpers ---
+
+// isValidHexID checks if a string is a valid hex-encoded ID (32 hex chars).
+func isValidHexID(id string) bool {
+	if len(id) != 32 {
+		return false
+	}
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidVideoMagicBytes checks if the file data starts with known video format magic bytes.
+func isValidVideoMagicBytes(data []byte) bool {
+	if len(data) < 12 {
+		return false
+	}
+	// MP4/MOV: starts with ftyp box (offset 4)
+	if string(data[4:8]) == "ftyp" {
+		return true
+	}
+	// AVI: starts with RIFF....AVI
+	if string(data[0:4]) == "RIFF" && len(data) >= 12 && string(data[8:12]) == "AVI " {
+		return true
+	}
+	// MKV/WebM: starts with EBML header (0x1A 0x45 0xDF 0xA3)
+	if data[0] == 0x1A && data[1] == 0x45 && data[2] == 0xDF && data[3] == 0xA3 {
+		return true
+	}
+	return false
+}
+
+// isValidOptionalID validates an optional ID parameter (empty is allowed, non-empty must be hex).
+func isValidOptionalID(id string) bool {
+	if id == "" {
+		return true
+	}
+	if len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
 
 // detectFileType maps file extensions to the internal file type names.
 func detectFileType(filename string) string {
@@ -1962,9 +2452,30 @@ func detectFileType(filename string) string {
 		return "markdown"
 	case strings.HasSuffix(lower, ".html"), strings.HasSuffix(lower, ".htm"):
 		return "html"
+	case strings.HasSuffix(lower, ".mp4"):
+		return "mp4"
+	case strings.HasSuffix(lower, ".avi"):
+		return "avi"
+	case strings.HasSuffix(lower, ".mkv"):
+		return "mkv"
+	case strings.HasSuffix(lower, ".mov"):
+		return "mov"
+	case strings.HasSuffix(lower, ".webm"):
+		return "webm"
 	default:
 		return "unknown"
 	}
+}
+
+// noDirListing wraps a file server to return 404 for directory requests instead of listing.
+func noDirListing(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/") || r.URL.Path == "" {
+			http.NotFound(w, r)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 // spaHandler serves static files from dir, falling back to index.html for SPA routes.
@@ -1979,6 +2490,14 @@ func spaHandler(dir string) http.Handler {
 			return
 		}
 		p := filepath.Join(dir, cleanPath)
+
+		// Double-check resolved path stays within the serving directory
+		absDir, _ := filepath.Abs(dir)
+		absP, _ := filepath.Abs(p)
+		if !strings.HasPrefix(absP, absDir) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 
 		// Smart caching strategy:
 		// - Files with version query parameters (e.g., ?v=xxx) can be cached long-term

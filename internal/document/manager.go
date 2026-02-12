@@ -3,6 +3,7 @@
 package document
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -93,6 +94,19 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 		return nil, fmt.Errorf("不支持的文件格式")
 	}
 
+	// Validate file name
+	if req.FileName == "" {
+		return nil, fmt.Errorf("文件名不能为空")
+	}
+	if len(req.FileName) > 500 {
+		return nil, fmt.Errorf("文件名过长")
+	}
+
+	// Validate file data is not empty
+	if len(req.FileData) == 0 {
+		return nil, fmt.Errorf("文件内容为空")
+	}
+
 	docID, err := generateID()
 	if err != nil {
 		return nil, err
@@ -120,12 +134,27 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 	// For video files, process asynchronously to avoid HTTP timeout
 	if videoFileTypes[fileType] {
 		go func() {
-			if processErr := dm.processVideo(docID, req.FileName, req.FileData, req.ProductID); processErr != nil {
-				dm.updateDocumentStatus(docID, "failed", processErr.Error())
-				fmt.Printf("Video processing failed for %s: %v\n", docID, processErr)
-			} else {
-				dm.updateDocumentStatus(docID, "success", "")
-				fmt.Printf("Video processing completed for %s\n", docID)
+			// Set a 30-minute timeout for video processing
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+
+			done := make(chan error, 1)
+			go func() {
+				done <- dm.processVideo(docID, req.FileName, req.FileData, req.ProductID)
+			}()
+
+			select {
+			case processErr := <-done:
+				if processErr != nil {
+					dm.updateDocumentStatus(docID, "failed", processErr.Error())
+					fmt.Printf("Video processing failed for %s: %v\n", docID, processErr)
+				} else {
+					dm.updateDocumentStatus(docID, "success", "")
+					fmt.Printf("Video processing completed for %s\n", docID)
+				}
+			case <-ctx.Done():
+				dm.updateDocumentStatus(docID, "failed", "视频处理超时")
+				fmt.Printf("Video processing timed out for %s\n", docID)
 			}
 		}()
 		return doc, nil
@@ -391,7 +420,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	if result.Text != "" {
 		hash := contentHash(result.Text)
 		if existingID := dm.findDocumentByContentHash(hash); existingID != "" {
-			return nil, fmt.Errorf("文档内容重复，与已有文档相同 (ID: %s)", existingID)
+			return nil, fmt.Errorf("文档内容重复，与已有文档相同")
 		}
 		// Store the content hash for future dedup checks
 		dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
@@ -747,7 +776,7 @@ func (dm *DocumentManager) processURL(docID, url string, productID string) (*Imp
 		if result.Text != "" {
 			hash := contentHash(result.Text)
 			if existingID := dm.findDocumentByContentHash(hash); existingID != "" {
-				return nil, fmt.Errorf("文档内容重复，与已有文档相同 (ID: %s)", existingID)
+				return nil, fmt.Errorf("文档内容重复，与已有文档相同")
 			}
 			dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
 		}
@@ -789,7 +818,7 @@ func (dm *DocumentManager) processURL(docID, url string, productID string) (*Imp
 	// Document-level dedup for plain text URL content
 	hash := contentHash(text)
 	if existingID := dm.findDocumentByContentHash(hash); existingID != "" {
-		return nil, fmt.Errorf("文档内容重复，与已有文档相同 (ID: %s)", existingID)
+		return nil, fmt.Errorf("文档内容重复，与已有文档相同")
 	}
 	dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
 
@@ -805,6 +834,10 @@ func validateExternalURL(rawURL string) error {
 	if rawURL == "" {
 		return fmt.Errorf("URL不能为空")
 	}
+	// Reject URLs with embedded credentials (user:pass@host)
+	if strings.Contains(rawURL, "@") {
+		return fmt.Errorf("URL中不允许包含用户凭据")
+	}
 	lower := strings.ToLower(rawURL)
 	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
 		return fmt.Errorf("仅支持 HTTP/HTTPS 协议")
@@ -814,17 +847,52 @@ func validateExternalURL(rawURL string) error {
 	if idx := strings.Index(host, "/"); idx >= 0 {
 		host = host[:idx]
 	}
-	if idx := strings.Index(host, ":"); idx >= 0 {
+	// Strip port but preserve brackets for IPv6
+	if strings.HasPrefix(host, "[") {
+		// IPv6 address
+		if idx := strings.Index(host, "]:"); idx >= 0 {
+			host = host[:idx+1]
+		}
+	} else if idx := strings.LastIndex(host, ":"); idx >= 0 {
 		host = host[:idx]
 	}
-	blockedHosts := []string{"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "169.254.169.254", "metadata.google.internal"}
+	// Block empty host
+	if host == "" {
+		return fmt.Errorf("URL缺少主机名")
+	}
+	blockedHosts := []string{
+		"localhost", "127.0.0.1", "0.0.0.0",
+		"[::1]", "::1", "[::0]", "::0", "[::ffff:127.0.0.1]",
+		"169.254.169.254", "metadata.google.internal",
+		"metadata.internal", "instance-data",
+		"kubernetes.default", "kubernetes.default.svc",
+	}
 	for _, blocked := range blockedHosts {
 		if host == blocked {
 			return fmt.Errorf("不允许访问内部地址")
 		}
 	}
-	// Block private IP ranges
-	if strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") || strings.HasPrefix(host, "172.") {
+	// Block .internal and .local TLDs (cloud metadata, mDNS)
+	if strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return fmt.Errorf("不允许访问内部地址")
+	}
+	// Block private IP ranges (RFC 1918, RFC 6598, link-local, loopback)
+	if strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "172.16.") || strings.HasPrefix(host, "172.17.") ||
+		strings.HasPrefix(host, "172.18.") || strings.HasPrefix(host, "172.19.") ||
+		strings.HasPrefix(host, "172.20.") || strings.HasPrefix(host, "172.21.") ||
+		strings.HasPrefix(host, "172.22.") || strings.HasPrefix(host, "172.23.") ||
+		strings.HasPrefix(host, "172.24.") || strings.HasPrefix(host, "172.25.") ||
+		strings.HasPrefix(host, "172.26.") || strings.HasPrefix(host, "172.27.") ||
+		strings.HasPrefix(host, "172.28.") || strings.HasPrefix(host, "172.29.") ||
+		strings.HasPrefix(host, "172.30.") || strings.HasPrefix(host, "172.31.") ||
+		strings.HasPrefix(host, "100.64.") || // RFC 6598 CGN
+		strings.HasPrefix(host, "169.254.") || // link-local
+		strings.HasPrefix(host, "127.") || // full loopback range
+		strings.HasPrefix(host, "0.") || // 0.0.0.0/8
+		strings.HasPrefix(host, "fc") || strings.HasPrefix(host, "fd") || // IPv6 ULA
+		strings.HasPrefix(host, "fe80") { // IPv6 link-local
 		return fmt.Errorf("不允许访问内部网络地址")
 	}
 	return nil
@@ -927,15 +995,30 @@ func (dm *DocumentManager) updateDocumentStatus(docID, status, errMsg string) {
 func (dm *DocumentManager) saveOriginalFile(docID, filename string, data []byte) error {
 	// Sanitize filename to prevent path traversal
 	filename = filepath.Base(filename)
-	if filename == "." || filename == ".." {
+	if filename == "." || filename == ".." || filename == "" {
 		return fmt.Errorf("invalid filename")
 	}
+	// Remove characters that are problematic on Windows and could cause issues
+	filename = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == '<' || r == '>' || r == ':' || r == '"' || r == '|' || r == '?' || r == '*' || r == '\\' {
+			return '_'
+		}
+		return r
+	}, filename)
 
 	dir := filepath.Join(".", "data", "uploads", docID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create upload dir: %w", err)
 	}
 	filePath := filepath.Join(dir, filename)
+
+	// Final safety check: ensure resolved path is within the uploads directory
+	absDir, _ := filepath.Abs(dir)
+	absFile, _ := filepath.Abs(filePath)
+	if !strings.HasPrefix(absFile, absDir) {
+		return fmt.Errorf("invalid filename: path traversal detected")
+	}
+
 	return os.WriteFile(filePath, data, 0644)
 }
 
@@ -974,9 +1057,14 @@ func (dm *DocumentManager) saveExtractedImage(data []byte) (string, error) {
 // GetFilePath returns the path to the original uploaded file for a document.
 // Returns empty string if the file doesn't exist.
 func (dm *DocumentManager) GetFilePath(docID string) (string, string, error) {
-	// Validate docID to prevent path traversal
-	if strings.ContainsAny(docID, "/\\..") {
+	// Validate docID: must be hex characters only (generated by generateID)
+	if docID == "" {
 		return "", "", fmt.Errorf("invalid document ID")
+	}
+	for _, c := range docID {
+		if !((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
+			return "", "", fmt.Errorf("invalid document ID")
+		}
 	}
 
 	var name string
@@ -991,8 +1079,21 @@ func (dm *DocumentManager) GetFilePath(docID string) (string, string, error) {
 		return "", name, fmt.Errorf("original file not found")
 	}
 
-	filePath := filepath.Join(dir, entries[0].Name())
-	return filePath, entries[0].Name(), nil
+	// Only serve regular files, not directories or symlinks
+	entry := entries[0]
+	if entry.IsDir() {
+		return "", name, fmt.Errorf("original file not found")
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return "", name, fmt.Errorf("original file not found")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", name, fmt.Errorf("original file not found")
+	}
+
+	filePath := filepath.Join(dir, entry.Name())
+	return filePath, entry.Name(), nil
 }
 
 // ChunkEmbedStore is a public wrapper around chunkEmbedStore for external callers.

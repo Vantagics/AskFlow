@@ -104,12 +104,19 @@ func (p *Parser) ExtractAudio(videoPath, outputPath string) error {
 	if p.FFmpegPath == "" {
 		return fmt.Errorf("ffmpeg 路径未配置")
 	}
+	// Validate paths don't contain shell metacharacters
+	for _, path := range []string{videoPath, outputPath} {
+		if strings.ContainsAny(path, "|;&$`") {
+			return fmt.Errorf("路径包含非法字符: %s", path)
+		}
+	}
 	cmd := exec.Command(p.FFmpegPath,
 		"-i", videoPath,
 		"-vn",
 		"-acodec", "pcm_s16le",
 		"-ar", "16000",
 		"-ac", "1",
+		"-y",
 		outputPath,
 	)
 	output, err := cmd.CombinedOutput()
@@ -126,6 +133,10 @@ func (p *Parser) Transcribe(audioPath string) ([]TranscriptSegment, error) {
 	}
 	if p.RapidSpeechModel == "" {
 		return nil, fmt.Errorf("RapidSpeech 模型路径未配置")
+	}
+	// Validate paths don't contain shell metacharacters
+	if strings.ContainsAny(audioPath, "|;&$`") {
+		return nil, fmt.Errorf("音频路径包含非法字符")
 	}
 
 	// RapidSpeech.cpp 命令行格式：
@@ -165,6 +176,12 @@ func (p *Parser) Transcribe(audioPath string) ([]TranscriptSegment, error) {
 func (p *Parser) ExtractKeyframes(videoPath, outputDir string) ([]Keyframe, error) {
 	if p.FFmpegPath == "" {
 		return nil, fmt.Errorf("ffmpeg 路径未配置")
+	}
+	// Validate paths don't contain shell metacharacters
+	for _, path := range []string{videoPath, outputDir} {
+		if strings.ContainsAny(path, "|;&$`") {
+			return nil, fmt.Errorf("路径包含非法字符: %s", path)
+		}
 	}
 
 	outputPattern := filepath.Join(outputDir, "frame_%04d.jpg")

@@ -433,7 +433,7 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to embed question: %w", err)
 	}
-	log.Printf("[Query] question=%q, vector_dim=%d", req.Question, len(queryVector))
+	log.Printf("[Query] question_len=%d, vector_dim=%d", len(req.Question), len(queryVector))
 	if debugMode {
 		dbg.VectorDim = len(queryVector)
 		dbg.Steps = append(dbg.Steps, fmt.Sprintf("Step 1: embedded question, vector_dim=%d", len(queryVector)))

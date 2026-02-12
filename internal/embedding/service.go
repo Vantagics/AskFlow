@@ -109,6 +109,11 @@ func (s *APIEmbeddingService) EmbedBatch(texts []string) ([][]float64, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
+	// Limit batch size to prevent excessive API payload
+	const maxBatchSize = 256
+	if len(texts) > maxBatchSize {
+		return nil, fmt.Errorf("batch size %d exceeds maximum of %d", len(texts), maxBatchSize)
+	}
 	if s.UseMultimodal {
 		return s.embedBatchMultimodal(texts)
 	}
@@ -157,7 +162,7 @@ func (s *APIEmbeddingService) callAPI(input interface{}) ([]embeddingData, error
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20)) // 50MB max response
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -252,7 +257,7 @@ func (s *APIEmbeddingService) callMultimodalAPI(input []multimodalInputItem) ([]
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20)) // 50MB max response
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}

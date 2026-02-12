@@ -87,6 +87,14 @@ func generateID() (string, error) {
 
 // CreatePending inserts a new pending question record with status="pending".
 func (pm *PendingQuestionManager) CreatePending(question string, userID string, imageData string, productID string) (*PendingQuestion, error) {
+	// Validate input lengths
+	if len(question) > 10000 {
+		return nil, fmt.Errorf("question too long (max 10000 characters)")
+	}
+	if len(imageData) > 5*1024*1024 {
+		return nil, fmt.Errorf("image data too large (max 5MB)")
+	}
+
 	id, err := generateID()
 	if err != nil {
 		return nil, err
@@ -118,7 +126,7 @@ func (pm *PendingQuestionManager) DeletePending(id string) error {
 	var status string
 	err := pm.db.QueryRow(`SELECT status FROM pending_questions WHERE id = ?`, id).Scan(&status)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("pending question not found: %s", id)
+		return fmt.Errorf("pending question not found")
 	}
 	if err != nil {
 		return fmt.Errorf("failed to query pending question: %w", err)
@@ -143,6 +151,11 @@ func (pm *PendingQuestionManager) DeletePending(id string) error {
 // that product or the public library (empty product_id) are returned.
 // Product names are resolved via LEFT JOIN with the products table.
 func (pm *PendingQuestionManager) ListPending(status string, productID string) ([]PendingQuestion, error) {
+	// Validate status to prevent unexpected values
+	if status != "" && status != "pending" && status != "answered" {
+		return nil, fmt.Errorf("invalid status filter: %s", status)
+	}
+
 	var rows *sql.Rows
 	var err error
 
@@ -216,6 +229,17 @@ func (pm *PendingQuestionManager) ListPending(status string, productID string) (
 // 4. Calls LLM to generate a summary answer based on the admin's answer
 // 5. Updates the record with llm_answer, status="answered", answered_at=now
 func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
+	// Validate inputs
+	if req.QuestionID == "" {
+		return fmt.Errorf("question_id is required")
+	}
+	if len(req.Text) > 100000 {
+		return fmt.Errorf("answer text too long (max 100000 characters)")
+	}
+	if len(req.ImageURLs) > 50 {
+		return fmt.Errorf("too many image URLs (max 50)")
+	}
+
 	// Step 1: Get the question from DB
 	var question string
 	var status string
@@ -224,13 +248,13 @@ func (pm *PendingQuestionManager) AnswerQuestion(req AdminAnswerRequest) error {
 		`SELECT question, status, product_id FROM pending_questions WHERE id = ?`, req.QuestionID,
 	).Scan(&question, &status, &productID)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("pending question not found: %s", req.QuestionID)
+		return fmt.Errorf("pending question not found")
 	}
 	if err != nil {
 		return fmt.Errorf("failed to query pending question: %w", err)
 	}
 	if status == "answered" && !req.IsEdit {
-		return fmt.Errorf("question already answered: %s", req.QuestionID)
+		return fmt.Errorf("question already answered")
 	}
 
 	// If editing, clean up old vector store data first

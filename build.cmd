@@ -1,10 +1,21 @@
 @echo off
 setlocal
 
-REM Default server configuration
-set DEPLOY_SERVER=service.vantagedata.chat
-set DEPLOY_USER=root
-set DEPLOY_PASS=sunion123
+REM Server configuration — read from environment variables.
+REM Set these before running: DEPLOY_SERVER, DEPLOY_USER, DEPLOY_PASS
+if "%DEPLOY_SERVER%"=="" (
+    echo [ERROR] DEPLOY_SERVER environment variable not set.
+    echo Set it with: set DEPLOY_SERVER=your.server.host
+    exit /b 1
+)
+if "%DEPLOY_USER%"=="" (
+    echo [ERROR] DEPLOY_USER environment variable not set.
+    exit /b 1
+)
+if "%DEPLOY_PASS%"=="" (
+    echo [ERROR] DEPLOY_PASS environment variable not set.
+    exit /b 1
+)
 
 set SERVER=%DEPLOY_SERVER%
 set USER=%DEPLOY_USER%

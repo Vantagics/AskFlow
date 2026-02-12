@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"helpdesk/internal/config"
 
@@ -37,6 +39,10 @@ type OAuthClient struct {
 	providers map[string]*oauth2.Config
 	// httpClient is used for fetching user info. If nil, http.DefaultClient is used.
 	httpClient *http.Client
+	// pendingStates stores generated OAuth states for CSRF validation.
+	// Maps state string -> expiry time.
+	stateMu      sync.Mutex
+	pendingStates map[string]time.Time
 }
 
 // OAuthUser represents a user authenticated via OAuth.
@@ -62,11 +68,36 @@ func NewOAuthClient(providers map[string]config.OAuthProviderConfig) *OAuthClien
 			Scopes:      p.Scopes,
 		}
 	}
-	return &OAuthClient{providers: configs}
+	oc := &OAuthClient{
+		providers:     configs,
+		pendingStates: make(map[string]time.Time),
+	}
+	// Background cleanup of expired states
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			oc.cleanExpiredStates()
+		}
+	}()
+	return oc
+}
+
+// cleanExpiredStates removes expired OAuth state entries.
+func (oc *OAuthClient) cleanExpiredStates() {
+	oc.stateMu.Lock()
+	defer oc.stateMu.Unlock()
+	now := time.Now()
+	for state, expiry := range oc.pendingStates {
+		if now.After(expiry) {
+			delete(oc.pendingStates, state)
+		}
+	}
 }
 
 // GetAuthURL returns the OAuth2 authorization URL for the given provider.
 // A cryptographically random state parameter is generated to prevent CSRF attacks.
+// The state is stored for validation during callback.
 func (oc *OAuthClient) GetAuthURL(provider string) (string, error) {
 	cfg, ok := oc.providers[provider]
 	if !ok {
@@ -77,9 +108,37 @@ func (oc *OAuthClient) GetAuthURL(provider string) (string, error) {
 	if _, err := io.ReadFull(cryptorand.Reader, stateBytes); err != nil {
 		return "", fmt.Errorf("failed to generate OAuth state: %w", err)
 	}
-	state := provider + ":" + fmt.Sprintf("%x", stateBytes)
+	state := fmt.Sprintf("%x", stateBytes)
+
+	// Store state for validation (expires in 10 minutes)
+	oc.stateMu.Lock()
+	oc.pendingStates[state] = time.Now().Add(10 * time.Minute)
+	// Limit stored states to prevent memory exhaustion
+	if len(oc.pendingStates) > 10000 {
+		for k := range oc.pendingStates {
+			delete(oc.pendingStates, k)
+			if len(oc.pendingStates) <= 5000 {
+				break
+			}
+		}
+	}
+	oc.stateMu.Unlock()
+
 	url := cfg.AuthCodeURL(state, oauth2.AccessTypeOnline)
 	return url, nil
+}
+
+// ValidateState checks if the given state was previously generated and is still valid.
+// Returns true if valid (and consumes the state), false otherwise.
+func (oc *OAuthClient) ValidateState(state string) bool {
+	oc.stateMu.Lock()
+	defer oc.stateMu.Unlock()
+	expiry, ok := oc.pendingStates[state]
+	if !ok {
+		return false
+	}
+	delete(oc.pendingStates, state) // one-time use
+	return time.Now().Before(expiry)
 }
 
 // HandleCallback exchanges the authorization code for a token and fetches user info.
@@ -123,11 +182,11 @@ func (oc *OAuthClient) fetchUserInfo(provider string, token *oauth2.Token) (*OAu
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return nil, fmt.Errorf("userinfo request to %s returned status %d: %s", provider, resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
 	if err != nil {
 		return nil, fmt.Errorf("read userinfo response from %s: %w", provider, err)
 	}
@@ -229,10 +288,10 @@ func stringVal(m map[string]interface{}, key string) string {
 	return s
 }
 
-// getHTTPClient returns the configured HTTP client or the default one.
+// getHTTPClient returns the configured HTTP client or a default one with timeout.
 func (oc *OAuthClient) getHTTPClient() *http.Client {
 	if oc.httpClient != nil {
 		return oc.httpClient
 	}
-	return http.DefaultClient
+	return &http.Client{Timeout: 15 * time.Second}
 }

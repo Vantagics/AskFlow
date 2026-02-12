@@ -72,6 +72,18 @@ func (s *Service) SendTest(toEmail string) error {
 }
 
 func buildMessage(fromName, fromAddr, to, subject, body string) []byte {
+	// Sanitize headers to prevent email header injection
+	sanitize := func(s string) string {
+		s = strings.ReplaceAll(s, "\r", "")
+		s = strings.ReplaceAll(s, "\n", "")
+		s = strings.ReplaceAll(s, "\x00", "")
+		return s
+	}
+	fromName = sanitize(fromName)
+	fromAddr = sanitize(fromAddr)
+	to = sanitize(to)
+	subject = sanitize(subject)
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("From: %s <%s>\r\n", fromName, fromAddr))
 	sb.WriteString(fmt.Sprintf("To: %s\r\n", to))

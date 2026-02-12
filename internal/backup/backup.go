@@ -443,6 +443,9 @@ func Restore(archivePath, targetDir string) error {
 	tr := tar.NewReader(gz)
 	fileCount := 0
 	hasDelta := false
+	var totalExtracted int64
+	const maxTotalSize = 10 << 30 // 10GB total extraction limit
+	const maxFileCount = 100000   // max files to extract
 
 	for {
 		header, err := tr.Next()
@@ -460,6 +463,11 @@ func Restore(archivePath, targetDir string) error {
 			return fmt.Errorf("非法路径: %s", header.Name)
 		}
 
+		// Security: reject symlinks to prevent symlink attacks
+		if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeLink {
+			return fmt.Errorf("不允许的链接类型: %s", header.Name)
+		}
+
 		if header.Name == "db_delta.sql" {
 			hasDelta = true
 		}
@@ -473,16 +481,27 @@ func Restore(archivePath, targetDir string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 				return fmt.Errorf("创建目录失败: %w", err)
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			// Limit individual file extraction to 2GB to prevent zip bombs
+			if header.Size > 2<<30 {
+				return fmt.Errorf("文件过大，跳过: %s (%d bytes)", header.Name, header.Size)
+			}
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode)&0755)
 			if err != nil {
 				return fmt.Errorf("创建文件失败 %s: %w", target, err)
 			}
-			if _, err := io.Copy(out, tr); err != nil {
+			if _, err := io.Copy(out, io.LimitReader(tr, header.Size+1)); err != nil {
 				out.Close()
 				return fmt.Errorf("写入文件失败 %s: %w", target, err)
 			}
 			out.Close()
+			totalExtracted += header.Size
+			if totalExtracted > maxTotalSize {
+				return fmt.Errorf("总解压大小超过限制 (10GB)")
+			}
 			fileCount++
+			if fileCount > maxFileCount {
+				return fmt.Errorf("文件数量超过限制 (%d)", maxFileCount)
+			}
 		}
 	}
 
@@ -502,10 +521,40 @@ func RestoreDelta(db *sql.DB, deltaPath string) error {
 	if err != nil {
 		return fmt.Errorf("读取增量 SQL 失败: %w", err)
 	}
+
+	// Validate delta SQL: only allow INSERT/UPDATE/DELETE statements
+	// to prevent arbitrary SQL execution (e.g., DROP TABLE, ATTACH DATABASE)
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return nil
+	}
+	statements := strings.Split(content, ";")
+	for _, stmt := range statements {
+		trimmed := strings.TrimSpace(stmt)
+		if trimmed == "" {
+			continue
+		}
+		upper := strings.ToUpper(trimmed)
+		if !strings.HasPrefix(upper, "INSERT ") &&
+			!strings.HasPrefix(upper, "UPDATE ") &&
+			!strings.HasPrefix(upper, "DELETE ") &&
+			!strings.HasPrefix(upper, "REPLACE ") {
+			return fmt.Errorf("增量 SQL 包含不允许的语句类型: %s", truncateForLog(trimmed, 50))
+		}
+	}
+
 	if _, err := db.Exec(string(data)); err != nil {
 		return fmt.Errorf("执行增量 SQL 失败: %w", err)
 	}
 	return nil
+}
+
+// truncateForLog truncates a string for safe logging.
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // --- tar helpers ---

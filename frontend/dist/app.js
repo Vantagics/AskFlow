@@ -1508,6 +1508,7 @@
         if (tab === 'multimodal') loadMultimodalSettings();
         if (tab === 'users') { loadAdminUsers(); loadProductCheckboxes(); }
         if (tab === 'products') loadProducts();
+        if (tab === 'bans') loadLoginBans();
     };
 
     function initAdmin() {
@@ -1538,18 +1539,21 @@
     }
 
     function applyAdminRoleVisibility() {
-        // Hide settings, users, and products tabs for non-super_admin
+        // Hide settings, users, products, and bans tabs for non-super_admin
         var settingsNav = document.querySelector('.admin-nav-item[data-tab="settings"]');
         var usersNav = document.querySelector('.admin-nav-item[data-tab="users"]');
         var productsNav = document.querySelector('.admin-nav-item[data-tab="products"]');
+        var bansNav = document.querySelector('.admin-nav-item[data-tab="bans"]');
         if (adminRole !== 'super_admin') {
             if (settingsNav) settingsNav.style.display = 'none';
             if (usersNav) usersNav.style.display = 'none';
             if (productsNav) productsNav.style.display = 'none';
+            if (bansNav) bansNav.style.display = 'none';
         } else {
             if (settingsNav) settingsNav.style.display = '';
             if (usersNav) usersNav.style.display = '';
             if (productsNav) productsNav.style.display = '';
+            if (bansNav) bansNav.style.display = '';
         }
     }
 
@@ -3391,6 +3395,108 @@
         })
         .catch(function (err) {
             showAdminToast(err.message || i18n.t('admin_delete_failed'), 'error');
+        });
+    };
+
+    // --- Login Ban Management ---
+
+    function loadLoginBans() {
+        adminFetch('/api/admin/bans')
+            .then(function (res) {
+                if (!res.ok) throw new Error('load failed');
+                return res.json();
+            })
+            .then(function (data) {
+                renderLoginBans(data.bans || []);
+            })
+            .catch(function () {
+                renderLoginBans([]);
+            });
+    }
+
+    function renderLoginBans(bans) {
+        var tbody = document.getElementById('admin-bans-tbody');
+        if (!tbody) return;
+
+        if (!bans || bans.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="admin-table-empty">' + i18n.t('admin_bans_empty') + '</td></tr>';
+            return;
+        }
+
+        var typeMap = {
+            'user_consecutive': i18n.t('admin_bans_type_consecutive'),
+            'user_daily': i18n.t('admin_bans_type_daily'),
+            'ip': i18n.t('admin_bans_type_ip'),
+            'manual_user': i18n.t('admin_bans_type_manual_user'),
+            'manual_ip': i18n.t('admin_bans_type_manual_ip')
+        };
+
+        var html = '';
+        for (var i = 0; i < bans.length; i++) {
+            var b = bans[i];
+            var target = b.username ? (i18n.t('admin_bans_user_prefix') + escapeHtml(b.username)) : (i18n.t('admin_bans_ip_prefix') + escapeHtml(b.ip));
+            var unlocks = b.unlocks_at ? new Date(b.unlocks_at).toLocaleString() : '-';
+            var unbanData = b.username ? "'" + escapeHtml(b.username) + "',''" : "''," + "'" + escapeHtml(b.ip) + "'";
+            html += '<tr>' +
+                '<td>' + escapeHtml(typeMap[b.type] || b.type) + '</td>' +
+                '<td>' + target + '</td>' +
+                '<td>' + escapeHtml(b.reason || '-') + '</td>' +
+                '<td>' + (b.fail_count || '-') + '</td>' +
+                '<td>' + escapeHtml(unlocks) + '</td>' +
+                '<td><button class="btn-danger btn-sm" onclick="unbanLogin(' + unbanData + ')">' + i18n.t('admin_bans_unban_btn') + '</button></td>' +
+            '</tr>';
+        }
+        tbody.innerHTML = html;
+    }
+
+    window.unbanLogin = function (username, ip) {
+        if (!confirm(i18n.t('admin_bans_unban_confirm'))) return;
+
+        adminFetch('/api/admin/bans/unban', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username, ip: ip })
+        })
+        .then(function (res) {
+            if (!res.ok) throw new Error('failed');
+            showAdminToast(i18n.t('admin_bans_unbanned'), 'success');
+            loadLoginBans();
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || i18n.t('admin_bans_unban_failed'), 'error');
+        });
+    };
+
+    window.addLoginBan = function () {
+        var username = (document.getElementById('ban-new-username') || {}).value || '';
+        var ip = (document.getElementById('ban-new-ip') || {}).value || '';
+        var reason = (document.getElementById('ban-new-reason') || {}).value || '';
+        var days = parseInt((document.getElementById('ban-new-days') || {}).value) || 1;
+
+        if (!username.trim() && !ip.trim()) {
+            showAdminToast(i18n.t('admin_bans_add_empty'), 'error');
+            return;
+        }
+
+        adminFetch('/api/admin/bans/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: username.trim(), ip: ip.trim(), reason: reason.trim(), days: days })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_bans_add_failed')); });
+            return res.json();
+        })
+        .then(function () {
+            showAdminToast(i18n.t('admin_bans_added'), 'success');
+            if (document.getElementById('ban-new-username')) document.getElementById('ban-new-username').value = '';
+            if (document.getElementById('ban-new-ip')) document.getElementById('ban-new-ip').value = '';
+            if (document.getElementById('ban-new-reason')) document.getElementById('ban-new-reason').value = '';
+            if (document.getElementById('ban-new-days')) document.getElementById('ban-new-days').value = '1';
+            loadLoginBans();
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || i18n.t('admin_bans_add_failed'), 'error');
         });
     };
 

@@ -127,9 +127,11 @@ func (as *AppService) Initialize(dataDir string) error {
 	// 5. Create HTTP server
 	as.server = &http.Server{
 		Addr:              fmt.Sprintf("0.0.0.0:%d", as.cfg.Server.Port),
-		ReadHeaderTimeout: 30 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      600 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1MB max header size
 	}
 
 	return nil
@@ -185,6 +187,9 @@ func (as *AppService) runSessionCleanup(ctx context.Context) {
 			if n, err := as.sessionManager.CleanExpired(); err == nil && n > 0 {
 				log.Printf("Cleaned %d expired sessions", n)
 			}
+			// Clean old login attempt records (older than 30 days)
+			ll := auth.NewLoginLimiter(as.database)
+			ll.CleanOld()
 		}
 	}
 }

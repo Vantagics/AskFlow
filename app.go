@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	mrand "math/rand"
 	"os"
 	"path/filepath"
@@ -38,6 +39,7 @@ type App struct {
 	configManager  *config.ConfigManager
 	emailService   *email.Service
 	productService *product.ProductService
+	loginLimiter   *auth.LoginLimiter
 }
 
 // NewApp creates a new App with all service dependencies injected.
@@ -62,6 +64,7 @@ func NewApp(
 		configManager:  cm,
 		emailService:   es,
 		productService: ps,
+		loginLimiter:   auth.NewLoginLimiter(db),
 	}
 }
 
@@ -125,6 +128,10 @@ func (a *App) CreatePendingQuestion(question, userID, imageData, productID strin
 
 // GetOAuthURL returns the OAuth authorization URL for the given provider.
 func (a *App) GetOAuthURL(provider string) (string, error) {
+	// Validate provider name
+	if len(provider) > 50 || strings.ContainsAny(provider, "/<>\"'\\") {
+		return "", fmt.Errorf("invalid provider name")
+	}
 	return a.oauthClient.GetAuthURL(provider)
 }
 
@@ -136,6 +143,10 @@ type OAuthCallbackResponse struct {
 
 // HandleOAuthCallback exchanges the auth code for user info and creates a session.
 func (a *App) HandleOAuthCallback(provider, code string) (*OAuthCallbackResponse, error) {
+	// Validate provider name to prevent injection
+	if len(provider) > 50 || strings.ContainsAny(provider, "/<>\"'\\") {
+		return nil, fmt.Errorf("invalid provider name")
+	}
 	user, err := a.oauthClient.HandleCallback(provider, code)
 	if err != nil {
 		return nil, err
@@ -229,8 +240,42 @@ func (a *App) AdminSetup(username, password string) (*AdminLoginResponse, error)
 	if a.IsAdminConfigured() {
 		return nil, fmt.Errorf("管理员账号已设置")
 	}
-	if strings.TrimSpace(username) == "" || strings.TrimSpace(password) == "" {
+	username = strings.TrimSpace(username)
+	password = strings.TrimSpace(password)
+	if username == "" || password == "" {
 		return nil, fmt.Errorf("用户名和密码不能为空")
+	}
+	if len(username) < 3 {
+		return nil, fmt.Errorf("用户名至少3位")
+	}
+	if len(password) < 8 {
+		return nil, fmt.Errorf("密码至少8位")
+	}
+	if len(password) > 72 {
+		return nil, fmt.Errorf("密码不能超过72位")
+	}
+	// Password complexity: require at least one letter and one digit
+	hasLetter := false
+	hasDigit := false
+	for _, c := range password {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			hasLetter = true
+		}
+		if c >= '0' && c <= '9' {
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return nil, fmt.Errorf("密码必须包含字母和数字")
+	}
+	if len(username) > 64 {
+		return nil, fmt.Errorf("用户名不能超过64位")
+	}
+	// Reject usernames with special characters that could cause issues
+	for _, c := range username {
+		if c < 0x20 || c == '"' || c == '\'' || c == '\\' || c == '<' || c == '>' {
+			return nil, fmt.Errorf("用户名包含非法字符")
+		}
 	}
 
 	hash, err := auth.HashPassword(password)
@@ -282,17 +327,29 @@ func (a *App) IsAdminSession(userID string) bool {
 
 // AdminLogin verifies the admin username and password and creates a session.
 // Checks the super admin first, then admin sub-accounts.
-func (a *App) AdminLogin(username, password string) (*AdminLoginResponse, error) {
+// Enforces login rate limiting based on failed attempts per username and IP.
+func (a *App) AdminLogin(username, password, ip string) (*AdminLoginResponse, error) {
+	// Check login rate limits before attempting authentication
+	if err := a.loginLimiter.CheckAllowed(username, ip); err != nil {
+		return nil, err
+	}
+
 	cfg := a.configManager.Get()
 
 	// Check super admin
 	if cfg.Admin.Username != "" && cfg.Admin.PasswordHash != "" && username == cfg.Admin.Username {
 		if err := auth.VerifyAdminPassword(password, cfg.Admin.PasswordHash); err != nil {
+			a.loginLimiter.RecordAttempt(username, ip, false)
+			log.Printf("[Auth] failed admin login attempt: username=%q ip=%s", username, ip)
 			return nil, fmt.Errorf("用户名或密码错误")
 		}
+		a.loginLimiter.RecordAttempt(username, ip, true)
+		log.Printf("[Auth] successful admin login: username=%q ip=%s", username, ip)
 		if err := a.ensureAdminUser(); err != nil {
 			return nil, err
 		}
+		// Session rotation: invalidate old sessions before creating new one
+		_ = a.sessionManager.DeleteSessionsByUserID("admin")
 		session, err := a.sessionManager.CreateSession("admin")
 		if err != nil {
 			return nil, err
@@ -306,11 +363,17 @@ func (a *App) AdminLogin(username, password string) (*AdminLoginResponse, error)
 		`SELECT id, password_hash, role FROM admin_users WHERE username = ?`, username,
 	).Scan(&id, &passwordHash, &role)
 	if err != nil {
+		a.loginLimiter.RecordAttempt(username, ip, false)
+		log.Printf("[Auth] failed sub-admin login attempt: username=%q ip=%s (user not found)", username, ip)
 		return nil, fmt.Errorf("用户名或密码错误")
 	}
 	if err := auth.VerifyAdminPassword(password, passwordHash); err != nil {
+		a.loginLimiter.RecordAttempt(username, ip, false)
+		log.Printf("[Auth] failed sub-admin login attempt: username=%q ip=%s (wrong password)", username, ip)
 		return nil, fmt.Errorf("用户名或密码错误")
 	}
+	a.loginLimiter.RecordAttempt(username, ip, true)
+	log.Printf("[Auth] successful sub-admin login: username=%q ip=%s role=%s", username, ip, role)
 
 	// Ensure user record exists for FK
 	a.db.Exec(
@@ -318,6 +381,8 @@ func (a *App) AdminLogin(username, password string) (*AdminLoginResponse, error)
 		"admin_"+id, "admin_"+id+"@internal", username, "admin_sub", id,
 	)
 
+	// Session rotation: invalidate old sessions before creating new one
+	_ = a.sessionManager.DeleteSessionsByUserID("admin_" + id)
 	session, err := a.sessionManager.CreateSession("admin_" + id)
 	if err != nil {
 		return nil, err
@@ -357,8 +422,32 @@ func (a *App) Register(req RegisterRequest, baseURL string) error {
 	if email == "" || password == "" {
 		return fmt.Errorf("邮箱和密码不能为空")
 	}
-	if len(password) < 6 {
-		return fmt.Errorf("密码至少6位")
+	// Basic email format validation
+	if !strings.Contains(email, "@") || !strings.Contains(email, ".") || len(email) > 254 {
+		return fmt.Errorf("邮箱格式不正确")
+	}
+	if len(password) < 8 {
+		return fmt.Errorf("密码至少8位")
+	}
+	if len(password) > 72 {
+		return fmt.Errorf("密码不能超过72位")
+	}
+	// Password complexity: require at least one letter and one digit
+	hasLetter := false
+	hasDigit := false
+	for _, c := range password {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			hasLetter = true
+		}
+		if c >= '0' && c <= '9' {
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return fmt.Errorf("密码必须包含字母和数字")
+	}
+	if len(name) > 200 {
+		return fmt.Errorf("名称过长")
 	}
 	if name == "" {
 		name = email
@@ -501,6 +590,8 @@ func (a *App) UserLogin(email, password string) (*UserLoginResponse, error) {
 	// Update last login
 	a.db.Exec(`UPDATE users SET last_login = ? WHERE id = ?`, time.Now().UTC().Format(time.RFC3339), userID)
 
+	// Session rotation: invalidate old sessions before creating new one
+	_ = a.sessionManager.DeleteSessionsByUserID(userID)
 	session, err := a.sessionManager.CreateSession(userID)
 	if err != nil {
 		return nil, err
@@ -545,6 +636,16 @@ func GenerateCaptcha() *CaptchaResponse {
 	for k, v := range captchaStore {
 		if now.After(v.expiresAt) {
 			delete(captchaStore, k)
+		}
+	}
+
+	// Prevent memory exhaustion: limit captcha store size
+	if len(captchaStore) > 10000 {
+		for k := range captchaStore {
+			delete(captchaStore, k)
+			if len(captchaStore) <= 5000 {
+				break
+			}
 		}
 	}
 
@@ -734,11 +835,40 @@ func (a *App) CreateAdminUser(username, password, role string) (*AdminUserInfo, 
 	if username == "" || password == "" {
 		return nil, fmt.Errorf("用户名和密码不能为空")
 	}
-	if len(password) < 6 {
-		return nil, fmt.Errorf("密码至少6位")
+	if len(username) < 3 {
+		return nil, fmt.Errorf("用户名至少3位")
+	}
+	if len(username) > 64 {
+		return nil, fmt.Errorf("用户名不能超过64位")
+	}
+	if len(password) < 8 {
+		return nil, fmt.Errorf("密码至少8位")
+	}
+	if len(password) > 72 {
+		return nil, fmt.Errorf("密码不能超过72位")
+	}
+	// Password complexity: require at least one letter and one digit
+	hasLetter := false
+	hasDigit := false
+	for _, c := range password {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			hasLetter = true
+		}
+		if c >= '0' && c <= '9' {
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return nil, fmt.Errorf("密码必须包含字母和数字")
 	}
 	if role != "editor" && role != "super_admin" {
 		role = "editor"
+	}
+	// Reject usernames with special characters
+	for _, c := range username {
+		if c < 0x20 || c == '"' || c == '\'' || c == '\\' || c == '<' || c == '>' {
+			return nil, fmt.Errorf("用户名包含非法字符")
+		}
 	}
 
 	// Check conflict with super admin
@@ -815,8 +945,13 @@ func (a *App) ListAdminUsers() ([]AdminUserInfo, error) {
 	return users, nil
 }
 
-// DeleteAdminUser removes an admin sub-account.
+// DeleteAdminUser removes an admin sub-account and cleans up associated sessions.
 func (a *App) DeleteAdminUser(id string) error {
+	// Clean up sessions for this admin user
+	_, _ = a.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, "admin_"+id)
+	// Clean up product assignments
+	_, _ = a.db.Exec(`DELETE FROM admin_user_products WHERE admin_user_id = ?`, id)
+	// Delete the admin user record
 	_, err := a.db.Exec(`DELETE FROM admin_users WHERE id = ?`, id)
 	return err
 }
@@ -838,6 +973,39 @@ func (a *App) AddKnowledgeEntry(req KnowledgeEntryRequest) error {
 	content := strings.TrimSpace(req.Content)
 	if title == "" || content == "" {
 		return fmt.Errorf("标题和内容不能为空")
+	}
+	if len(title) > 500 {
+		return fmt.Errorf("标题过长（最多500字符）")
+	}
+	if len(content) > 100000 {
+		return fmt.Errorf("内容过长（最多100000字符）")
+	}
+	if len(req.ImageURLs) > 50 {
+		return fmt.Errorf("图片数量过多（最多50张）")
+	}
+	if len(req.VideoURLs) > 10 {
+		return fmt.Errorf("视频数量过多（最多10个）")
+	}
+
+	// Validate image URLs (must be local paths or HTTPS)
+	for _, imgURL := range req.ImageURLs {
+		imgURL = strings.TrimSpace(imgURL)
+		if imgURL == "" {
+			continue
+		}
+		if !strings.HasPrefix(imgURL, "/api/") && !strings.HasPrefix(imgURL, "data:image/") {
+			return fmt.Errorf("图片URL格式不正确")
+		}
+	}
+	// Validate video URLs (must be local paths)
+	for _, vidURL := range req.VideoURLs {
+		vidURL = strings.TrimSpace(vidURL)
+		if vidURL == "" {
+			continue
+		}
+		if !strings.HasPrefix(vidURL, "/api/") {
+			return fmt.Errorf("视频URL格式不正确")
+		}
 	}
 
 	docID, err := generateToken()

@@ -330,6 +330,11 @@ func (cm *ConfigManager) Update(updates map[string]interface{}) error {
 		cm.config = DefaultConfig()
 	}
 
+	// Limit number of keys per update to prevent abuse
+	if len(updates) > 100 {
+		return fmt.Errorf("too many config updates (max 100 keys per request)")
+	}
+
 	for key, val := range updates {
 		if err := cm.applyUpdate(key, val); err != nil {
 			return fmt.Errorf("update key %q: %w", key, err)
@@ -365,11 +370,17 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if err != nil {
 			return err
 		}
+		if f < 0 || f > 2.0 {
+			return errors.New("temperature must be between 0 and 2.0")
+		}
 		cm.config.LLM.Temperature = f
 	case "llm.max_tokens":
 		n, err := toInt(val)
 		if err != nil {
 			return err
+		}
+		if n < 1 || n > 128000 {
+			return errors.New("max_tokens must be between 1 and 128000")
 		}
 		cm.config.LLM.MaxTokens = n
 
@@ -405,11 +416,18 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if !ok {
 			return errors.New("expected string")
 		}
+		// Prevent path traversal
+		if strings.Contains(s, "..") {
+			return errors.New("db_path must not contain '..'")
+		}
 		cm.config.Vector.DBPath = s
 	case "vector.chunk_size":
 		n, err := toInt(val)
 		if err != nil {
 			return err
+		}
+		if n < 64 || n > 8192 {
+			return errors.New("chunk_size must be between 64 and 8192")
 		}
 		cm.config.Vector.ChunkSize = n
 	case "vector.overlap":
@@ -417,17 +435,26 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if err != nil {
 			return err
 		}
+		if n < 0 || n > 4096 {
+			return errors.New("overlap must be between 0 and 4096")
+		}
 		cm.config.Vector.Overlap = n
 	case "vector.top_k":
 		n, err := toInt(val)
 		if err != nil {
 			return err
 		}
+		if n < 1 || n > 100 {
+			return errors.New("top_k must be between 1 and 100")
+		}
 		cm.config.Vector.TopK = n
 	case "vector.threshold":
 		f, err := toFloat64(val)
 		if err != nil {
 			return err
+		}
+		if f < 0 || f > 1.0 {
+			return errors.New("threshold must be between 0 and 1.0")
 		}
 		cm.config.Vector.Threshold = f
 	case "vector.content_priority":
@@ -497,6 +524,9 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if err != nil {
 			return err
 		}
+		if n < 1 || n > 65535 {
+			return errors.New("SMTP port must be between 1 and 65535")
+		}
 		cm.config.SMTP.Port = n
 	case "smtp.username":
 		s, ok := val.(string)
@@ -534,12 +564,18 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if !ok {
 			return errors.New("expected string")
 		}
+		if len(s) > 10000 {
+			return errors.New("product_intro too long (max 10000 characters)")
+		}
 		cm.config.ProductIntro = s
 
 	case "product_name":
 		s, ok := val.(string)
 		if !ok {
 			return errors.New("expected string")
+		}
+		if len(s) > 200 {
+			return errors.New("product_name too long (max 200 characters)")
 		}
 		cm.config.ProductName = s
 
@@ -549,11 +585,19 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if !ok {
 			return errors.New("expected string")
 		}
+		// Validate path doesn't contain shell metacharacters
+		if strings.ContainsAny(s, "|;&$`") {
+			return errors.New("ffmpeg path contains invalid characters")
+		}
 		cm.config.Video.FFmpegPath = s
 	case "video.rapidspeech_path":
 		s, ok := val.(string)
 		if !ok {
 			return errors.New("expected string")
+		}
+		// Validate path doesn't contain shell metacharacters
+		if strings.ContainsAny(s, "|;&$`") {
+			return errors.New("rapidspeech path contains invalid characters")
 		}
 		cm.config.Video.RapidSpeechPath = s
 	case "video.keyframe_interval":
@@ -561,11 +605,18 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if err != nil {
 			return err
 		}
+		if n < 1 || n > 300 {
+			return errors.New("keyframe_interval must be between 1 and 300 seconds")
+		}
 		cm.config.Video.KeyframeInterval = n
 	case "video.rapidspeech_model":
 		s, ok := val.(string)
 		if !ok {
 			return errors.New("expected string")
+		}
+		// Validate path doesn't contain shell metacharacters
+		if strings.ContainsAny(s, "|;&$`") {
+			return errors.New("rapidspeech model path contains invalid characters")
 		}
 		cm.config.Video.RapidSpeechModel = s
 	case "video.max_upload_size_mb":
@@ -593,11 +644,17 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if !ok {
 			return errors.New("expected string")
 		}
+		if strings.Contains(s, "..") {
+			return errors.New("ssl_cert path must not contain '..'")
+		}
 		cm.config.Server.SSLCert = s
 	case "server.ssl_key":
 		s, ok := val.(string)
 		if !ok {
 			return errors.New("expected string")
+		}
+		if strings.Contains(s, "..") {
+			return errors.New("ssl_key path must not contain '..'")
 		}
 		cm.config.Server.SSLKey = s
 
@@ -649,8 +706,15 @@ func (cm *ConfigManager) applyOAuthUpdate(key string, val interface{}) error {
 	case "client_secret":
 		p.ClientSecret = s
 	case "auth_url":
+		// Validate URL format
+		if s != "" && !strings.HasPrefix(s, "https://") {
+			return errors.New("auth_url must use HTTPS")
+		}
 		p.AuthURL = s
 	case "token_url":
+		if s != "" && !strings.HasPrefix(s, "https://") {
+			return errors.New("token_url must use HTTPS")
+		}
 		p.TokenURL = s
 	case "redirect_url":
 		p.RedirectURL = s
@@ -819,7 +883,7 @@ func (cm *ConfigManager) decryptIfNeeded(value string) (string, error) {
 // --- Encryption key management ---
 
 func getOrCreateEncryptionKey() ([]byte, error) {
-	// 1. Check environment variable first
+	// 1. Check environment variable first (preferred for production)
 	keyHex := os.Getenv(encryptionKeyEnvVar)
 	if keyHex != "" {
 		key, err := hex.DecodeString(keyHex)
@@ -837,8 +901,12 @@ func getOrCreateEncryptionKey() ([]byte, error) {
 	if data, err := os.ReadFile(keyFile); err == nil {
 		keyHex = strings.TrimSpace(string(data))
 		if key, err := hex.DecodeString(keyHex); err == nil && len(key) == 32 {
+			// Ensure file permissions are restrictive
+			os.Chmod(keyFile, 0600)
 			return key, nil
 		}
+		// Key file exists but is invalid — log warning and regenerate
+		fmt.Println("Warning: encryption.key file is invalid, regenerating")
 	}
 
 	// 3. Generate a new random key and persist it
@@ -847,7 +915,7 @@ func getOrCreateEncryptionKey() ([]byte, error) {
 		return nil, fmt.Errorf("generate encryption key: %w", err)
 	}
 	keyHex = hex.EncodeToString(key)
-	os.MkdirAll("./data", 0755)
+	os.MkdirAll("./data", 0700)
 	if err := os.WriteFile(keyFile, []byte(keyHex+"\n"), 0600); err != nil {
 		return nil, fmt.Errorf("save encryption key: %w", err)
 	}
