@@ -420,8 +420,8 @@ func (dm *DocumentManager) processVideo(docID, docName string, fileData []byte, 
 	dm.mu.RUnlock()
 
 	// Check VideoConfig is configured
-	if cfg.FFmpegPath == "" && cfg.WhisperPath == "" {
-		return fmt.Errorf("视频检索功能未启用，请先在设置中配置 ffmpeg 和 whisper 路径")
+	if cfg.FFmpegPath == "" && cfg.SenseVoicePath == "" {
+		return fmt.Errorf("视频检索功能未启用，请先在设置中配置 ffmpeg 和 sensevoice 路径")
 	}
 
 	// Save video file to disk
