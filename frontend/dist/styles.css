@@ -428,6 +428,21 @@ body {
     justify-content: center;
 }
 
+.knowledge-image-item.uploading::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+    border: 3px solid rgba(79,70,229,0.2);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    z-index: 2;
+}
+
 /* Knowledge video upload zone */
 .knowledge-video-zone {
     width: 100%;
@@ -513,6 +528,21 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+.knowledge-video-item.uploading::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 28px;
+    height: 28px;
+    margin: -14px 0 0 -14px;
+    border: 3px solid rgba(79,70,229,0.2);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    z-index: 2;
 }
 
 .auth-switch {
@@ -1339,6 +1369,12 @@ body {
     background: rgba(79,70,229,0.04);
 }
 
+.admin-drop-zone.uploading {
+    border-color: var(--color-primary);
+    opacity: 0.7;
+    cursor: default;
+}
+
 .admin-drop-zone p {
     font-size: 0.9375rem;
     color: var(--color-text);
@@ -1387,6 +1423,25 @@ body {
 
 .btn-primary:hover { background: var(--color-primary-hover); }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Button with inline spinner (loading state) */
+.btn-loading {
+    position: relative;
+    pointer-events: none;
+    opacity: 0.75;
+}
+.btn-loading .btn-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+    margin-right: 0.4rem;
+}
+.btn-loading .btn-label { vertical-align: middle; }
 
 .btn-secondary {
     padding: 0.625rem 1.25rem;
@@ -1902,6 +1957,10 @@ body {
     position: absolute;
     inset: 0;
     background: rgba(255,255,255,0.5);
+}
+
+.knowledge-image-item.uploading::before {
+    z-index: 2;
 }
 
 /* Language Switch Button */

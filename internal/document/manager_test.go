@@ -547,12 +547,17 @@ func TestUploadFile_VideoRejectedWhenConfigEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UploadFile should not return error, got: %v", err)
 	}
-	if doc.Status != "failed" {
-		t.Fatalf("expected status 'failed', got %q", doc.Status)
+	// Video processing is async; wait for goroutine to finish
+	time.Sleep(200 * time.Millisecond)
+	// Re-read status from DB
+	var status, errMsg string
+	dm.db.QueryRow(`SELECT status, error FROM documents WHERE id = ?`, doc.ID).Scan(&status, &errMsg)
+	if status != "failed" {
+		t.Fatalf("expected status 'failed', got %q", status)
 	}
-	expectedErr := "视频检索功能未启用，请先在设置中配置 ffmpeg 和 whisper 路径"
-	if doc.Error != expectedErr {
-		t.Fatalf("expected error %q, got %q", expectedErr, doc.Error)
+	expectedErr := "视频检索功能未启用，请先在设置中配置 ffmpeg 和 rapidspeech 路径"
+	if errMsg != expectedErr {
+		t.Fatalf("expected error %q, got %q", expectedErr, errMsg)
 	}
 }
 
@@ -563,8 +568,8 @@ func TestUploadFile_VideoRejectedWhenBothPathsEmpty(t *testing.T) {
 	dm := newTestManager(t, database, &mockEmbeddingService{})
 	// Explicitly set empty config
 	dm.SetVideoConfig(config.VideoConfig{
-		FFmpegPath:  "",
-		WhisperPath: "",
+		FFmpegPath:      "",
+		RapidSpeechPath: "",
 	})
 
 	doc, err := dm.UploadFile(UploadFileRequest{
@@ -575,11 +580,15 @@ func TestUploadFile_VideoRejectedWhenBothPathsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UploadFile should not return error, got: %v", err)
 	}
-	if doc.Status != "failed" {
-		t.Fatalf("expected status 'failed', got %q", doc.Status)
+	// Video processing is async; wait for goroutine to finish
+	time.Sleep(200 * time.Millisecond)
+	var status, errMsg string
+	dm.db.QueryRow(`SELECT status, error FROM documents WHERE id = ?`, doc.ID).Scan(&status, &errMsg)
+	if status != "failed" {
+		t.Fatalf("expected status 'failed', got %q", status)
 	}
-	if doc.Error != "视频检索功能未启用，请先在设置中配置 ffmpeg 和 whisper 路径" {
-		t.Fatalf("unexpected error: %s", doc.Error)
+	if errMsg != "视频检索功能未启用，请先在设置中配置 ffmpeg 和 rapidspeech 路径" {
+		t.Fatalf("unexpected error: %s", errMsg)
 	}
 }
 
@@ -884,8 +893,8 @@ func TestProperty2_VideoUploadRejectedWhenUnconfigured(t *testing.T) {
 		dm := newTestManager(t, database, &mockEmbeddingService{})
 		// 确保 VideoConfig 为空（默认状态）
 		dm.SetVideoConfig(config.VideoConfig{
-			FFmpegPath:  "",
-			WhisperPath: "",
+			FFmpegPath:      "",
+			RapidSpeechPath: "",
 		})
 
 		doc, err := dm.UploadFile(UploadFileRequest{
@@ -897,12 +906,16 @@ func TestProperty2_VideoUploadRejectedWhenUnconfigured(t *testing.T) {
 		if err != nil {
 			rt.Fatalf("UploadFile should not return error, got: %v", err)
 		}
-		if doc.Status != "failed" {
-			rt.Errorf("expected status 'failed', got %q", doc.Status)
+		// Video processing is async; wait for goroutine to finish
+		time.Sleep(200 * time.Millisecond)
+		var status, errMsg string
+		dm.db.QueryRow(`SELECT status, error FROM documents WHERE id = ?`, doc.ID).Scan(&status, &errMsg)
+		if status != "failed" {
+			rt.Errorf("expected status 'failed', got %q", status)
 		}
-		expectedErr := "视频检索功能未启用，请先在设置中配置 ffmpeg 和 whisper 路径"
-		if doc.Error != expectedErr {
-			rt.Errorf("expected error %q, got %q", expectedErr, doc.Error)
+		expectedErr := "视频检索功能未启用，请先在设置中配置 ffmpeg 和 rapidspeech 路径"
+		if errMsg != expectedErr {
+			rt.Errorf("expected error %q, got %q", expectedErr, errMsg)
 		}
 	})
 }

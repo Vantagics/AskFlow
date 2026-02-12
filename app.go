@@ -956,14 +956,14 @@ func (a *App) AddKnowledgeEntry(req KnowledgeEntryRequest) error {
 
 // --- Product Management ---
 
-// CreateProduct creates a new product with the given name, description, and welcome message.
-func (a *App) CreateProduct(name, description, welcomeMessage string) (*product.Product, error) {
-	return a.productService.Create(name, description, welcomeMessage)
+// CreateProduct creates a new product with the given name, type, description, and welcome message.
+func (a *App) CreateProduct(name, productType, description, welcomeMessage string) (*product.Product, error) {
+	return a.productService.Create(name, productType, description, welcomeMessage)
 }
 
-// UpdateProduct updates an existing product's name, description, and welcome message.
-func (a *App) UpdateProduct(id, name, description, welcomeMessage string) (*product.Product, error) {
-	return a.productService.Update(id, name, description, welcomeMessage)
+// UpdateProduct updates an existing product's name, type, description, and welcome message.
+func (a *App) UpdateProduct(id, name, productType, description, welcomeMessage string) (*product.Product, error) {
+	return a.productService.Update(id, name, productType, description, welcomeMessage)
 }
 
 // DeleteProduct removes a product by ID.

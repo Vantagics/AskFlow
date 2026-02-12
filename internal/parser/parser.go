@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	gopdf "github.com/VantageDataChat/GoPDF2"
@@ -61,7 +62,7 @@ func (dp *DocumentParser) ParseWithBaseURL(fileData []byte, fileType string, bas
 	return dp.Parse(fileData, fileType)
 }
 
-// parsePDF extracts text from PDF data using gopdf2, preserving paragraph structure.
+// parsePDF extracts text and images from PDF data using gopdf2's native parser.
 func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -70,33 +71,89 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 		}
 	}()
 
-	pageCount, err := gopdf.GetSourcePDFPageCountFromBytes(data)
+	// Validate PDF magic bytes
+	if len(data) < 5 || string(data[:5]) != "%PDF-" {
+		return nil, fmt.Errorf("pdf解析错误: 不是有效的PDF文件")
+	}
+
+	// Use native ExtractTextFromAllPages instead of gofpdi-based GetSourcePDFPageCountFromBytes,
+	// which panics or fails on many valid PDFs.
+	textMap, err := gopdf.ExtractTextFromAllPages(data)
 	if err != nil {
 		return nil, fmt.Errorf("pdf解析错误: %w", err)
 	}
 
+	// Collect page indices and sort for deterministic output
+	var pageIndices []int
+	for idx := range textMap {
+		pageIndices = append(pageIndices, idx)
+	}
+	sort.Ints(pageIndices)
+
+	pageCount := 0
 	var sb strings.Builder
-	for i := 0; i < pageCount; i++ {
-		text, err := gopdf.ExtractPageText(data, i)
-		if err != nil {
-			return nil, fmt.Errorf("pdf解析错误: 第%d页提取失败: %w", i+1, err)
+	for _, pageIdx := range pageIndices {
+		if pageIdx+1 > pageCount {
+			pageCount = pageIdx + 1
 		}
-		if text != "" {
+		texts := textMap[pageIdx]
+		var pageText strings.Builder
+		for _, t := range texts {
+			if t.Text != "" {
+				if pageText.Len() > 0 {
+					pageText.WriteString(" ")
+				}
+				pageText.WriteString(t.Text)
+			}
+		}
+		if pageText.Len() > 0 {
 			if sb.Len() > 0 {
 				sb.WriteString("\n\n")
 			}
-			sb.WriteString(text)
+			sb.WriteString(pageText.String())
 		}
+	}
+
+	// Extract images from all pages
+	var images []ImageRef
+	imgMap, imgErr := gopdf.ExtractImagesFromAllPages(data)
+	if imgErr == nil {
+		var imgPageIndices []int
+		for idx := range imgMap {
+			imgPageIndices = append(imgPageIndices, idx)
+		}
+		sort.Ints(imgPageIndices)
+		for _, pageIdx := range imgPageIndices {
+			if pageIdx+1 > pageCount {
+				pageCount = pageIdx + 1
+			}
+			for j, img := range imgMap[pageIdx] {
+				if len(img.Data) == 0 || img.Width < 10 || img.Height < 10 {
+					continue // skip tiny or empty images
+				}
+				images = append(images, ImageRef{
+					Alt:  fmt.Sprintf("PDF第%d页图片%d", pageIdx+1, j+1),
+					Data: img.Data,
+				})
+			}
+		}
+	}
+
+	if pageCount == 0 {
+		pageCount = len(textMap)
 	}
 
 	return &ParseResult{
 		Text: CleanText(sb.String()),
 		Metadata: map[string]string{
-			"type":       "pdf",
-			"page_count": fmt.Sprintf("%d", pageCount),
+			"type":        "pdf",
+			"page_count":  fmt.Sprintf("%d", pageCount),
+			"image_count": fmt.Sprintf("%d", len(images)),
 		},
+		Images: images,
 	}, nil
 }
+
 
 // parseWord extracts text from Word data using goword, preserving headings and paragraphs.
 func (dp *DocumentParser) parseWord(data []byte) (result *ParseResult, err error) {

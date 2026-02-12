@@ -213,6 +213,7 @@ func migrateProductTables(db *sql.DB) error {
 		ddl    string
 	}{
 		{"products", "welcome_message", "ALTER TABLE products ADD COLUMN welcome_message TEXT DEFAULT ''"},
+		{"products", "type", "ALTER TABLE products ADD COLUMN type TEXT DEFAULT 'service'"},
 	}
 
 	for _, m := range migrations {

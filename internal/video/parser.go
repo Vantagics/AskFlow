@@ -25,6 +25,7 @@ type TranscriptSegment struct {
 type Keyframe struct {
 	Timestamp float64 // 帧在视频中的时间（秒）
 	FilePath  string  // 帧图像文件的临时路径
+	Data      []byte  // 帧图像数据（Parse 返回前读入内存）
 }
 
 // ParseResult 视频解析结果
@@ -238,6 +239,14 @@ func (p *Parser) Parse(videoPath string) (*ParseResult, error) {
 		keyframes, kfErr := p.ExtractKeyframes(videoPath, framesDir)
 		if kfErr != nil {
 			return nil, kfErr
+		}
+		// Read keyframe image data into memory before tempDir is cleaned up by defer.
+		for i := range keyframes {
+			data, err := os.ReadFile(keyframes[i].FilePath)
+			if err != nil {
+				return nil, fmt.Errorf("读取关键帧 %d 失败: %w", i, err)
+			}
+			keyframes[i].Data = data
 		}
 		result.Keyframes = keyframes
 	}

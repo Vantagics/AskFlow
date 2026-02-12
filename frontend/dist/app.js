@@ -1295,6 +1295,27 @@
         }
     }
 
+    // Helper: set a button to loading state with spinner
+    function setBtnLoading(btn, loadingText) {
+        if (!btn) return;
+        btn._origHTML = btn.innerHTML;
+        btn.disabled = true;
+        btn.classList.add('btn-loading');
+        var label = loadingText || btn.textContent;
+        btn.innerHTML = '<span class="btn-spinner"></span><span class="btn-label">' + escapeHtml(label) + '</span>';
+    }
+
+    // Helper: restore a button from loading state
+    function resetBtnLoading(btn) {
+        if (!btn) return;
+        btn.disabled = false;
+        btn.classList.remove('btn-loading');
+        if (btn._origHTML !== undefined) {
+            btn.innerHTML = btn._origHTML;
+            delete btn._origHTML;
+        }
+    }
+
     window.sendChatMessage = function () {
         var input = document.getElementById('chat-input');
         var sendBtn = document.getElementById('chat-send-btn');
@@ -1431,6 +1452,28 @@
         return fetch(url, options);
     }
 
+    function downloadDocument(docId, fileName) {
+        adminFetch('/api/documents/' + encodeURIComponent(docId) + '/download')
+            .then(function(resp) {
+                if (!resp.ok) throw new Error('Download failed');
+                return resp.blob();
+            })
+            .then(function(blob) {
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url;
+                a.download = fileName || 'document';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            })
+            .catch(function(err) {
+                showAdminToast('Download failed: ' + err.message, 'error');
+            });
+    }
+    window.downloadDocument = downloadDocument;
+
     function showAdminToast(message, type) {
         type = type || 'info';
         var toast = document.getElementById('admin-toast');
@@ -1550,12 +1593,14 @@
 
         showAdminToast(i18n.t('admin_doc_uploading', { name: file.name }), 'info');
 
-        // Show progress bar on drop zone
+        // Show progress bar on drop zone and set uploading state
         var zone = document.getElementById('admin-drop-zone');
         var progressBar = null;
         if (zone) {
             removeProgressOverlay(zone);
             progressBar = addProgressOverlay(zone, false, 'upload-drop-progress');
+            zone.classList.add('uploading');
+            zone.style.pointerEvents = 'none';
         }
 
         var token = getAdminToken();
@@ -1572,18 +1617,40 @@
         xhr.onload = function () {
             if (progressBar) setProgressBar(progressBar, 100);
             setTimeout(function () {
-                if (zone) removeProgressOverlay(zone, 'upload-drop-progress');
+                if (zone) {
+                    removeProgressOverlay(zone, 'upload-drop-progress');
+                    zone.classList.remove('uploading');
+                    zone.style.pointerEvents = '';
+                }
             }, 400);
             if (xhr.status >= 200 && xhr.status < 300) {
-                showAdminToast(i18n.t('admin_doc_upload_success'), 'success');
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (resp && resp.status === 'failed') {
+                        showAdminToast(i18n.t('admin_doc_upload_failed') + (resp.error ? ' - ' + resp.error : ''), 'error');
+                    } else {
+                        showAdminToast(i18n.t('admin_doc_upload_success'), 'success');
+                    }
+                } catch (e) {
+                    showAdminToast(i18n.t('admin_doc_upload_success'), 'success');
+                }
                 loadDocumentList();
             } else {
-                showAdminToast(i18n.t('admin_doc_upload_failed'), 'error');
+                var errMsg = '';
+                try {
+                    var errResp = JSON.parse(xhr.responseText);
+                    errMsg = errResp.error || errResp.message || '';
+                } catch (e) {}
+                showAdminToast(i18n.t('admin_doc_upload_failed') + (errMsg ? ' - ' + errMsg : ''), 'error');
             }
         };
 
         xhr.onerror = function () {
-            if (zone) removeProgressOverlay(zone, 'upload-drop-progress');
+            if (zone) {
+                removeProgressOverlay(zone, 'upload-drop-progress');
+                zone.classList.remove('uploading');
+                zone.style.pointerEvents = '';
+            }
             showAdminToast(i18n.t('admin_doc_upload_failed'), 'error');
         };
 
@@ -1760,7 +1827,7 @@
             } else if (doc.type === 'answer') {
                 nameCell = escapeHtml(doc.name || '-');
             } else {
-                nameCell = '<a href="/api/documents/' + escapeHtml(doc.id) + '/download" target="_blank">' + escapeHtml(doc.name || '-') + '</a>';
+                nameCell = '<a href="javascript:void(0)" onclick="downloadDocument(\'' + escapeHtml(doc.id) + '\', \'' + escapeHtml(doc.name || 'document') + '\')">' + escapeHtml(doc.name || '-') + '</a>';
             }
 
             html += '<tr>' +
@@ -2112,7 +2179,7 @@
         }
 
         var submitBtn = document.getElementById('admin-answer-submit-btn');
-        if (submitBtn) submitBtn.disabled = true;
+        setBtnLoading(submitBtn, i18n.t('admin_knowledge_submitting_btn'));
 
         adminFetch('/api/pending/answer', {
             method: 'POST',
@@ -2135,7 +2202,7 @@
             showAdminToast(err.message || i18n.t('admin_answer_failed'), 'error');
         })
         .finally(function () {
-            if (submitBtn) submitBtn.disabled = false;
+            resetBtnLoading(submitBtn);
         });
     };
 
@@ -3052,7 +3119,7 @@
         var videoURLs = knowledgeVideoURLs.filter(function (u) { return u; });
 
         var btn = document.getElementById('knowledge-submit-btn');
-        if (btn) btn.disabled = true;
+        setBtnLoading(btn, i18n.t('admin_knowledge_submitting_btn'));
         showAdminToast(i18n.t('admin_knowledge_submitting'), 'info');
 
         // Show indeterminate progress on knowledge image zone if images present
@@ -3068,8 +3135,16 @@
             body: JSON.stringify({ title: title.trim(), content: content.trim(), image_urls: imageURLs, video_urls: videoURLs, product_id: getKnowledgeProductID() })
         })
         .then(function (res) {
-            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_knowledge_failed')); });
-            return res.json();
+            if (!res.ok) {
+                return res.text().then(function (text) {
+                    var msg = i18n.t('admin_knowledge_failed');
+                    try { var d = JSON.parse(text); msg = d.error || msg; } catch (e) { /* non-JSON response */ }
+                    throw new Error(msg);
+                });
+            }
+            return res.text().then(function (text) {
+                try { return JSON.parse(text); } catch (e) { return {}; }
+            });
         })
         .then(function () {
             showAdminToast(i18n.t('admin_knowledge_success'), 'success');
@@ -3086,7 +3161,7 @@
             showAdminToast(err.message || i18n.t('admin_knowledge_failed'), 'error');
         })
         .finally(function () {
-            if (btn) btn.disabled = false;
+            resetBtnLoading(btn);
             if (imgZone) removeProgressOverlay(imgZone, 'knowledge-submit-progress');
         });
     };
@@ -3112,7 +3187,7 @@
         if (!tbody) return;
 
         if (!products || products.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="admin-table-empty">' + i18n.t('admin_products_empty') + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="admin-table-empty">' + i18n.t('admin_products_empty') + '</td></tr>';
             return;
         }
 
@@ -3120,8 +3195,10 @@
         for (var i = 0; i < products.length; i++) {
             var p = products[i];
             var createdAt = p.created_at ? new Date(p.created_at).toLocaleString() : '-';
+            var typeLabel = p.type === 'knowledge_base' ? i18n.t('admin_products_type_knowledge') : i18n.t('admin_products_type_service');
             html += '<tr>' +
                 '<td>' + escapeHtml(p.name) + '</td>' +
+                '<td>' + escapeHtml(typeLabel) + '</td>' +
                 '<td>' + escapeHtml(p.description || '-') + '</td>' +
                 '<td>' + escapeHtml(createdAt) + '</td>' +
                 '<td><button class="btn-danger btn-sm" onclick="deleteProduct(\'' + escapeHtml(p.id) + '\', \'' + escapeHtml(p.name) + '\')">' + i18n.t('admin_products_delete_btn') + '</button></td>' +
@@ -3132,6 +3209,7 @@
 
     window.createProduct = function () {
         var name = (document.getElementById('product-new-name') || {}).value || '';
+        var productType = (document.getElementById('product-new-type') || {}).value || 'service';
         var desc = (document.getElementById('product-new-desc') || {}).value || '';
         var welcome = (document.getElementById('product-new-welcome') || {}).value || '';
 
@@ -3143,7 +3221,7 @@
         adminFetch('/api/products', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name.trim(), description: desc.trim(), welcome_message: welcome.trim() })
+            body: JSON.stringify({ name: name.trim(), type: productType, description: desc.trim(), welcome_message: welcome.trim() })
         })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_products_create_failed')); });
@@ -3152,6 +3230,7 @@
         .then(function () {
             showAdminToast(i18n.t('admin_products_created'), 'success');
             if (document.getElementById('product-new-name')) document.getElementById('product-new-name').value = '';
+            if (document.getElementById('product-new-type')) document.getElementById('product-new-type').value = 'service';
             if (document.getElementById('product-new-desc')) document.getElementById('product-new-desc').value = '';
             if (document.getElementById('product-new-welcome')) document.getElementById('product-new-welcome').value = '';
             loadProducts();

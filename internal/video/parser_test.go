@@ -14,59 +14,30 @@ import (
 	"pgregory.net/rapid"
 )
 
-func TestParseWhisperOutput_ValidJSON(t *testing.T) {
-	input := []byte(`{
-		"segments": [
-			{"start": 0.0, "end": 5.2, "text": "Hello world"},
-			{"start": 5.2, "end": 10.1, "text": "This is a test"}
-		]
-	}`)
-
-	segments, err := ParseWhisperOutput(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestParseRapidSpeechOutput_NonEmpty(t *testing.T) {
+	segments := ParseRapidSpeechOutput("Hello world this is a test")
+	if len(segments) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segments))
 	}
-	if len(segments) != 2 {
-		t.Fatalf("expected 2 segments, got %d", len(segments))
+	if segments[0].Text != "Hello world this is a test" {
+		t.Errorf("segment text mismatch: %q", segments[0].Text)
 	}
-	if segments[0].Start != 0.0 || segments[0].End != 5.2 || segments[0].Text != "Hello world" {
-		t.Errorf("segment[0] mismatch: %+v", segments[0])
-	}
-	if segments[1].Start != 5.2 || segments[1].End != 10.1 || segments[1].Text != "This is a test" {
-		t.Errorf("segment[1] mismatch: %+v", segments[1])
+	if segments[0].Start != 0 {
+		t.Errorf("expected Start=0, got %f", segments[0].Start)
 	}
 }
 
-func TestParseWhisperOutput_EmptySegments(t *testing.T) {
-	input := []byte(`{"segments": []}`)
-
-	segments, err := ParseWhisperOutput(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestParseRapidSpeechOutput_Empty(t *testing.T) {
+	segments := ParseRapidSpeechOutput("")
 	if len(segments) != 0 {
 		t.Fatalf("expected 0 segments, got %d", len(segments))
 	}
 }
 
-func TestParseWhisperOutput_NoSegmentsField(t *testing.T) {
-	input := []byte(`{}`)
-
-	segments, err := ParseWhisperOutput(input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func TestParseRapidSpeechOutput_WhitespaceOnly(t *testing.T) {
+	segments := ParseRapidSpeechOutput("   \n\t  ")
 	if len(segments) != 0 {
-		t.Fatalf("expected 0 segments, got %d", len(segments))
-	}
-}
-
-func TestParseWhisperOutput_InvalidJSON(t *testing.T) {
-	input := []byte(`not valid json`)
-
-	_, err := ParseWhisperOutput(input)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON, got nil")
+		t.Fatalf("expected 0 segments for whitespace-only input, got %d", len(segments))
 	}
 }
 
@@ -125,17 +96,9 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("serialize error: %v", err)
 	}
 
-	// Wrap in whisper output format for ParseWhisperOutput
-	whisperJSON, err := json.Marshal(map[string]interface{}{
-		"segments": json.RawMessage(data),
-	})
-	if err != nil {
-		t.Fatalf("failed to wrap in whisper format: %v", err)
-	}
-
-	restored, err := ParseWhisperOutput(whisperJSON)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
+	var restored []TranscriptSegment
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
 	}
 
 	if len(restored) != len(original) {
@@ -150,39 +113,36 @@ func TestRoundTrip(t *testing.T) {
 
 func TestNewParser_DefaultValues(t *testing.T) {
 	cfg := config.VideoConfig{
-		FFmpegPath:  "/usr/bin/ffmpeg",
-		WhisperPath: "/usr/bin/whisper",
+		FFmpegPath:      "/usr/bin/ffmpeg",
+		RapidSpeechPath: "/usr/bin/rs-asr-offline",
 	}
 	p := NewParser(cfg)
 
 	if p.FFmpegPath != "/usr/bin/ffmpeg" {
 		t.Errorf("expected FFmpegPath '/usr/bin/ffmpeg', got '%s'", p.FFmpegPath)
 	}
-	if p.WhisperPath != "/usr/bin/whisper" {
-		t.Errorf("expected WhisperPath '/usr/bin/whisper', got '%s'", p.WhisperPath)
+	if p.RapidSpeechPath != "/usr/bin/rs-asr-offline" {
+		t.Errorf("expected RapidSpeechPath '/usr/bin/rs-asr-offline', got '%s'", p.RapidSpeechPath)
 	}
 	if p.KeyframeInterval != 10 {
 		t.Errorf("expected default KeyframeInterval 10, got %d", p.KeyframeInterval)
-	}
-	if p.WhisperModel != "base" {
-		t.Errorf("expected default WhisperModel 'base', got '%s'", p.WhisperModel)
 	}
 }
 
 func TestNewParser_CustomValues(t *testing.T) {
 	cfg := config.VideoConfig{
 		FFmpegPath:       "/opt/ffmpeg",
-		WhisperPath:      "/opt/whisper",
+		RapidSpeechPath:  "/opt/rs-asr-offline",
 		KeyframeInterval: 30,
-		WhisperModel:     "large",
+		RapidSpeechModel: "/opt/model.gguf",
 	}
 	p := NewParser(cfg)
 
 	if p.KeyframeInterval != 30 {
 		t.Errorf("expected KeyframeInterval 30, got %d", p.KeyframeInterval)
 	}
-	if p.WhisperModel != "large" {
-		t.Errorf("expected WhisperModel 'large', got '%s'", p.WhisperModel)
+	if p.RapidSpeechModel != "/opt/model.gguf" {
+		t.Errorf("expected RapidSpeechModel '/opt/model.gguf', got '%s'", p.RapidSpeechModel)
 	}
 }
 
@@ -204,26 +164,26 @@ func TestNewParser_NegativeInterval(t *testing.T) {
 
 func TestCheckDependencies_NoPaths(t *testing.T) {
 	p := &Parser{}
-	ffmpegOK, whisperOK := p.CheckDependencies()
+	ffmpegOK, rapidSpeechOK := p.CheckDependencies()
 	if ffmpegOK {
 		t.Error("expected ffmpegOK=false when path is empty")
 	}
-	if whisperOK {
-		t.Error("expected whisperOK=false when path is empty")
+	if rapidSpeechOK {
+		t.Error("expected rapidSpeechOK=false when path is empty")
 	}
 }
 
 func TestCheckDependencies_InvalidPaths(t *testing.T) {
 	p := &Parser{
-		FFmpegPath:  "/nonexistent/ffmpeg_fake_binary",
-		WhisperPath: "/nonexistent/whisper_fake_binary",
+		FFmpegPath:      "/nonexistent/ffmpeg_fake_binary",
+		RapidSpeechPath: "/nonexistent/rs_fake_binary",
 	}
-	ffmpegOK, whisperOK := p.CheckDependencies()
+	ffmpegOK, rapidSpeechOK := p.CheckDependencies()
 	if ffmpegOK {
 		t.Error("expected ffmpegOK=false for nonexistent binary")
 	}
-	if whisperOK {
-		t.Error("expected whisperOK=false for nonexistent binary")
+	if rapidSpeechOK {
+		t.Error("expected rapidSpeechOK=false for nonexistent binary")
 	}
 }
 
@@ -238,13 +198,24 @@ func TestExtractAudio_NoFFmpegPath(t *testing.T) {
 	}
 }
 
-func TestTranscribe_NoWhisperPath(t *testing.T) {
+func TestTranscribe_NoRapidSpeechPath(t *testing.T) {
 	p := &Parser{}
 	_, err := p.Transcribe("audio.wav")
 	if err == nil {
-		t.Fatal("expected error when WhisperPath is empty")
+		t.Fatal("expected error when RapidSpeechPath is empty")
 	}
-	if !strings.Contains(err.Error(), "whisper 路径未配置") {
+	if !strings.Contains(err.Error(), "RapidSpeech 路径未配置") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestTranscribe_NoRapidSpeechModel(t *testing.T) {
+	p := &Parser{RapidSpeechPath: "/some/path"}
+	_, err := p.Transcribe("audio.wav")
+	if err == nil {
+		t.Fatal("expected error when RapidSpeechModel is empty")
+	}
+	if !strings.Contains(err.Error(), "RapidSpeech 模型路径未配置") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
@@ -261,7 +232,6 @@ func TestExtractKeyframes_NoFFmpegPath(t *testing.T) {
 }
 
 func TestExtractKeyframes_TimestampCalculation(t *testing.T) {
-	// Create a temp directory with fake frame files to test timestamp logic
 	dir := t.TempDir()
 	frameNames := []string{"frame_0001.jpg", "frame_0002.jpg", "frame_0003.jpg", "frame_0004.jpg"}
 	for _, name := range frameNames {
@@ -272,9 +242,6 @@ func TestExtractKeyframes_TimestampCalculation(t *testing.T) {
 		f.Close()
 	}
 
-	// We can't call ExtractKeyframes directly (it needs ffmpeg), but we can
-	// verify the timestamp logic by simulating what the method does after ffmpeg runs.
-	// The method scans the directory and computes timestamps as i * interval.
 	interval := 5
 	entries, _ := os.ReadDir(dir)
 	var files []string
@@ -285,23 +252,11 @@ func TestExtractKeyframes_TimestampCalculation(t *testing.T) {
 	}
 	sort.Strings(files)
 
-	for i, name := range files {
-		expectedTS := float64(i * interval)
-		kf := Keyframe{
-			Timestamp: expectedTS,
-			FilePath:  filepath.Join(dir, name),
-		}
-		if kf.Timestamp != expectedTS {
-			t.Errorf("frame %s: expected timestamp %f, got %f", name, expectedTS, kf.Timestamp)
-		}
-	}
-
-	// Verify: frame_0001 = 0*5=0, frame_0002 = 1*5=5, frame_0003 = 2*5=10, frame_0004 = 3*5=15
 	expected := []float64{0, 5, 10, 15}
-	for i, exp := range expected {
+	for i := range files {
 		actual := float64(i * interval)
-		if actual != exp {
-			t.Errorf("index %d: expected %f, got %f", i, exp, actual)
+		if actual != expected[i] {
+			t.Errorf("frame %s: expected timestamp %f, got %f", files[i], expected[i], actual)
 		}
 	}
 }
@@ -324,7 +279,6 @@ func TestParse_NothingConfigured(t *testing.T) {
 }
 
 // TestProperty1_TranscriptSerializationRoundTrip 验证 TranscriptSegment 序列化往返一致性。
-// 对于任意有效的 TranscriptSegment 列表，序列化为 JSON 后再反序列化，应产生与原始列表等价的结果。
 //
 // **Feature: video-retrieval, Property 1: TranscriptSegment 序列化往返一致性**
 // **Validates: Requirements 6.3**
@@ -343,13 +297,11 @@ func TestProperty1_TranscriptSerializationRoundTrip(t *testing.T) {
 			}
 		}
 
-		// 序列化
 		data, err := SerializeTranscript(segments)
 		if err != nil {
 			rt.Fatalf("SerializeTranscript error: %v", err)
 		}
 
-		// 反序列化
 		var restored []TranscriptSegment
 		if err := json.Unmarshal(data, &restored); err != nil {
 			rt.Fatalf("Unmarshal error: %v", err)
@@ -373,7 +325,6 @@ func TestProperty1_TranscriptSerializationRoundTrip(t *testing.T) {
 }
 
 // TestProperty4_KeyframeTimestampCorrectness 验证关键帧时间戳正确性。
-// 对于任意正整数 interval 和正整数帧数量 n，生成的第 i 个关键帧的时间戳应等于 i * interval。
 //
 // **Feature: video-retrieval, Property 4: 关键帧时间戳正确性**
 // **Validates: Requirements 3.2**
@@ -382,8 +333,6 @@ func TestProperty4_KeyframeTimestampCorrectness(t *testing.T) {
 		interval := rapid.IntRange(1, 120).Draw(rt, "interval")
 		frameCount := rapid.IntRange(0, 50).Draw(rt, "frame_count")
 
-		// 模拟 ExtractKeyframes 的时间戳计算逻辑：
-		// 创建临时目录，写入 frame_XXXX.jpg 文件，然后验证时间戳
 		dir := t.TempDir()
 		for i := 0; i < frameCount; i++ {
 			name := fmt.Sprintf("frame_%04d.jpg", i+1)
@@ -394,7 +343,6 @@ func TestProperty4_KeyframeTimestampCorrectness(t *testing.T) {
 			f.Close()
 		}
 
-		// 模拟 ExtractKeyframes 中扫描目录和计算时间戳的逻辑
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			rt.Fatalf("read dir: %v", err)

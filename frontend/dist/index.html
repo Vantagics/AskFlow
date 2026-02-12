@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>软件自助服务平台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260212-3">
-    <script src="/i18n.js?v=20260212-3"></script>
+    <link rel="stylesheet" href="/styles.css?v=20260212-4">
+    <script src="/i18n.js?v=20260212-4"></script>
 </head>
 <body>
     <div id="app">
@@ -651,6 +651,13 @@
                                         <input type="text" id="product-new-name" data-i18n-placeholder="admin_products_name_placeholder" placeholder="输入产品名称">
                                     </div>
                                     <div class="admin-form-row">
+                                        <label data-i18n="admin_products_type">产品类型</label>
+                                        <select id="product-new-type">
+                                            <option value="service" data-i18n="admin_products_type_service">产品服务</option>
+                                            <option value="knowledge_base" data-i18n="admin_products_type_knowledge">知识库</option>
+                                        </select>
+                                    </div>
+                                    <div class="admin-form-row">
                                         <label data-i18n="admin_products_desc">产品描述</label>
                                         <input type="text" id="product-new-desc" data-i18n-placeholder="admin_products_desc_placeholder" placeholder="输入产品描述（可选）">
                                     </div>
@@ -669,13 +676,14 @@
                                             <thead>
                                                 <tr>
                                                     <th data-i18n="admin_products_th_name">名称</th>
+                                                    <th data-i18n="admin_products_th_type">类型</th>
                                                     <th data-i18n="admin_products_th_desc">描述</th>
                                                     <th data-i18n="admin_products_th_time">创建时间</th>
                                                     <th data-i18n="admin_products_th_action">操作</th>
                                                 </tr>
                                             </thead>
                                             <tbody id="admin-products-tbody">
-                                                <tr><td colspan="4" class="admin-table-empty" data-i18n="admin_products_empty">暂无产品</td></tr>
+                                                <tr><td colspan="5" class="admin-table-empty" data-i18n="admin_products_empty">暂无产品</td></tr>
                                             </tbody>
                                         </table>
                                     </div>
@@ -926,7 +934,7 @@
         </div>
     </div>
 
-    <script src="/app.js?v=20260212-3"></script>
+    <script src="/app.js?v=20260212-4"></script>
     <script>
         // Apply i18n translations on page load
         if (window.i18n) {

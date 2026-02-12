@@ -34,6 +34,7 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 		`CREATE TABLE IF NOT EXISTS products (
 			id              TEXT PRIMARY KEY,
 			name            TEXT NOT NULL UNIQUE,
+			type            TEXT DEFAULT 'service',
 			description     TEXT DEFAULT '',
 			welcome_message TEXT DEFAULT '',
 			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -113,7 +114,7 @@ func TestProperty1_CRUDRoundTrip(t *testing.T) {
 		newName := sanitizeName(newNameSeed, counter+10000)
 
 		// Create
-		created, err := svc.Create(name, desc, welcome)
+		created, err := svc.Create(name, "service", desc, welcome)
 		if err != nil {
 			t.Logf("Create failed: %v", err)
 			return false
@@ -132,7 +133,7 @@ func TestProperty1_CRUDRoundTrip(t *testing.T) {
 		}
 
 		// Update
-		updated, err := svc.Update(created.ID, newName, newDesc, newWelcome)
+		updated, err := svc.Update(created.ID, newName, "service", newDesc, newWelcome)
 		if err != nil {
 			t.Logf("Update failed: %v", err)
 			return false
@@ -175,14 +176,14 @@ func TestProperty2_NameUniquenessAndNonEmpty(t *testing.T) {
 			name := sanitizeName(nameSeed, counter)
 
 			// First creation should succeed
-			_, err := svc.Create(name, desc1, "")
+			_, err := svc.Create(name, "service", desc1, "")
 			if err != nil {
 				t.Logf("First create failed unexpectedly: %v", err)
 				return false
 			}
 
 			// Second creation with same name should fail
-			_, err = svc.Create(name, desc2, "")
+			_, err = svc.Create(name, "service", desc2, "")
 			if err == nil {
 				t.Logf("Second create with duplicate name %q should have failed", name)
 				return false
@@ -203,7 +204,7 @@ func TestProperty2_NameUniquenessAndNonEmpty(t *testing.T) {
 			svc := NewProductService(db)
 
 			// Empty string
-			_, err := svc.Create("", "desc", "")
+			_, err := svc.Create("", "service", "desc", "")
 			if err == nil {
 				t.Log("Create with empty name should have failed")
 				return false
@@ -212,14 +213,14 @@ func TestProperty2_NameUniquenessAndNonEmpty(t *testing.T) {
 			// Whitespace-only string (1 to 10 spaces)
 			n := int(spaces)%10 + 1
 			ws := strings.Repeat(" ", n)
-			_, err = svc.Create(ws, "desc", "")
+			_, err = svc.Create(ws, "service", "desc", "")
 			if err == nil {
 				t.Logf("Create with whitespace-only name %q should have failed", ws)
 				return false
 			}
 
 			// Tabs and mixed whitespace
-			_, err = svc.Create("\t \n", "desc", "")
+			_, err = svc.Create("\t \n", "service", "desc", "")
 			if err == nil {
 				t.Log("Create with tab/newline name should have failed")
 				return false
@@ -255,7 +256,7 @@ func TestProperty3_DeleteCascade(t *testing.T) {
 		}
 
 		// Create a product
-		p, err := svc.Create(name, "desc", "")
+		p, err := svc.Create(name, "service", "desc", "")
 		if err != nil {
 			t.Logf("Create failed: %v", err)
 			return false
@@ -359,7 +360,7 @@ func TestProperty4_AdminProductAssignmentRoundTrip(t *testing.T) {
 		n := int(numProducts)%5 + 1
 		var productIDs []string
 		for i := 0; i < n; i++ {
-			p, err := svc.Create(fmt.Sprintf("prod_%d_%d", counter, i), "desc", "")
+			p, err := svc.Create(fmt.Sprintf("prod_%d_%d", counter, i), "service", "desc", "")
 			if err != nil {
 				t.Logf("Create product failed: %v", err)
 				return false
@@ -473,7 +474,7 @@ func TestProperty5_AdminProductSelectionLogic(t *testing.T) {
 		n := int(numProducts)%5 + 2
 		var allProductIDs []string
 		for i := 0; i < n; i++ {
-			p, err := svc.Create(fmt.Sprintf("prod_%d_%d", counter, i), "desc", "")
+			p, err := svc.Create(fmt.Sprintf("prod_%d_%d", counter, i), "service", "desc", "")
 			if err != nil {
 				t.Logf("Create product failed: %v", err)
 				return false

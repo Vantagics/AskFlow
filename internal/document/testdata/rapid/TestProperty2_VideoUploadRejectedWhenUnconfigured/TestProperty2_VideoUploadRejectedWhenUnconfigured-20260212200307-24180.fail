@@ -1,0 +1,15 @@
+# 2026/02/12 20:03:07.183711 [TestProperty2_VideoUploadRejectedWhenUnconfigured] [rapid] draw video_type: "mp4"
+# 2026/02/12 20:03:07.183711 [TestProperty2_VideoUploadRejectedWhenUnconfigured] [rapid] draw file_name: "0"
+# 2026/02/12 20:03:07.183711 [TestProperty2_VideoUploadRejectedWhenUnconfigured] [rapid] draw product_id: ""
+# 2026/02/12 20:03:07.194812 [TestProperty2_VideoUploadRejectedWhenUnconfigured] expected status 'failed', got "processing"
+# 2026/02/12 20:03:07.194812 [TestProperty2_VideoUploadRejectedWhenUnconfigured] expected error "视频检索功能未启用，请先在设置中配置 ffmpeg 和 whisper 路径", got ""
+# 
+v0.4.8#13252676239902045564
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

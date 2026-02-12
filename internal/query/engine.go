@@ -289,7 +289,20 @@ func (qe *QueryEngine) Query(req QueryRequest) (*QueryResponse, error) {
 	}
 
 	// Step 0: Intent classification (skip if image is attached — image may contain product info)
-	if req.ImageData == "" {
+	// Also skip for knowledge_base products — they should answer all questions without filtering
+	skipIntentClassification := req.ImageData != ""
+	if !skipIntentClassification && req.ProductID != "" {
+		var pType string
+		err := qe.db.QueryRow("SELECT COALESCE(type, 'service') FROM products WHERE id = ?", req.ProductID).Scan(&pType)
+		if err == nil && pType == "knowledge_base" {
+			skipIntentClassification = true
+			if debugMode {
+				dbg.Intent = "product"
+				dbg.Steps = append(dbg.Steps, "Step 0: product type=knowledge_base, skipping intent classification")
+			}
+		}
+	}
+	if !skipIntentClassification {
 		intent, err := qe.classifyIntent(req.Question, ls, cfg)
 		if err == nil {
 			switch intent.Intent {

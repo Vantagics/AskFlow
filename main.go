@@ -1643,6 +1643,7 @@ func handleProducts(app *App) http.HandlerFunc {
 			}
 			var req struct {
 				Name           string `json:"name"`
+				Type           string `json:"type"`
 				Description    string `json:"description"`
 				WelcomeMessage string `json:"welcome_message"`
 			}
@@ -1650,7 +1651,7 @@ func handleProducts(app *App) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "invalid request body")
 				return
 			}
-			p, err := app.CreateProduct(req.Name, req.Description, req.WelcomeMessage)
+			p, err := app.CreateProduct(req.Name, req.Type, req.Description, req.WelcomeMessage)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -1684,6 +1685,7 @@ func handleProductByID(app *App) http.HandlerFunc {
 			}
 			var req struct {
 				Name           string `json:"name"`
+				Type           string `json:"type"`
 				Description    string `json:"description"`
 				WelcomeMessage string `json:"welcome_message"`
 			}
@@ -1691,7 +1693,7 @@ func handleProductByID(app *App) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "invalid request body")
 				return
 			}
-			p, err := app.UpdateProduct(id, req.Name, req.Description, req.WelcomeMessage)
+			p, err := app.UpdateProduct(id, req.Name, req.Type, req.Description, req.WelcomeMessage)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return

@@ -12,14 +12,14 @@ require (
 	golang.org/x/crypto v0.48.0
 	golang.org/x/image v0.36.0
 	golang.org/x/oauth2 v0.35.0
+	golang.org/x/sys v0.41.0
 	pgregory.net/rapid v1.2.0
 )
 
 require (
-	github.com/phpdave11/gofpdi v1.0.14-0.20211212211723-1f10f9844311 // indirect
-	github.com/pkg/errors v0.8.1 // indirect
+	github.com/phpdave11/gofpdi v1.0.15 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	go.mozilla.org/pkcs7 v0.9.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 )
 

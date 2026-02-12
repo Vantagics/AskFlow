@@ -391,10 +391,20 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 
 	// Store image embeddings
 	for i, img := range result.Images {
-		if img.URL == "" {
+		imgURL := img.URL
+		// For embedded images (e.g. from PDF), save to disk and generate URL
+		if imgURL == "" && len(img.Data) > 0 {
+			savedURL, saveErr := dm.saveExtractedImage(img.Data)
+			if saveErr != nil {
+				fmt.Printf("Warning: failed to save extracted image %d: %v\n", i, saveErr)
+				continue
+			}
+			imgURL = savedURL
+		}
+		if imgURL == "" {
 			continue
 		}
-		vec, err := dm.embeddingService.EmbedImageURL(img.URL)
+		vec, err := dm.embeddingService.EmbedImageURL(imgURL)
 		if err != nil {
 			// Non-fatal: skip images that fail to embed
 			fmt.Printf("Warning: failed to embed image %d (%s): %v\n", i, img.Alt, err)
@@ -406,7 +416,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 			DocumentID:   docID,
 			DocumentName: docName,
 			Vector:       vec,
-			ImageURL:     img.URL,
+			ImageURL:     imgURL,
 			ProductID:    productID,
 		}}
 		if err := dm.vectorStore.Store(docID, imgChunk); err != nil {
@@ -434,7 +444,13 @@ func (dm *DocumentManager) processVideo(docID, docName string, fileData []byte, 
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
 		return fmt.Errorf("创建上传目录失败: %w", err)
 	}
-	videoPath := filepath.Join(uploadDir, filepath.Base(docName))
+	// Sanitize filename: replace characters illegal on Windows (: * ? " < > |)
+	safeName := filepath.Base(docName)
+	safeName = strings.NewReplacer(":", "_", "*", "_", "?", "_", "\"", "_", "<", "_", ">", "_", "|", "_").Replace(safeName)
+	if safeName == "" || safeName == "." || safeName == ".." {
+		safeName = docID + ".video"
+	}
+	videoPath := filepath.Join(uploadDir, safeName)
 	if err := os.WriteFile(videoPath, fileData, 0644); err != nil {
 		return fmt.Errorf("保存视频文件失败: %w", err)
 	}
@@ -513,16 +529,15 @@ func (dm *DocumentManager) processVideo(docID, docName string, fileData []byte, 
 		}
 	}
 
-	// Process keyframes: read each frame → base64 → EmbedImageURL → store → create video_segments
+	// Process keyframes: base64 → EmbedImageURL → store → create video_segments
 	for i, kf := range parseResult.Keyframes {
-		frameData, err := os.ReadFile(kf.FilePath)
-		if err != nil {
-			fmt.Printf("Warning: failed to read keyframe %d: %v\n", i, err)
+		if len(kf.Data) == 0 {
+			fmt.Printf("Warning: keyframe %d has no data\n", i)
 			continue
 		}
 
 		// Base64 encode as data URL for EmbedImageURL
-		b64 := base64.StdEncoding.EncodeToString(frameData)
+		b64 := base64.StdEncoding.EncodeToString(kf.Data)
 		dataURL := "data:image/jpeg;base64," + b64
 
 		vec, err := dm.embeddingService.EmbedImageURL(dataURL)
@@ -893,6 +908,38 @@ func (dm *DocumentManager) saveOriginalFile(docID, filename string, data []byte)
 	}
 	filePath := filepath.Join(dir, filename)
 	return os.WriteFile(filePath, data, 0644)
+}
+
+// saveExtractedImage saves embedded image data (e.g. from PDF) to data/images/
+// and returns the URL path for accessing it.
+func (dm *DocumentManager) saveExtractedImage(data []byte) (string, error) {
+	// Detect image format from magic bytes
+	ext := ".png"
+	if len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		ext = ".jpg"
+	} else if len(data) >= 4 && string(data[:4]) == "\x89PNG" {
+		ext = ".png"
+	} else if len(data) >= 4 && string(data[:4]) == "RIFF" {
+		ext = ".webp"
+	} else if len(data) >= 3 && string(data[:3]) == "GIF" {
+		ext = ".gif"
+	}
+
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate image ID: %w", err)
+	}
+	filename := hex.EncodeToString(b) + ext
+
+	imgDir := filepath.Join(".", "data", "images")
+	if err := os.MkdirAll(imgDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create image dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(imgDir, filename), data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write image: %w", err)
+	}
+
+	return "/api/images/" + filename, nil
 }
 
 // GetFilePath returns the path to the original uploaded file for a document.
