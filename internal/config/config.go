@@ -195,7 +195,6 @@ func DefaultConfig() *Config {
 		},
 		Video: VideoConfig{
 			KeyframeInterval: 10,
-			WhisperModel:     "base",
 		},
 	}
 }
@@ -549,24 +548,24 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 			return errors.New("expected string")
 		}
 		cm.config.Video.FFmpegPath = s
-	case "video.whisper_path":
+	case "video.sensevoice_path":
 		s, ok := val.(string)
 		if !ok {
 			return errors.New("expected string")
 		}
-		cm.config.Video.WhisperPath = s
+		cm.config.Video.SenseVoicePath = s
 	case "video.keyframe_interval":
 		n, err := toInt(val)
 		if err != nil {
 			return err
 		}
 		cm.config.Video.KeyframeInterval = n
-	case "video.whisper_model":
+	case "video.sensevoice_model":
 		s, ok := val.(string)
 		if !ok {
 			return errors.New("expected string")
 		}
-		cm.config.Video.WhisperModel = s
+		cm.config.Video.SenseVoiceModel = s
 
 	// Server fields
 	case "server.port":
@@ -721,9 +720,6 @@ func (cm *ConfigManager) applyDefaults(cfg *Config) {
 	}
 	if cfg.Video.KeyframeInterval == 0 {
 		cfg.Video.KeyframeInterval = defaults.Video.KeyframeInterval
-	}
-	if cfg.Video.WhisperModel == "" {
-		cfg.Video.WhisperModel = defaults.Video.WhisperModel
 	}
 }
 
