@@ -1015,8 +1015,8 @@ func (qe *QueryEngine) buildSourceRefs(results []vectorstore.SearchResult) []Sou
 	sources := make([]SourceRef, len(results))
 	for i, r := range results {
 		snippet := r.ChunkText
-		if len(snippet) > 100 {
-			snippet = snippet[:100]
+		if runes := []rune(snippet); len(runes) > 100 {
+			snippet = string(runes[:100])
 		}
 		sources[i] = SourceRef{
 			DocumentID:   r.DocumentID,
