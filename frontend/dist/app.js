@@ -2670,6 +2670,8 @@
                 setVal('cfg-product-name', cfg.product_name || '');
                 setVal('cfg-product-intro', cfg.product_intro || '');
 
+                setVal('cfg-auth-server', cfg.auth_server || '');
+
                 var smtp = cfg.smtp || {};
                 setVal('cfg-smtp-host', smtp.host);
                 setVal('cfg-smtp-port', smtp.port);
@@ -2904,6 +2906,9 @@
 
         var productIntro = getVal('cfg-product-intro');
         updates['product_intro'] = productIntro;
+
+        var authServer = getVal('cfg-auth-server');
+        updates['auth_server'] = authServer;
 
         var smtpHost = getVal('cfg-smtp-host');
         var smtpPort = getVal('cfg-smtp-port');

@@ -156,6 +156,22 @@ func createTables(db *sql.DB) error {
 			chunk_id     TEXT NOT NULL,
 			FOREIGN KEY (document_id) REFERENCES documents(id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS sn_users (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			email          TEXT UNIQUE NOT NULL,
+			display_name   TEXT NOT NULL,
+			sn             TEXT DEFAULT '',
+			last_login_at  DATETIME,
+			created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS login_tickets (
+			ticket      TEXT PRIMARY KEY,
+			user_id     INTEGER NOT NULL,
+			used        INTEGER DEFAULT 0,
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			expires_at  DATETIME NOT NULL,
+			FOREIGN KEY (user_id) REFERENCES sn_users(id)
+		)`,
 	}
 
 	tx, err := db.Begin()

@@ -596,6 +596,15 @@
                                     </div>
                                 </fieldset>
 
+                                <fieldset class="admin-fieldset">
+                                    <legend data-i18n="admin_settings_auth_server">认证服务器</legend>
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_settings_auth_server_label">认证服务器地址</label>
+                                        <input type="text" id="cfg-auth-server" placeholder="license.vantagedata.chat">
+                                        <span class="admin-form-hint" data-i18n="admin_settings_auth_server_hint">License 认证服务器主机名，用于 SN 登录验证（如 license.vantagedata.chat）</span>
+                                    </div>
+                                </fieldset>
+
                                 <div class="admin-form-actions">
                                     <button type="button" class="btn-primary" onclick="saveAdminSettings()" data-i18n="admin_settings_save">保存设置</button>
                                 </div>
