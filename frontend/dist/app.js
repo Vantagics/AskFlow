@@ -1694,6 +1694,7 @@
         if (tab === 'products') { loadProducts(); i18n.applyI18nToPage(); }
         if (tab === 'bans') loadLoginBans();
         if (tab === 'customers') { loadAdminCustomers(); i18n.applyI18nToPage(); }
+        if (tab === 'batchimport') { loadBatchImportProductSelector(); }
     };
 
     // --- Customer Management ---
@@ -4108,6 +4109,167 @@
             // Re-fetch translated product name when language changes
             fetchProductName();
         };
+    }
+
+    // --- Batch Import ---
+
+    function loadBatchImportProductSelector() {
+        adminFetch('/api/products/my')
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                var sel = document.getElementById('batch-product-select');
+                if (!sel) return;
+                var products = data.products || [];
+                sel.innerHTML = '<option value="">公共库</option>';
+                products.forEach(function (p) {
+                    sel.innerHTML += '<option value="' + p.id + '">' + p.name + '</option>';
+                });
+            })
+            .catch(function () {});
+    }
+    window.loadBatchImportProductSelector = loadBatchImportProductSelector;
+
+    window.startBatchImport = function () {
+        var pathInput = document.getElementById('batch-import-path');
+        var importPath = (pathInput.value || '').trim();
+        if (!importPath) {
+            showAdminToast('请输入文件或目录路径', 'error');
+            return;
+        }
+
+        var productID = document.getElementById('batch-product-select').value || '';
+        var btn = document.getElementById('batch-import-btn');
+        btn.disabled = true;
+        btn.textContent = '导入中...';
+
+        // Reset UI
+        var progressSection = document.getElementById('batch-progress-section');
+        var reportSection = document.getElementById('batch-report-section');
+        progressSection.classList.remove('hidden');
+        reportSection.classList.add('hidden');
+        document.getElementById('batch-progress-log').innerHTML = '';
+        document.getElementById('batch-progress-fill').style.width = '0%';
+        document.getElementById('batch-progress-text').textContent = '准备中...';
+        document.getElementById('batch-progress-percent').textContent = '0%';
+
+        var token = getAdminToken();
+
+        fetch('/api/batch-import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ path: importPath, product_id: productID })
+        }).then(function (response) {
+            if (!response.ok) {
+                return response.json().then(function (d) {
+                    throw new Error(d.error || 'HTTP ' + response.status);
+                });
+            }
+
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var buffer = '';
+
+            function processChunk(result) {
+                if (result.done) return;
+                buffer += decoder.decode(result.value, { stream: true });
+
+                var lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete line in buffer
+
+                var currentEvent = '';
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i];
+                    if (line.indexOf('event: ') === 0) {
+                        currentEvent = line.substring(7);
+                    } else if (line.indexOf('data: ') === 0) {
+                        var jsonStr = line.substring(6);
+                        try {
+                            var data = JSON.parse(jsonStr);
+                            handleSSEEvent(currentEvent, data);
+                        } catch (e) {}
+                    }
+                }
+
+                return reader.read().then(processChunk);
+            }
+
+            return reader.read().then(processChunk);
+        }).catch(function (err) {
+            showAdminToast('批量导入失败: ' + err.message, 'error');
+        }).finally(function () {
+            btn.disabled = false;
+            btn.textContent = '开始导入';
+        });
+    };
+
+    function handleSSEEvent(event, data) {
+        var logEl = document.getElementById('batch-progress-log');
+        var fillEl = document.getElementById('batch-progress-fill');
+        var textEl = document.getElementById('batch-progress-text');
+        var percentEl = document.getElementById('batch-progress-percent');
+
+        if (event === 'start') {
+            textEl.textContent = '共 ' + data.total + ' 个文件，开始导入...';
+        } else if (event === 'progress') {
+            var pct = Math.round((data.index / data.total) * 100);
+            fillEl.style.width = pct + '%';
+            percentEl.textContent = pct + '%';
+            textEl.textContent = '[' + data.index + '/' + data.total + '] ' + data.file;
+
+            var item = document.createElement('div');
+            item.className = 'log-item';
+            if (data.status === 'success') {
+                item.className += ' log-success';
+                item.textContent = '[' + data.index + '/' + data.total + '] ✓ ' + data.file;
+            } else {
+                item.className += ' log-failed';
+                item.textContent = '[' + data.index + '/' + data.total + '] ✗ ' + data.file + ' — ' + data.reason;
+            }
+            logEl.appendChild(item);
+            logEl.scrollTop = logEl.scrollHeight;
+        } else if (event === 'done') {
+            textEl.textContent = '导入完成';
+            percentEl.textContent = '100%';
+            fillEl.style.width = '100%';
+            showBatchReport(data);
+        }
+    }
+
+    function showBatchReport(data) {
+        var reportSection = document.getElementById('batch-report-section');
+        reportSection.classList.remove('hidden');
+
+        var summary = document.getElementById('batch-report-summary');
+        summary.innerHTML =
+            '<div class="batch-report-stat stat-total"><span class="stat-value">' + data.total + '</span><span class="stat-label">总文件数</span></div>' +
+            '<div class="batch-report-stat stat-success"><span class="stat-value">' + data.success + '</span><span class="stat-label">成功</span></div>' +
+            '<div class="batch-report-stat stat-failed"><span class="stat-value">' + data.failed + '</span><span class="stat-label">失败</span></div>';
+
+        var failedSection = document.getElementById('batch-report-failed');
+        var failedList = document.getElementById('batch-report-failed-list');
+
+        if (data.failed_files && data.failed_files.length > 0) {
+            failedSection.classList.remove('hidden');
+            failedList.innerHTML = '';
+            data.failed_files.forEach(function (f) {
+                var item = document.createElement('div');
+                item.className = 'batch-failed-item';
+                item.innerHTML = '<div class="failed-path">' + escapeHtml(f.path) + '</div>' +
+                    '<div class="failed-reason">' + escapeHtml(f.reason) + '</div>';
+                failedList.appendChild(item);
+            });
+        } else {
+            failedSection.classList.add('hidden');
+        }
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
     }
 
     // Run on DOM ready

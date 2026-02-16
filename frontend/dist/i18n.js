@@ -124,9 +124,10 @@
             // Admin panel - sidebar
             'admin_panel_title': '管理面板',
             'admin_nav_documents': '文档管理',
-            'admin_nav_pending': '待回答问题',
+            'admin_nav_pending': '问题管理',
             'admin_nav_knowledge': '知识录入',
             'admin_nav_settings': '系统设置',
+            'admin_nav_batchimport': '批量导入',
             'admin_nav_users': '用户管理',
             'admin_nav_customers': '客户管理',
             'admin_sidebar_logout': '退出登录',
@@ -206,7 +207,7 @@
             'admin_delete_failed': '删除失败',
 
             // Admin - pending questions
-            'admin_pending_title': '待回答问题',
+            'admin_pending_title': '问题管理',
             'admin_pending_filter_all': '全部',
             'admin_pending_filter_pending': '待回答',
             'admin_pending_filter_answered': '已回答',
@@ -639,9 +640,10 @@
             // Admin panel - sidebar
             'admin_panel_title': 'Admin Panel',
             'admin_nav_documents': 'Documents',
-            'admin_nav_pending': 'Pending Questions',
+            'admin_nav_pending': 'Question Management',
             'admin_nav_knowledge': 'Knowledge Entry',
             'admin_nav_settings': 'Settings',
+            'admin_nav_batchimport': 'Batch Import',
             'admin_nav_users': 'User Management',
             'admin_nav_customers': 'Customers',
             'admin_sidebar_logout': 'Sign Out',
@@ -721,7 +723,7 @@
             'admin_delete_failed': 'Delete failed',
 
             // Admin - pending questions
-            'admin_pending_title': 'Pending Questions',
+            'admin_pending_title': 'Question Management',
             'admin_pending_filter_all': 'All',
             'admin_pending_filter_pending': 'Pending',
             'admin_pending_filter_answered': 'Answered',

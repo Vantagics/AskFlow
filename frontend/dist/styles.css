@@ -2378,3 +2378,74 @@ a.chat-source-download:hover {
 .admin-install-content a:hover {
     text-decoration: underline;
 }
+
+/* Batch Import */
+.batch-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.batch-progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+.batch-progress-log {
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.8rem;
+    font-family: 'Consolas', 'Monaco', monospace;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: var(--radius);
+    padding: 0.5rem 0.75rem;
+}
+.batch-progress-log .log-item {
+    padding: 0.15rem 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+.batch-progress-log .log-success { color: #059669; }
+.batch-progress-log .log-failed { color: #dc2626; }
+.batch-report-stat {
+    text-align: center;
+    padding: 1rem 1.5rem;
+    background: #f9fafb;
+    border-radius: var(--radius);
+    border: 1px solid #e5e7eb;
+    min-width: 120px;
+}
+.batch-report-stat .stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    display: block;
+}
+.batch-report-stat .stat-label {
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+.batch-report-stat.stat-total .stat-value { color: var(--color-primary); }
+.batch-report-stat.stat-success .stat-value { color: #059669; }
+.batch-report-stat.stat-failed .stat-value { color: #dc2626; }
+.batch-failed-list {
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+}
+.batch-failed-item {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+.batch-failed-item:last-child { border-bottom: none; }
+.batch-failed-item .failed-path {
+    font-family: 'Consolas', 'Monaco', monospace;
+    color: #111827;
+    word-break: break-all;
+}
+.batch-failed-item .failed-reason {
+    font-size: 0.8rem;
+    color: #dc2626;
+    margin-top: 0.15rem;
+}

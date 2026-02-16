@@ -867,6 +867,9 @@ func registerAPIHandlers(app *App) {
 		http.ServeFile(w, r, filePath)
 	})
 
+	// Batch import (SSE streaming)
+	http.HandleFunc("/api/batch-import", secureAPI(handleBatchImport(app)))
+
 	// Public media streaming endpoint for video/audio playback in chat
 	http.HandleFunc("/api/media/", secureAPI(handleMediaStream(app)))
 }
@@ -1656,6 +1659,172 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	}
+}
+
+// --- Batch import handler (SSE) ---
+
+func handleBatchImport(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		// Require admin session
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		var req struct {
+			Path      string `json:"path"`
+			ProductID string `json:"product_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Path == "" {
+			writeError(w, http.StatusBadRequest, "path is required")
+			return
+		}
+
+		// Validate product ID if provided
+		if req.ProductID != "" {
+			p, err := app.productService.GetByID(req.ProductID)
+			if err != nil || p == nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("产品不存在 (ID: %s)", req.ProductID))
+				return
+			}
+		}
+
+		// Validate path exists
+		info, err := os.Stat(req.Path)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("无法访问路径: %v", err))
+			return
+		}
+
+		// Collect files
+		var files []string
+		if !info.IsDir() {
+			ext := strings.ToLower(filepath.Ext(req.Path))
+			if _, ok := supportedExtensions[ext]; ok {
+				files = append(files, req.Path)
+			} else {
+				writeError(w, http.StatusBadRequest, "不支持的文件格式")
+				return
+			}
+		} else {
+			filepath.Walk(req.Path, func(path string, fi os.FileInfo, err error) error {
+				if err != nil || fi.IsDir() {
+					return nil
+				}
+				ext := strings.ToLower(filepath.Ext(fi.Name()))
+				if _, ok := supportedExtensions[ext]; ok {
+					files = append(files, path)
+				}
+				return nil
+			})
+		}
+
+		if len(files) == 0 {
+			writeError(w, http.StatusBadRequest, "未找到支持的文件")
+			return
+		}
+
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, "streaming not supported")
+			return
+		}
+
+		sendSSE := func(event string, data interface{}) {
+			jsonData, _ := json.Marshal(data)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData)
+			flusher.Flush()
+		}
+
+		// Send total count
+		sendSSE("start", map[string]int{"total": len(files)})
+
+		type failedItem struct {
+			Path   string `json:"path"`
+			Reason string `json:"reason"`
+		}
+
+		var success, failed int
+		var failedFiles []failedItem
+
+		for i, filePath := range files {
+			fileName := filepath.Base(filePath)
+			ext := strings.ToLower(filepath.Ext(fileName))
+			fileType := supportedExtensions[ext]
+
+			absPath, _ := filepath.Abs(filePath)
+
+			fileData, err := os.ReadFile(filePath)
+			if err != nil {
+				reason := fmt.Sprintf("读取失败: %v", err)
+				failed++
+				failedFiles = append(failedFiles, failedItem{Path: absPath, Reason: reason})
+				sendSSE("progress", map[string]interface{}{
+					"index": i + 1, "total": len(files), "file": absPath,
+					"status": "failed", "reason": reason,
+				})
+				continue
+			}
+
+			uploadReq := document.UploadFileRequest{
+				FileName:  fileName,
+				FileData:  fileData,
+				FileType:  fileType,
+				ProductID: req.ProductID,
+			}
+			doc, err := app.docManager.UploadFile(uploadReq)
+			if err != nil {
+				reason := fmt.Sprintf("导入失败: %v", err)
+				failed++
+				failedFiles = append(failedFiles, failedItem{Path: absPath, Reason: reason})
+				sendSSE("progress", map[string]interface{}{
+					"index": i + 1, "total": len(files), "file": absPath,
+					"status": "failed", "reason": reason,
+				})
+				continue
+			}
+			if doc.Status == "failed" {
+				reason := fmt.Sprintf("处理失败: %s", doc.Error)
+				failed++
+				failedFiles = append(failedFiles, failedItem{Path: absPath, Reason: reason})
+				sendSSE("progress", map[string]interface{}{
+					"index": i + 1, "total": len(files), "file": absPath,
+					"status": "failed", "reason": reason,
+				})
+				continue
+			}
+
+			success++
+			sendSSE("progress", map[string]interface{}{
+				"index": i + 1, "total": len(files), "file": absPath,
+				"status": "success", "doc_id": doc.ID,
+			})
+		}
+
+		// Send final report
+		sendSSE("done", map[string]interface{}{
+			"total":        len(files),
+			"success":      success,
+			"failed":       failed,
+			"failed_files": failedFiles,
+		})
 	}
 }
 

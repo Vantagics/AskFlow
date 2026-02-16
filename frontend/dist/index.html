@@ -243,7 +243,7 @@
                         </button>
                         <button class="admin-nav-item" data-tab="pending" onclick="switchAdminTab('pending')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                            <span data-i18n="admin_nav_pending">待回答问题</span>
+                            <span data-i18n="admin_nav_pending">问题管理</span>
                         </button>
                         <button class="admin-nav-item" data-tab="knowledge" onclick="switchAdminTab('knowledge')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -256,6 +256,10 @@
                         <button class="admin-nav-item" data-tab="multimodal" onclick="switchAdminTab('multimodal')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
                             <span data-i18n="admin_nav_multimodal">多模态</span>
+                        </button>
+                        <button class="admin-nav-item" data-tab="batchimport" onclick="switchAdminTab('batchimport')">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span data-i18n="admin_nav_batchimport">批量导入</span>
                         </button>
                         <button class="admin-nav-item" data-tab="settings" onclick="switchAdminTab('settings')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -354,7 +358,7 @@
                     <!-- Pending Questions Tab -->
                     <div id="admin-tab-pending" class="admin-tab hidden">
                         <div class="admin-tab-header">
-                            <h2 data-i18n="admin_pending_title">待回答问题</h2>
+                            <h2 data-i18n="admin_pending_title">问题管理</h2>
                             <div class="admin-filter-group">
                                 <button class="admin-filter-btn active" data-status="" onclick="filterPendingQuestions('')" data-i18n="admin_pending_filter_all">全部</button>
                                 <button class="admin-filter-btn" data-status="pending" onclick="filterPendingQuestions('pending')" data-i18n="admin_pending_filter_pending">待回答</button>
@@ -1047,6 +1051,62 @@
                                 <!-- Pagination -->
                                 <div id="admin-customers-pagination" style="display:flex;justify-content:center;align-items:center;gap:0.5rem;margin-top:1rem;"></div>
                             </fieldset>
+                        </div>
+                    </div>
+
+                    <!-- Batch Import Tab -->
+                    <div id="admin-tab-batchimport" class="admin-tab hidden">
+                        <div class="admin-tab-header">
+                            <h2>批量导入</h2>
+                        </div>
+                        <div class="admin-tab-body">
+                            <div class="admin-product-selector" style="margin-bottom:1rem;">
+                                <label style="font-weight:500;margin-right:0.5rem;">目标产品：</label>
+                                <select id="batch-product-select" class="login-product-select" style="width:auto;min-width:200px;display:inline-block;">
+                                    <option value="">公共库</option>
+                                </select>
+                            </div>
+                            <fieldset class="admin-fieldset">
+                                <legend>导入设置</legend>
+                                <div class="admin-form-row">
+                                    <label>服务器端文件/目录路径</label>
+                                    <div style="display:flex;gap:0.5rem;align-items:center;">
+                                        <input type="text" id="batch-import-path" placeholder="例如: /data/docs 或 C:\Documents\knowledge" style="flex:1;">
+                                        <button class="btn-primary" id="batch-import-btn" onclick="startBatchImport()">开始导入</button>
+                                    </div>
+                                    <p style="font-size:0.8rem;color:#9ca3af;margin-top:0.3rem;">请输入服务器上的绝对路径，系统将递归扫描目录中所有支持的文件（PDF、Word、Excel、PPT、Markdown、HTML）</p>
+                                </div>
+                            </fieldset>
+
+                            <!-- Progress Section -->
+                            <div id="batch-progress-section" class="hidden" style="margin-top:1rem;">
+                                <fieldset class="admin-fieldset">
+                                    <legend>导入进度</legend>
+                                    <div style="margin-bottom:0.75rem;">
+                                        <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:#6b7280;margin-bottom:0.3rem;">
+                                            <span id="batch-progress-text">准备中...</span>
+                                            <span id="batch-progress-percent">0%</span>
+                                        </div>
+                                        <div class="batch-progress-bar">
+                                            <div id="batch-progress-fill" class="batch-progress-fill" style="width:0%"></div>
+                                        </div>
+                                    </div>
+                                    <div id="batch-progress-log" class="batch-progress-log"></div>
+                                </fieldset>
+                            </div>
+
+                            <!-- Report Section -->
+                            <div id="batch-report-section" class="hidden" style="margin-top:1rem;">
+                                <fieldset class="admin-fieldset">
+                                    <legend>导入报告</legend>
+                                    <div id="batch-report-summary" style="display:flex;gap:2rem;margin-bottom:1rem;flex-wrap:wrap;">
+                                    </div>
+                                    <div id="batch-report-failed" class="hidden">
+                                        <h4 style="color:#e53e3e;margin-bottom:0.5rem;">失败文件列表</h4>
+                                        <div id="batch-report-failed-list" class="batch-failed-list"></div>
+                                    </div>
+                                </fieldset>
+                            </div>
                         </div>
                     </div>
                 </main>
