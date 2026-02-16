@@ -1236,11 +1236,13 @@ func handleTicketLogin(app *App) http.HandlerFunc {
 			return
 		}
 		// Set session cookie
+		isHTTPS := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 		http.SetCookie(w, &http.Cookie{
 			Name:     "session_id",
 			Value:    sessionID,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   isHTTPS,
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   86400, // 24 hours
 		})
@@ -3026,10 +3028,22 @@ func noDirListing(h http.Handler) http.Handler {
 }
 
 // spaHandler serves static files from dir, falling back to index.html for SPA routes.
+// IMPORTANT: /api/* and /auth/* paths are never served by the SPA — if they reach here
+// it means no backend handler matched, so we return a proper JSON 404 or HTTP 404.
 func spaHandler(dir string) http.Handler {
 	fileServer := http.FileServer(http.Dir(dir))
 	indexPath := filepath.Join(dir, "index.html")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Backend paths must NEVER fall through to the SPA.
+		// If an /api/* or /auth/* request reaches here, it means no specific
+		// handler was registered for it — return a proper error, not HTML.
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/auth/") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"success":false,"message":"not found"}`))
+			return
+		}
+
 		// Clean the path and prevent directory traversal
 		cleanPath := filepath.Clean(r.URL.Path)
 		if strings.Contains(cleanPath, "..") {
