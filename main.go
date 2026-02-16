@@ -744,6 +744,8 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/auth/register", secureAPI(rateLimit(handleRegister(app))))
 	http.HandleFunc("/api/auth/login", secureAPI(rateLimit(handleUserLogin(app))))
 	http.HandleFunc("/api/auth/verify", secureAPI(handleVerifyEmail(app)))
+	http.HandleFunc("/api/auth/sn-login", secureAPI(rateLimit(handleSNLogin(app))))
+	http.HandleFunc("/auth/ticket-login", handleTicketLogin(app))
 	http.HandleFunc("/api/captcha", secureAPI(handleCaptcha()))
 	http.HandleFunc("/api/captcha/image", secureAPI(rateLimit(handleCaptchaImage())))
 
@@ -1193,6 +1195,56 @@ func handleVerifyEmail(app *App) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "邮箱验证成功，请登录"})
+	}
+}
+
+// handleSNLogin handles POST /api/auth/sn-login — verifies a license server token
+// and returns a one-time login ticket.
+func handleSNLogin(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var req SNLoginRequest
+		if err := readJSONBody(r, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, SNLoginResponse{Success: false, Message: "token is required"})
+			return
+		}
+		resp, status, err := app.HandleSNLogin(req.Token)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, SNLoginResponse{Success: false, Message: "internal error"})
+			return
+		}
+		writeJSON(w, status, resp)
+	}
+}
+
+// handleTicketLogin handles GET /auth/ticket-login?ticket=xxx — validates a one-time
+// login ticket, creates a session, and redirects to the main page.
+func handleTicketLogin(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Redirect(w, r, "/login?error=method_not_allowed", http.StatusFound)
+			return
+		}
+		ticket := r.URL.Query().Get("ticket")
+		sessionID, err := app.ValidateLoginTicket(ticket)
+		if err != nil {
+			http.Redirect(w, r, "/login?error="+err.Error(), http.StatusFound)
+			return
+		}
+		// Set session cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_id",
+			Value:    sessionID,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   86400, // 24 hours
+		})
+		http.Redirect(w, r, "/", http.StatusFound)
 	}
 }
 

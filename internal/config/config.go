@@ -36,6 +36,7 @@ type Config struct {
 	ProductIntro string          `json:"product_intro"`
 	ProductName  string          `json:"product_name"`
 	Video        VideoConfig     `json:"video"`
+	AuthServer   string          `json:"auth_server"` // license verification server host, e.g. "license.vantagedata.chat"
 }
 
 
@@ -580,6 +581,16 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 			return errors.New("product_name too long (max 200 characters)")
 		}
 		cm.config.ProductName = s
+
+	case "auth_server":
+		s, ok := val.(string)
+		if !ok {
+			return errors.New("expected string")
+		}
+		if len(s) > 200 {
+			return errors.New("auth_server too long (max 200 characters)")
+		}
+		cm.config.AuthServer = s
 
 	// Video fields
 	case "video.ffmpeg_path":

@@ -6,9 +6,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	mrand "math/rand"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +29,9 @@ import (
 	"askflow/internal/query"
 	"askflow/internal/vectorstore"
 )
+
+// httpClient is an alias for http.Client used for outbound requests.
+type httpClient = http.Client
 
 // App is the API facade that binds all backend services for the frontend.
 // Each public method delegates to the appropriate service component.
@@ -780,6 +786,7 @@ type MaskedConfig struct {
 	ProductIntro string                 `json:"product_intro"`
 	ProductName  string                 `json:"product_name"`
 	Video        config.VideoConfig     `json:"video"`
+	AuthServer   string                 `json:"auth_server"`
 }
 
 // MaskedOAuthConfig holds OAuth config with secrets masked.
@@ -814,6 +821,7 @@ func (a *App) GetConfig() *MaskedConfig {
 		ProductIntro: cfg.ProductIntro,
 		ProductName:  cfg.ProductName,
 		Video:        cfg.Video,
+		AuthServer:   cfg.AuthServer,
 	}
 
 	// Mask API keys
@@ -1432,4 +1440,188 @@ func (a *App) UnbanCustomer(email string) error {
 	}
 	a.loginLimiter.Unban(email, "")
 	return nil
+}
+
+// SNLoginRequest is the request body for POST /api/auth/sn-login.
+type SNLoginRequest struct {
+	Token string `json:"token"`
+}
+
+// SNLoginResponse is the response for POST /api/auth/sn-login.
+type SNLoginResponse struct {
+	Success     bool   `json:"success"`
+	LoginTicket string `json:"login_ticket,omitempty"`
+	Message     string `json:"message,omitempty"`
+}
+
+// HandleSNLogin verifies a token with the license server, finds or creates the SN user,
+// and returns a one-time login ticket.
+func (a *App) HandleSNLogin(token string) (*SNLoginResponse, int, error) {
+	if token == "" {
+		return &SNLoginResponse{Success: false, Message: "token is required"}, 400, nil
+	}
+
+	cfg := a.configManager.Get()
+	authServer := cfg.AuthServer
+	if authServer == "" {
+		return &SNLoginResponse{Success: false, Message: "auth server not configured"}, 500, nil
+	}
+
+	// Verify token with license server
+	verifyURL := fmt.Sprintf("https://%s/api/marketplace-verify", authServer)
+	reqBody := fmt.Sprintf(`{"token":"%s"}`, token)
+
+	client := &httpClient{Timeout: 10 * time.Second}
+	resp, err := client.Post(verifyURL, "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		log.Printf("[SNLogin] failed to contact license server: %v", err)
+		return &SNLoginResponse{Success: false, Message: "failed to contact license server"}, 502, nil
+	}
+	defer resp.Body.Close()
+
+	var verifyResp struct {
+		Success bool   `json:"success"`
+		SN      string `json:"sn"`
+		Email   string `json:"email"`
+		Message string `json:"message"`
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return &SNLoginResponse{Success: false, Message: "internal error"}, 500, nil
+	}
+	if err := json.Unmarshal(body, &verifyResp); err != nil {
+		return &SNLoginResponse{Success: false, Message: "internal error"}, 500, nil
+	}
+
+	if !verifyResp.Success {
+		msg := "license authentication failed"
+		if verifyResp.Message != "" {
+			msg += ": " + verifyResp.Message
+		}
+		return &SNLoginResponse{Success: false, Message: msg}, 401, nil
+	}
+
+	email := verifyResp.Email
+	sn := verifyResp.SN
+	if email == "" {
+		return &SNLoginResponse{Success: false, Message: "internal error"}, 500, nil
+	}
+
+	// Find or create SN user
+	var userID int64
+	err = a.db.QueryRow("SELECT id FROM sn_users WHERE email = ?", email).Scan(&userID)
+	if err == sql.ErrNoRows {
+		// Create new user
+		displayName := email
+		if idx := strings.Index(email, "@"); idx > 0 {
+			displayName = email[:idx]
+		}
+		result, err := a.db.Exec(
+			"INSERT INTO sn_users (email, display_name, sn, last_login_at, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+			email, displayName, sn,
+		)
+		if err != nil {
+			log.Printf("[SNLogin] create user error: %v", err)
+			return &SNLoginResponse{Success: false, Message: "internal error"}, 500, nil
+		}
+		userID, _ = result.LastInsertId()
+	} else if err != nil {
+		log.Printf("[SNLogin] query user error: %v", err)
+		return &SNLoginResponse{Success: false, Message: "internal error"}, 500, nil
+	} else {
+		// Update last login and SN
+		a.db.Exec("UPDATE sn_users SET last_login_at = CURRENT_TIMESTAMP, sn = ? WHERE id = ?", sn, userID)
+	}
+
+	// Generate one-time login ticket (UUID-like)
+	ticketBytes := make([]byte, 16)
+	if _, err := rand.Read(ticketBytes); err != nil {
+		return &SNLoginResponse{Success: false, Message: "internal error"}, 500, nil
+	}
+	ticket := fmt.Sprintf("%x-%x-%x-%x-%x",
+		ticketBytes[0:4], ticketBytes[4:6], ticketBytes[6:8], ticketBytes[8:10], ticketBytes[10:16])
+
+	expiresAt := time.Now().UTC().Add(5 * time.Minute)
+	_, err = a.db.Exec(
+		"INSERT INTO login_tickets (ticket, user_id, used, created_at, expires_at) VALUES (?, ?, 0, CURRENT_TIMESTAMP, ?)",
+		ticket, userID, expiresAt.Format(time.RFC3339),
+	)
+	if err != nil {
+		log.Printf("[SNLogin] create ticket error: %v", err)
+		return &SNLoginResponse{Success: false, Message: "internal error"}, 500, nil
+	}
+
+	return &SNLoginResponse{Success: true, LoginTicket: ticket}, 200, nil
+}
+
+// ValidateLoginTicket validates a one-time login ticket and returns the associated user info.
+// On success, it marks the ticket as used and creates a session.
+func (a *App) ValidateLoginTicket(ticket string) (sessionID string, err error) {
+	if ticket == "" {
+		return "", fmt.Errorf("invalid_ticket")
+	}
+
+	var userID int64
+	var used int
+	var expiresAtStr string
+
+	err = a.db.QueryRow(
+		"SELECT user_id, used, expires_at FROM login_tickets WHERE ticket = ?", ticket,
+	).Scan(&userID, &used, &expiresAtStr)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("invalid_ticket")
+	}
+	if err != nil {
+		return "", fmt.Errorf("internal_error")
+	}
+
+	if used != 0 {
+		return "", fmt.Errorf("ticket_already_used")
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+	if err != nil {
+		expiresAt, _ = time.Parse("2006-01-02T15:04:05Z", expiresAtStr)
+	}
+	if time.Now().UTC().After(expiresAt) {
+		return "", fmt.Errorf("ticket_expired")
+	}
+
+	// Mark ticket as used
+	a.db.Exec("UPDATE login_tickets SET used = 1 WHERE ticket = ?", ticket)
+
+	// Find the SN user
+	var email, displayName string
+	err = a.db.QueryRow("SELECT email, display_name FROM sn_users WHERE id = ?", userID).Scan(&email, &displayName)
+	if err != nil {
+		return "", fmt.Errorf("internal_error")
+	}
+
+	// Find or create a regular user entry for session management
+	var regularUserID string
+	err = a.db.QueryRow("SELECT id FROM users WHERE email = ? AND provider = 'sn'", email).Scan(&regularUserID)
+	if err == sql.ErrNoRows {
+		regularUserID = hex.EncodeToString(func() []byte { b := make([]byte, 16); rand.Read(b); return b }())
+		_, err = a.db.Exec(
+			"INSERT INTO users (id, email, name, provider, provider_id, email_verified, created_at, last_login) VALUES (?, ?, ?, 'sn', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+			regularUserID, email, displayName, email,
+		)
+		if err != nil {
+			log.Printf("[TicketLogin] create user error: %v", err)
+			return "", fmt.Errorf("internal_error")
+		}
+	} else if err != nil {
+		return "", fmt.Errorf("internal_error")
+	} else {
+		a.db.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", regularUserID)
+	}
+
+	// Create session
+	session, err := a.sessionManager.CreateSession(regularUserID)
+	if err != nil {
+		return "", fmt.Errorf("internal_error")
+	}
+
+	return session.ID, nil
 }
