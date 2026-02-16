@@ -3266,6 +3266,41 @@
         return true;
     }
 
+    // Handle ticket-login callback (SN login via desktop app)
+    // When /auth/ticket-login redirects to /?ticket=xxx, this function
+    // exchanges the ticket for a session via the backend API.
+    function handleTicketLoginFromURL() {
+        var params = new URLSearchParams(window.location.search);
+        var ticket = params.get('ticket');
+        if (!ticket) return false;
+
+        // Clean the URL immediately so the ticket isn't visible/reusable
+        window.history.replaceState({}, '', '/');
+
+        fetch('/api/auth/ticket-exchange', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticket: ticket })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.message || 'ticket login failed'); });
+            return res.json();
+        })
+        .then(function (data) {
+            if (data.session && data.user) {
+                saveSession(data.session, { id: data.user.id, email: data.user.email, name: data.user.name, provider: data.user.provider });
+                fetchProducts();
+                window.history.replaceState({}, '', '/chat');
+                handleRoute();
+            }
+        })
+        .catch(function (err) {
+            window.history.replaceState({}, '', '/login?error=ticket_failed');
+            handleRoute();
+        });
+        return true;
+    }
+
     // --- Knowledge Entry ---
 
     var knowledgeImageURLs = [];
@@ -4058,6 +4093,9 @@
     function init() {
         // Check for OAuth callback first
         if (handleOAuthCallbackFromURL()) return;
+
+        // Check for ticket-login callback (SN login via desktop app)
+        if (handleTicketLoginFromURL()) return;
 
         // Pre-warm product cache early (used by login page and chat page)
         fetchProducts();
