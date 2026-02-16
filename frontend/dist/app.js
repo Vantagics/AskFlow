@@ -30,7 +30,7 @@
         }
     })();
 
-    // Shared product fetch �?returns a promise, caches the result
+    // Shared product fetch — returns a promise, caches the result
     var _productFetchPromise = null;
     function fetchProducts() {
         if (cachedProducts) {
@@ -859,7 +859,7 @@
         })
         .then(function (res) {
             if (res.ok) {
-                showChatToast(i18n.t('chat_default_product_saved') || '默认产品已保�?, 'success');
+                showChatToast(i18n.t('chat_default_product_saved') || '默认产品已保存', 'success');
             }
         })
         .catch(function () { /* ignore */ });
@@ -1055,7 +1055,7 @@
         html += '<div class="chat-msg-bubble">';
 
         if (msg.isPending) {
-            html += '<span class="pending-icon">�?/span>';
+            html += '<span class="pending-icon">⏳</span>';
         }
         html += renderMarkdown(msg.content);
 
@@ -1114,7 +1114,7 @@
             var productId = localStorage.getItem('askflow_product_id') || '';
             html += '<div class="chat-sources">';
             html += '<button class="chat-sources-toggle" onclick="toggleSources(\'' + srcId + '\', this)">';
-            html += '<span class="arrow">�?/span> ' + i18n.t('chat_source_toggle') + '�? + msg.sources.length + '�?;
+            html += '<span class="arrow">▶</span> ' + i18n.t('chat_source_toggle') + '（' + msg.sources.length + '）';
             html += '</button>';
             html += '<ul id="' + srcId + '" class="chat-sources-list">';
             for (var j = 0; j < msg.sources.length; j++) {
@@ -1133,7 +1133,7 @@
                     if (src.end_time > 0 && src.end_time !== src.start_time) {
                         timeLabel += ' - ' + formatMediaTime(src.end_time);
                     }
-                    html += '<span class="chat-source-time">�?' + timeLabel + '</span>';
+                    html += '<span class="chat-source-time">🕐 ' + timeLabel + '</span>';
                 }
                 if (src.snippet) {
                     html += '<span class="chat-source-snippet">' + escapeHtml(src.snippet) + '</span>';
@@ -1151,7 +1151,7 @@
             var dbgId = 'debug-' + msg.timestamp;
             html += '<div class="chat-sources">';
             html += '<button class="chat-sources-toggle" onclick="toggleSources(\'' + dbgId + '\', this)">';
-            html += '<span class="arrow">�?/span> 🔍 ' + i18n.t('chat_debug_toggle');
+            html += '<span class="arrow">▶</span> 🔍 ' + i18n.t('chat_debug_toggle');
             html += '</button>';
             html += '<div id="' + dbgId + '" class="chat-sources-list chat-debug-info" style="font-size:12px;font-family:monospace;">';
             var di = msg.debugInfo;
@@ -1414,7 +1414,7 @@
                     if (res.status === 401) {
                         clearSession();
                         navigate('/login');
-                        throw new Error(i18n.t('session_expired') || '会话已过期，请重新登�?);
+                        throw new Error(i18n.t('session_expired') || '会话已过期，请重新登录');
                     }
                     throw new Error('failed');
                 }
@@ -1554,7 +1554,7 @@
                 if (res.status === 401) {
                     clearSession();
                     navigate('/login');
-                    throw new Error(i18n.t('session_expired') || '会话已过期，请重新登�?);
+                    throw new Error(i18n.t('session_expired') || '会话已过期，请重新登录');
                 }
                 return res.text().then(function (text) {
                     try {
@@ -1628,9 +1628,9 @@
         options.headers['Authorization'] = 'Bearer ' + getAdminToken();
         return fetch(url, options).then(function (res) {
             if (res.status === 401) {
-                // Session expired or invalid �?redirect to login
+                // Session expired or invalid — redirect to login
                 clearAdminSession();
-                showAdminToast(i18n.t('admin_session_expired') || '会话已过期，请重新登�?, 'error');
+                showAdminToast(i18n.t('admin_session_expired') || '会话已过期，请重新登录', 'error');
                 setTimeout(function () { navigate(adminLoginRoute || '/admin'); }, 1500);
             }
             return res;
@@ -2778,7 +2778,7 @@
         var temperature = parseFloat(getVal('cfg-llm-temperature')) || 0.3;
         var maxTokens = parseInt(getVal('cfg-llm-maxtokens')) || 64;
 
-        // Allow empty apiKey �?backend will fall back to saved config
+        // Allow empty apiKey — backend will fall back to saved config
         var apiKeyEl = document.getElementById('cfg-llm-apikey');
         var hasSavedKey = apiKeyEl && apiKeyEl.placeholder && apiKeyEl.placeholder.indexOf('***') !== -1;
         if (!endpoint || (!apiKey && !hasSavedKey) || !model) {
@@ -2799,10 +2799,10 @@
             return res.json();
         })
         .then(function (data) {
-            if (result) { result.textContent = '�?' + i18n.t('admin_settings_test_success') + (data.reply ? ' �?' + data.reply : ''); result.style.color = '#38a169'; }
+            if (result) { result.textContent = '✅ ' + i18n.t('admin_settings_test_success') + (data.reply ? ' — ' + data.reply : ''); result.style.color = '#38a169'; }
         })
         .catch(function (err) {
-            if (result) { result.textContent = '�?' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
+            if (result) { result.textContent = '❌ ' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
         })
         .finally(function () {
             if (btn) btn.disabled = false;
@@ -2820,7 +2820,7 @@
         var multimodal = document.getElementById('cfg-emb-multimodal');
         var useMultimodal = multimodal ? multimodal.value === 'true' : false;
 
-        // Allow empty apiKey �?backend will fall back to saved config
+        // Allow empty apiKey — backend will fall back to saved config
         var apiKeyEl = document.getElementById('cfg-emb-apikey');
         var hasSavedKey = apiKeyEl && apiKeyEl.placeholder && apiKeyEl.placeholder.indexOf('***') !== -1;
         if (!endpoint || (!apiKey && !hasSavedKey) || !model) {
@@ -2841,10 +2841,10 @@
             return res.json();
         })
         .then(function (data) {
-            if (result) { result.textContent = '�?' + i18n.t('admin_settings_test_success') + ' �?' + (data.dimensions || 0) + ' dims'; result.style.color = '#38a169'; }
+            if (result) { result.textContent = '✅ ' + i18n.t('admin_settings_test_success') + ' — ' + (data.dimensions || 0) + ' dims'; result.style.color = '#38a169'; }
         })
         .catch(function (err) {
-            if (result) { result.textContent = '�?' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
+            if (result) { result.textContent = '❌ ' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
         })
         .finally(function () {
             if (btn) btn.disabled = false;
@@ -2992,25 +2992,25 @@
         var ffmpegLabel = document.getElementById('dep-ffmpeg-label');
         var rapidspeechIcon = document.getElementById('dep-rapidspeech-icon');
         var rapidspeechLabel = document.getElementById('dep-rapidspeech-label');
-        if (ffmpegIcon) ffmpegIcon.textContent = '�?;
+        if (ffmpegIcon) ffmpegIcon.textContent = '⏳';
         if (ffmpegLabel) ffmpegLabel.textContent = i18n.t('admin_multimodal_checking');
-        if (rapidspeechIcon) rapidspeechIcon.textContent = '�?;
+        if (rapidspeechIcon) rapidspeechIcon.textContent = '⏳';
         if (rapidspeechLabel) rapidspeechLabel.textContent = i18n.t('admin_multimodal_checking');
 
         adminFetch('/api/video/check-deps')
             .then(function (res) { return res.json(); })
             .then(function (data) {
-                if (ffmpegIcon) ffmpegIcon.textContent = data.ffmpeg_ok ? '�? : '�?;
+                if (ffmpegIcon) ffmpegIcon.textContent = data.ffmpeg_ok ? '✅' : '❌';
                 if (ffmpegLabel) ffmpegLabel.textContent = data.ffmpeg_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
                 if (ffmpegLabel) ffmpegLabel.style.color = data.ffmpeg_ok ? '#38a169' : '#e53e3e';
-                if (rapidspeechIcon) rapidspeechIcon.textContent = data.rapidspeech_ok ? '�? : '�?;
+                if (rapidspeechIcon) rapidspeechIcon.textContent = data.rapidspeech_ok ? '✅' : '❌';
                 if (rapidspeechLabel) rapidspeechLabel.textContent = data.rapidspeech_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
                 if (rapidspeechLabel) rapidspeechLabel.style.color = data.rapidspeech_ok ? '#38a169' : '#e53e3e';
             })
             .catch(function () {
-                if (ffmpegIcon) ffmpegIcon.textContent = '�?;
+                if (ffmpegIcon) ffmpegIcon.textContent = '❌';
                 if (ffmpegLabel) ffmpegLabel.textContent = i18n.t('admin_multimodal_check_failed');
-                if (rapidspeechIcon) rapidspeechIcon.textContent = '�?;
+                if (rapidspeechIcon) rapidspeechIcon.textContent = '❌';
                 if (rapidspeechLabel) rapidspeechLabel.textContent = i18n.t('admin_multimodal_check_failed');
             });
     };
@@ -3636,7 +3636,7 @@
             var p = products[i];
             var createdAt = p.created_at ? new Date(p.created_at).toLocaleString() : '-';
             var typeLabel = p.type === 'knowledge_base' ? i18n.t('admin_products_type_knowledge') : i18n.t('admin_products_type_service');
-            var dlLabel = p.allow_download ? '�? : '�?;
+            var dlLabel = p.allow_download ? '✅' : '❌';
             html += '<tr>' +
                 '<td>' + escapeHtml(p.name) + '</td>' +
                 '<td>' + escapeHtml(typeLabel) + '</td>' +
@@ -4152,7 +4152,7 @@
                 var sel = document.getElementById('batch-product-select');
                 if (!sel) return;
                 var products = data.products || [];
-                sel.innerHTML = '<option value="">公共�?/option>';
+                sel.innerHTML = '<option value="">公共区</option>';
                 products.forEach(function (p) {
                     sel.innerHTML += '<option value="' + p.id + '">' + p.name + '</option>';
                 });
@@ -4172,8 +4172,7 @@
         var productID = document.getElementById('batch-product-select').value || '';
         var btn = document.getElementById('batch-import-btn');
         btn.disabled = true;
-        btn.textContent = '导入�?..';
-
+        btn.textContent = '导入中...';
         // Reset UI
         var progressSection = document.getElementById('batch-progress-section');
         var reportSection = document.getElementById('batch-report-section');
@@ -4181,8 +4180,7 @@
         reportSection.classList.add('hidden');
         document.getElementById('batch-progress-log').innerHTML = '';
         document.getElementById('batch-progress-fill').style.width = '0%';
-        document.getElementById('batch-progress-text').textContent = '准备�?..';
-        document.getElementById('batch-progress-percent').textContent = '0%';
+        document.getElementById('batch-progress-text').textContent = '准备中...';        document.getElementById('batch-progress-percent').textContent = '0%';
 
         var token = getAdminToken();
 
@@ -4233,7 +4231,7 @@
             showAdminToast('批量导入失败: ' + err.message, 'error');
         }).finally(function () {
             btn.disabled = false;
-            btn.textContent = '开始导�?;
+            btn.textContent = '开始导入';
         });
     };
 
@@ -4244,8 +4242,7 @@
         var percentEl = document.getElementById('batch-progress-percent');
 
         if (event === 'start') {
-            textEl.textContent = '�?' + data.total + ' 个文件，开始导�?..';
-        } else if (event === 'progress') {
+            textEl.textContent = '共 ' + data.total + ' 个文件，开始导入...';        } else if (event === 'progress') {
             var pct = Math.round((data.index / data.total) * 100);
             fillEl.style.width = pct + '%';
             percentEl.textContent = pct + '%';
@@ -4255,10 +4252,10 @@
             item.className = 'log-item';
             if (data.status === 'success') {
                 item.className += ' log-success';
-                item.textContent = '[' + data.index + '/' + data.total + '] �?' + data.file;
+                item.textContent = '[' + data.index + '/' + data.total + '] ✅ ' + data.file;
             } else {
                 item.className += ' log-failed';
-                item.textContent = '[' + data.index + '/' + data.total + '] �?' + data.file + ' �?' + data.reason;
+                item.textContent = '[' + data.index + '/' + data.total + '] ❌ ' + data.file + ' — ' + data.reason;
             }
             logEl.appendChild(item);
             logEl.scrollTop = logEl.scrollHeight;
