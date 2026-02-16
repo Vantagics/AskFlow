@@ -19,25 +19,25 @@ import (
 	"syscall"
 	"time"
 
-	"helpdesk/internal/auth"
-	"helpdesk/internal/backup"
-	"helpdesk/internal/captcha"
-	"helpdesk/internal/config"
-	"helpdesk/internal/document"
-	"helpdesk/internal/email"
-	"helpdesk/internal/embedding"
-	"helpdesk/internal/llm"
-	"helpdesk/internal/pending"
-	"helpdesk/internal/product"
-	"helpdesk/internal/query"
-	"helpdesk/internal/service"
-	"helpdesk/internal/video"
+	"askflow/internal/auth"
+	"askflow/internal/backup"
+	"askflow/internal/captcha"
+	"askflow/internal/config"
+	"askflow/internal/document"
+	"askflow/internal/email"
+	"askflow/internal/embedding"
+	"askflow/internal/llm"
+	"askflow/internal/pending"
+	"askflow/internal/product"
+	"askflow/internal/query"
+	"askflow/internal/service"
+	"askflow/internal/video"
 )
 
 const (
-	serviceName = "HelpdeskService"
-	displayName = "Helpdesk Support Service"
-	description = "Vantage Helpdesk RAG Question Answering Service"
+	serviceName = "AskflowService"
+	displayName = "Askflow Support Service"
+	description = "Vantage Askflow RAG Question Answering Service"
 )
 
 func main() {
@@ -173,7 +173,7 @@ func runAsConsoleApp(dataDir string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	fmt.Printf("Starting Helpdesk in console mode (data directory: %s)...\n", dataDir)
+	fmt.Printf("Starting Askflow in console mode (data directory: %s)...\n", dataDir)
 	if err := appSvc.Run(ctx); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
@@ -207,25 +207,25 @@ func createApp(appSvc *service.AppService) *App {
 // printUsage prints CLI usage information.
 func printUsage() {
 	fmt.Println(`Usage:
-  helpdesk                                        Start HTTP service (default port 8080)
-  helpdesk --bind=<addr>                          Specify listen address (e.g., 0.0.0.0, ::, 127.0.0.1)
-  helpdesk -4, --ipv4                             Listen on IPv4 only (equivalent to --bind=0.0.0.0)
-  helpdesk -6, --ipv6                             Listen on IPv6 (equivalent to --bind=::)
-  helpdesk --port=<port>                          Specify service port (or -p <port>)
-  helpdesk --datadir=<path>                       Specify data directory
+  askflow                                        Start HTTP service (default port 8080)
+  askflow --bind=<addr>                          Specify listen address (e.g., 0.0.0.0, ::, 127.0.0.1)
+  askflow -4, --ipv4                             Listen on IPv4 only (equivalent to --bind=0.0.0.0)
+  askflow -6, --ipv6                             Listen on IPv6 (equivalent to --bind=::)
+  askflow --port=<port>                          Specify service port (or -p <port>)
+  askflow --datadir=<path>                       Specify data directory
 
 Windows Service Commands:
-  helpdesk install [-4|-6] [--bind=<addr>] [--port=<port>]  Install as Windows service
-  helpdesk remove                                           Uninstall Windows service
-  helpdesk start                                            Start Windows service
-  helpdesk stop                                             Stop Windows service
+  askflow install [-4|-6] [--bind=<addr>] [--port=<port>]  Install as Windows service
+  askflow remove                                           Uninstall Windows service
+  askflow start                                            Start Windows service
+  askflow stop                                             Stop Windows service
 
 CLI Commands:
-  helpdesk import [--product <product_id>] <目录> [...]  批量��入目录下的文档到知识库
-  helpdesk products                                         List all products and their IDs
-  helpdesk backup [options]                                 Backup all system data
-  helpdesk restore <backup_file>                            Restore data from backup
-  helpdesk help                                             Show this help information
+  askflow import [--product <product_id>] <目录> [...]  批量导入目录下的文档到知识库
+  askflow products                                         List all products and their IDs
+  askflow backup [options]                                 Backup all system data
+  askflow restore <backup_file>                            Restore data from backup
+  askflow help                                             Show this help information
 
 import command:
   Recursively scan specified directories and subdirectories for supported files
@@ -239,23 +239,23 @@ import command:
   Supported formats: .pdf .doc .docx .xls .xlsx .ppt .pptx .md .markdown .html .htm
 
   Examples:
-    helpdesk import ./docs
-    helpdesk import ./docs ./manuals /path/to/files
-    helpdesk import --product abc123 ./docs
+    askflow import ./docs
+    askflow import ./docs ./manuals /path/to/files
+    askflow import --product abc123 ./docs
 
 products command:
   List all products' IDs, names, and descriptions in the system.
 
   Example:
-    helpdesk products
+    askflow products
 
 backup command:
   Backup all system data into a tiered tar.gz archive.
   Full mode: Complete database snapshot + all uploaded files + configuration.
   Incremental mode: Export only new database rows + new uploaded files + configuration.
 
-  Backup filename: helpdesk_<mode>_<hostname>_<date-time>.tar.gz
-  Example: helpdesk_full_myserver_20260212-143000.tar.gz
+  Backup filename: askflow_<mode>_<hostname>_<date-time>.tar.gz
+  Example: askflow_full_myserver_20260212-143000.tar.gz
 
   Options:
     --output <dir>     Output directory for backup file (default: current directory)
@@ -263,9 +263,9 @@ backup command:
     --base <manifest>  Path to base manifest file (required for incremental mode)
 
   Examples:
-    helpdesk backup                                    Full backup to current directory
-    helpdesk backup --output ./backups                 Full backup to specified directory
-    helpdesk backup --incremental --base ./backups/helpdesk_full_myserver_20260212-143000.manifest.json
+    askflow backup                                    Full backup to current directory
+    askflow backup --output ./backups                 Full backup to specified directory
+    askflow backup --incremental --base ./backups/askflow_full_myserver_20260212-143000.manifest.json
 
 restore command:
   Restore data from a backup archive to the data directory.
@@ -276,8 +276,8 @@ restore command:
     --target <dir>     Target restore directory (default: ./data)
 
   Examples:
-    helpdesk restore helpdesk_full_myserver_20260212-143000.tar.gz
-    helpdesk restore --target ./data-new backup.tar.gz`)
+    askflow restore askflow_full_myserver_20260212-143000.tar.gz
+    askflow restore --target ./data-new backup.tar.gz`)
 }
 
 
@@ -304,8 +304,8 @@ func runBatchImport(args []string, dm *document.DocumentManager, ps *product.Pro
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--product" {
 			if i+1 >= len(args) {
-				fmt.Println("错误: --product 参数需要指定产品 ID")
-				fmt.Println("用法: helpdesk import [--product <product_id>] <目录> [...]")
+				fmt.Println("错误: --product 参数需要指定产�?ID")
+				fmt.Println("用法: askflow import [--product <product_id>] <目录> [...]")
 				os.Exit(1)
 			}
 			productID = args[i+1]
@@ -316,8 +316,8 @@ func runBatchImport(args []string, dm *document.DocumentManager, ps *product.Pro
 	}
 
 	if len(dirs) == 0 {
-		fmt.Println("错误: 请指定至少一个目录路径")
-		fmt.Println("用法: helpdesk import [--product <product_id>] <目录> [...]")
+		fmt.Println("错误: 请指定至少一个目录路�?)
+		fmt.Println("用法: askflow import [--product <product_id>] <目录> [...]")
 		os.Exit(1)
 	}
 
@@ -330,7 +330,7 @@ func runBatchImport(args []string, dm *document.DocumentManager, ps *product.Pro
 		}
 		fmt.Printf("目标产品: %s (%s)\n", p.Name, p.ID)
 	} else {
-		fmt.Println("目标: 公共库")
+		fmt.Println("目标: 公共�?)
 	}
 
 	// Collect all files to import
@@ -372,7 +372,7 @@ func runBatchImport(args []string, dm *document.DocumentManager, ps *product.Pro
 		return
 	}
 
-	fmt.Printf("找到 %d 个文件，开始导入...\n\n", len(files))
+	fmt.Printf("找到 %d 个文件，开始导�?..\n\n", len(files))
 
 	type failedFile struct {
 		Path   string
@@ -424,8 +424,8 @@ func runBatchImport(args []string, dm *document.DocumentManager, ps *product.Pro
 
 	fmt.Println("\n========== 导入报告 ==========")
 	fmt.Printf("总文件数: %d\n", len(files))
-	fmt.Printf("成功文件数: %d\n", success)
-	fmt.Printf("失败文件数: %d\n", failed)
+	fmt.Printf("成功文件�? %d\n", success)
+	fmt.Printf("失败文件�? %d\n", failed)
 	if len(failedFiles) > 0 {
 		fmt.Println("\n失败文件列表:")
 		for _, f := range failedFiles {
@@ -450,7 +450,7 @@ func runBackup(args []string, db *sql.DB) {
 		switch args[i] {
 		case "--output", "-o":
 			if i+1 >= len(args) {
-				fmt.Println("错误: --output 需要指定目录")
+				fmt.Println("错误: --output 需要指定目�?)
 				os.Exit(1)
 			}
 			opts.OutputDir = args[i+1]
@@ -459,14 +459,14 @@ func runBackup(args []string, db *sql.DB) {
 			opts.Mode = "incremental"
 		case "--base":
 			if i+1 >= len(args) {
-				fmt.Println("错误: --base 需要指定 manifest 文件路径")
+				fmt.Println("错误: --base 需要指�?manifest 文件路径")
 				os.Exit(1)
 			}
 			opts.ManifestIn = args[i+1]
 			i++
 		default:
 			fmt.Printf("未知参数: %s\n", args[i])
-			fmt.Println("用法: helpdesk backup [--output <目录>] [--incremental --base <manifest>]")
+			fmt.Println("用法: askflow backup [--output <目录>] [--incremental --base <manifest>]")
 			os.Exit(1)
 		}
 	}
@@ -478,7 +478,7 @@ func runBackup(args []string, db *sql.DB) {
 		}
 	}
 
-	fmt.Printf("开始%s备份...\n", map[string]string{"full": "全量", "incremental": "增量"}[opts.Mode])
+	fmt.Printf("开�?s备份...\n", map[string]string{"full": "全量", "incremental": "增量"}[opts.Mode])
 
 	result, err := backup.Run(db, opts)
 	if err != nil {
@@ -489,7 +489,7 @@ func runBackup(args []string, db *sql.DB) {
 	fmt.Printf("备份完成:\n")
 	fmt.Printf("  归档文件: %s\n", result.ArchivePath)
 	fmt.Printf("  Manifest: %s\n", result.ManifestPath)
-	fmt.Printf("  文件数: %d, 数据库行数: %d\n", result.FilesWritten, result.DBRows)
+	fmt.Printf("  文件�? %d, 数据库行�? %d\n", result.FilesWritten, result.DBRows)
 	fmt.Printf("  归档大小: %.2f MB\n", float64(result.BytesWritten)/(1024*1024))
 }
 
@@ -502,7 +502,7 @@ func runRestore(args []string) {
 		switch args[i] {
 		case "--target", "-t":
 			if i+1 >= len(args) {
-				fmt.Println("错误: --target 需要指定目录")
+				fmt.Println("错误: --target 需要指定目�?)
 				os.Exit(1)
 			}
 			targetDir = args[i+1]
@@ -517,12 +517,12 @@ func runRestore(args []string) {
 	}
 
 	if archivePath == "" {
-		fmt.Println("错误: 请指定备份文件路径")
-		fmt.Println("用法: helpdesk restore [--target <目录>] <备份文件>")
+		fmt.Println("错误: 请指定备份文件路�?)
+		fmt.Println("用法: askflow restore [--target <目录>] <备份文件>")
 		os.Exit(1)
 	}
 
-	fmt.Printf("从 %s 恢复数据到 %s ...\n", archivePath, targetDir)
+	fmt.Printf("�?%s 恢复数据�?%s ...\n", archivePath, targetDir)
 	if err := backup.Restore(archivePath, targetDir); err != nil {
 		fmt.Printf("恢复失败: %v\n", err)
 		os.Exit(1)
@@ -549,7 +549,7 @@ func runListProducts(ps *product.ProductService) {
 		}
 		fmt.Printf("%-34s  %-20s  %s\n", p.ID, p.Name, desc)
 	}
-	fmt.Printf("\n共 %d 个产品\n", len(products))
+	fmt.Printf("\n�?%d 个产品\n", len(products))
 }
 
 
@@ -695,7 +695,7 @@ func registerAPIHandlers(app *App) {
 	secureAPI := func(handler http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			// Handle CORS preflight
-			// Only allow same-origin requests — reflect the Host as allowed origin
+			// Only allow same-origin requests �?reflect the Host as allowed origin
 			origin := r.Header.Get("Origin")
 			if origin != "" {
 				// Validate that the origin matches the request host
@@ -776,7 +776,7 @@ func registerAPIHandlers(app *App) {
 	// Config (with role check)
 	http.HandleFunc("/api/config", secureAPI(handleConfigWithRole(app)))
 
-	// System status (public — used by frontend to check if system is ready)
+	// System status (public �?used by frontend to check if system is ready)
 	http.HandleFunc("/api/system/status", secureAPI(handleSystemStatus(app)))
 
 	// Health check endpoint
@@ -815,7 +815,7 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/admin/bans/unban", secureAPI(handleAdminUnban(app)))
 	http.HandleFunc("/api/admin/bans/add", secureAPI(handleAdminAddBan(app)))
 
-	// Products — register /my before / to avoid prefix matching issues
+	// Products �?register /my before / to avoid prefix matching issues
 	http.HandleFunc("/api/products/my", secureAPI(handleMyProducts(app)))
 	http.HandleFunc("/api/products/", secureAPI(handleProductByID(app)))
 	http.HandleFunc("/api/products", secureAPI(handleProducts(app)))
@@ -1005,7 +1005,7 @@ func handleAdminLogin(app *App) http.HandlerFunc {
 			return
 		}
 		if !captcha.Validate(req.CaptchaID, req.CaptchaAnswer) {
-			writeError(w, http.StatusBadRequest, "验证码错误")
+			writeError(w, http.StatusBadRequest, "验证码错�?)
 			return
 		}
 		resp, err := app.AdminLogin(req.Username, req.Password, getClientIP(r))
@@ -1094,7 +1094,7 @@ func handleRegister(app *App) http.HandlerFunc {
 			return
 		}
 		if !ValidateCaptcha(req.CaptchaID, req.CaptchaAnswer) {
-			writeError(w, http.StatusBadRequest, "验证码错误")
+			writeError(w, http.StatusBadRequest, "验证码错�?)
 			return
 		}
 		baseURL := "http://" + r.Host
@@ -1164,7 +1164,7 @@ func handleUserLogin(app *App) http.HandlerFunc {
 			return
 		}
 		if !ValidateCaptcha(req.CaptchaID, req.CaptchaAnswer) {
-			writeError(w, http.StatusBadRequest, "验证码错误")
+			writeError(w, http.StatusBadRequest, "验证码错�?)
 			return
 		}
 		resp, err := app.UserLogin(req.Email, req.Password)
@@ -1185,7 +1185,7 @@ func handleVerifyEmail(app *App) http.HandlerFunc {
 		token := r.URL.Query().Get("token")
 		// Validate token format (32 hex chars)
 		if len(token) != 32 || !isValidHexID(token) {
-			writeError(w, http.StatusBadRequest, "无效的验证链接")
+			writeError(w, http.StatusBadRequest, "无效的验证链�?)
 			return
 		}
 		if err := app.VerifyEmail(token); err != nil {
@@ -1533,12 +1533,12 @@ func handlePublicDocumentDownload(app *App) http.HandlerFunc {
 			token = r.URL.Query().Get("token")
 		}
 		if token == "" {
-			writeError(w, http.StatusUnauthorized, "未登录")
+			writeError(w, http.StatusUnauthorized, "未登�?)
 			return
 		}
 		session, sErr := app.sessionManager.ValidateSession(token)
 		if sErr != nil {
-			writeError(w, http.StatusUnauthorized, "会话已过期")
+			writeError(w, http.StatusUnauthorized, "会话已过�?)
 			return
 		}
 		_ = session
@@ -1555,13 +1555,13 @@ func handlePublicDocumentDownload(app *App) http.HandlerFunc {
 		// Check product allows download
 		p, pErr := app.GetProduct(productID)
 		if pErr != nil || p == nil || !p.AllowDownload {
-			writeError(w, http.StatusForbidden, "该产品不允许下载参考文档")
+			writeError(w, http.StatusForbidden, "该产品不允许下载参考文�?)
 			return
 		}
 		// Check document type is downloadable
 		docInfo, dErr := app.GetDocumentInfo(docID)
 		if dErr != nil {
-			writeError(w, http.StatusNotFound, "文档未找到")
+			writeError(w, http.StatusNotFound, "文档未找�?)
 			return
 		}
 		docType := strings.ToLower(docInfo.Type)
@@ -1576,7 +1576,7 @@ func handlePublicDocumentDownload(app *App) http.HandlerFunc {
 		}
 		filePath, fileName, fErr := app.docManager.GetFilePath(docID)
 		if fErr != nil {
-			writeError(w, http.StatusNotFound, "文件未找到")
+			writeError(w, http.StatusNotFound, "文件未找�?)
 			return
 		}
 		safeName := strings.Map(func(r rune) rune {
@@ -1619,7 +1619,7 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 			}
 			filePath, fileName, err := app.docManager.GetFilePath(docID)
 			if err != nil {
-				writeError(w, http.StatusNotFound, "文件未找到")
+				writeError(w, http.StatusNotFound, "文件未找�?)
 				return
 			}
 			// Sanitize filename to prevent header injection
@@ -1687,7 +1687,7 @@ func handleBatchImport(app *App) http.HandlerFunc {
 				}
 			}
 			if !hasPerm {
-				writeError(w, http.StatusForbidden, "无批量导入权限")
+				writeError(w, http.StatusForbidden, "无批量导入权�?)
 				return
 			}
 		}
@@ -1709,7 +1709,7 @@ func handleBatchImport(app *App) http.HandlerFunc {
 		if req.ProductID != "" {
 			p, err := app.productService.GetByID(req.ProductID)
 			if err != nil || p == nil {
-				writeError(w, http.StatusBadRequest, fmt.Sprintf("产品不存在 (ID: %s)", req.ProductID))
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("产品不存�?(ID: %s)", req.ProductID))
 				return
 			}
 		}
@@ -2046,7 +2046,7 @@ func handleEmailTest(app *App) http.HandlerFunc {
 				return
 			}
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "测试邮件已发送"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "测试邮件已发�?})
 	}
 }
 
@@ -2138,11 +2138,11 @@ func handleMediaStream(app *App) http.HandlerFunc {
 func getUserSession(app *App, r *http.Request) (string, error) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if token == "" {
-		return "", fmt.Errorf("未登录")
+		return "", fmt.Errorf("未登�?)
 	}
 	session, err := app.sessionManager.ValidateSession(token)
 	if err != nil {
-		return "", fmt.Errorf("会话已过期")
+		return "", fmt.Errorf("会话已过�?)
 	}
 	return session.UserID, nil
 }
@@ -2152,18 +2152,18 @@ func getUserSession(app *App, r *http.Request) (string, error) {
 func getAdminSession(app *App, r *http.Request) (string, string, error) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if token == "" {
-		return "", "", fmt.Errorf("未登录")
+		return "", "", fmt.Errorf("未登�?)
 	}
 	session, err := app.sessionManager.ValidateSession(token)
 	if err != nil {
 		return "", "", fmt.Errorf("会话无效")
 	}
 	if !app.IsAdminSession(session.UserID) {
-		return "", "", fmt.Errorf("无权限")
+		return "", "", fmt.Errorf("无权�?)
 	}
 	role := app.GetAdminRole(session.UserID)
 	if role == "" {
-		return "", "", fmt.Errorf("无权限")
+		return "", "", fmt.Errorf("无权�?)
 	}
 	return session.UserID, role, nil
 }
@@ -2181,7 +2181,7 @@ func handleAdminUsers(app *App) http.HandlerFunc {
 		switch r.Method {
 		case http.MethodGet:
 			if role != "super_admin" {
-				writeError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理用�?)
 				return
 			}
 			users, err := app.ListAdminUsers()
@@ -2197,7 +2197,7 @@ func handleAdminUsers(app *App) http.HandlerFunc {
 
 		case http.MethodPost:
 			if role != "super_admin" {
-				writeError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理用�?)
 				return
 			}
 			var req struct {
@@ -2239,7 +2239,7 @@ func handleAdminUserByID(app *App) http.HandlerFunc {
 			return
 		}
 		if role != "super_admin" {
-			writeError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理用�?)
 			return
 		}
 
@@ -2301,7 +2301,7 @@ func handleAdminBans(app *App) http.HandlerFunc {
 			return
 		}
 		if role != "super_admin" {
-			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限�?)
 			return
 		}
 		bans := app.loginLimiter.ListBans()
@@ -2324,7 +2324,7 @@ func handleAdminUnban(app *App) http.HandlerFunc {
 			return
 		}
 		if role != "super_admin" {
-			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限�?)
 			return
 		}
 		var req struct {
@@ -2352,7 +2352,7 @@ func handleAdminAddBan(app *App) http.HandlerFunc {
 			return
 		}
 		if role != "super_admin" {
-			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			writeError(w, http.StatusForbidden, "仅超级管理员可管理登录限�?)
 			return
 		}
 		var req struct {
@@ -2373,7 +2373,7 @@ func handleAdminAddBan(app *App) http.HandlerFunc {
 			req.Days = 1
 		}
 		if req.Reason == "" {
-			req.Reason = "管理员手动封禁"
+			req.Reason = "管理员手动封�?
 		}
 		app.loginLimiter.AddManualBan(req.Username, req.IP, req.Reason, time.Duration(req.Days)*24*time.Hour)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -2409,7 +2409,7 @@ func handleImageUpload(app *App) http.HandlerFunc {
 
 		// Limit file size to 10MB
 		if header.Size > 10<<20 {
-			writeError(w, http.StatusBadRequest, "图片文件过大（最大10MB）")
+			writeError(w, http.StatusBadRequest, "图片文件过大（最�?0MB�?)
 			return
 		}
 
@@ -2417,7 +2417,7 @@ func handleImageUpload(app *App) http.HandlerFunc {
 		ext := strings.ToLower(filepath.Ext(header.Filename))
 		allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true}
 		if !allowedExts[ext] {
-			writeError(w, http.StatusBadRequest, "不支持的图片格式，支持 jpg/png/gif/webp/bmp")
+			writeError(w, http.StatusBadRequest, "不支持的图片格式，支�?jpg/png/gif/webp/bmp")
 			return
 		}
 
@@ -2427,14 +2427,14 @@ func handleImageUpload(app *App) http.HandlerFunc {
 			return
 		}
 		if len(data) > 10<<20 {
-			writeError(w, http.StatusBadRequest, "图片文件过大（最大10MB）")
+			writeError(w, http.StatusBadRequest, "图片文件过大（最�?0MB�?)
 			return
 		}
 
 		// Validate image content by checking magic bytes
 		contentType := http.DetectContentType(data)
 		if !strings.HasPrefix(contentType, "image/") {
-			writeError(w, http.StatusBadRequest, "文件内容不是有效的图片")
+			writeError(w, http.StatusBadRequest, "文件内容不是有效的图�?)
 			return
 		}
 
@@ -2492,7 +2492,7 @@ func handleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 		ext := strings.ToLower(filepath.Ext(header.Filename))
 		allowedExts := map[string]bool{".mp4": true, ".avi": true, ".mkv": true, ".mov": true, ".webm": true}
 		if !allowedExts[ext] {
-			writeError(w, http.StatusBadRequest, "不支持的视频格式，支持 MP4/AVI/MKV/MOV/WebM")
+			writeError(w, http.StatusBadRequest, "不支持的视频格式，支�?MP4/AVI/MKV/MOV/WebM")
 			return
 		}
 
@@ -2510,7 +2510,7 @@ func handleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 
 		// Validate video content by checking magic bytes
 		if !isValidVideoMagicBytes(data) {
-			writeError(w, http.StatusBadRequest, "文件内容不是有效的视频格式")
+			writeError(w, http.StatusBadRequest, "文件内容不是有效的视频格�?)
 			return
 		}
 
@@ -2562,7 +2562,7 @@ func handleProducts(app *App) http.HandlerFunc {
 				return
 			}
 			if role != "super_admin" {
-				writeError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理产�?)
 				return
 			}
 			var req struct {
@@ -2609,7 +2609,7 @@ func handleProductByID(app *App) http.HandlerFunc {
 				return
 			}
 			if role != "super_admin" {
-				writeError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理产�?)
 				return
 			}
 			var req struct {
@@ -2637,7 +2637,7 @@ func handleProductByID(app *App) http.HandlerFunc {
 				return
 			}
 			if role != "super_admin" {
-				writeError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				writeError(w, http.StatusForbidden, "仅超级管理员可管理产�?)
 				return
 			}
 			confirm := r.URL.Query().Get("confirm")
@@ -2645,7 +2645,7 @@ func handleProductByID(app *App) http.HandlerFunc {
 				hasData, err := app.HasProductDocumentsOrKnowledge(id)
 				if err != nil {
 					log.Printf("[Products] check data error for %s: %v", id, err)
-					writeError(w, http.StatusInternalServerError, "检查产品数据失败")
+					writeError(w, http.StatusInternalServerError, "检查产品数据失�?)
 					return
 				}
 				if hasData {
@@ -2786,7 +2786,7 @@ func handleTestLLM(app *App) http.HandlerFunc {
 		answer, err := svc.Generate("", nil, "请回复：OK")
 		if err != nil {
 			log.Printf("[TestLLM] error: %v", err)
-			writeError(w, http.StatusBadRequest, "LLM 连接测试失败，请检查配置")
+			writeError(w, http.StatusBadRequest, "LLM 连接测试失败，请检查配�?)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "reply": answer})
@@ -2832,7 +2832,7 @@ func handleTestEmbedding(app *App) http.HandlerFunc {
 		vec, err := svc.Embed("hello")
 		if err != nil {
 			log.Printf("[TestEmbedding] error: %v", err)
-			writeError(w, http.StatusBadRequest, "Embedding 连接测试失败，请检查配置")
+			writeError(w, http.StatusBadRequest, "Embedding 连接测试失败，请检查配�?)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "dimensions": len(vec)})
@@ -2860,7 +2860,7 @@ func handleConfigWithRole(app *App) http.HandlerFunc {
 			writeJSON(w, http.StatusOK, cfg)
 		case http.MethodPut:
 			if role != "super_admin" {
-				writeError(w, http.StatusForbidden, "仅超级管理员可修改系统设置")
+				writeError(w, http.StatusForbidden, "仅超级管理员可修改系统设�?)
 				return
 			}
 			var updates map[string]interface{}

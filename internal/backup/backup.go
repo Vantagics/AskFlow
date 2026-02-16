@@ -1,4 +1,4 @@
-// Package backup provides full and incremental backup/restore for the helpdesk system.
+// Package backup provides full and incremental backup/restore for the askflow system.
 //
 // Backup strategy (data-level, not file-level):
 //
@@ -18,7 +18,7 @@
 //
 // Archive layout (tar.gz):
 //
-//	helpdesk.db              — full DB copy (full mode only)
+//	askflow.db              — full DB copy (full mode only)
 //	db_delta.sql             — SQL statements for changed data (incremental only)
 //	uploads/<hash>/file      — uploaded document files
 //	config.json              — system configuration
@@ -114,9 +114,9 @@ func Run(db *sql.DB, opts Options) (*Result, error) {
 		hostname = "local"
 	}
 
-	// Archive name: helpdesk_<mode>_<hostname>_<timestamp>.tar.gz
-	archiveName := fmt.Sprintf("helpdesk_%s_%s_%s.tar.gz", modeLabel, hostname, timestamp)
-	manifestName := fmt.Sprintf("helpdesk_%s_%s_%s.manifest.json", modeLabel, hostname, timestamp)
+	// Archive name: askflow_<mode>_<hostname>_<timestamp>.tar.gz
+	archiveName := fmt.Sprintf("askflow_%s_%s_%s.tar.gz", modeLabel, hostname, timestamp)
+	manifestName := fmt.Sprintf("askflow_%s_%s_%s.manifest.json", modeLabel, hostname, timestamp)
 	archivePath := filepath.Join(opts.OutputDir, archiveName)
 	manifestPath := filepath.Join(opts.OutputDir, manifestName)
 
@@ -160,9 +160,9 @@ func Run(db *sql.DB, opts Options) (*Result, error) {
 	// 2. Database
 	if opts.Mode == "full" {
 		// Full: copy the entire DB file
-		dbPath := filepath.Join(opts.DataDir, "helpdesk.db")
+		dbPath := filepath.Join(opts.DataDir, "askflow.db")
 		if _, err := os.Stat(dbPath); err == nil {
-			n, err := addFileToTar(tw, dbPath, "helpdesk.db")
+			n, err := addFileToTar(tw, dbPath, "askflow.db")
 			if err != nil {
 				return nil, fmt.Errorf("添加数据库失败: %w", err)
 			}
@@ -272,7 +272,7 @@ func generateDeltaSQL(db *sql.DB, sinceTime string) ([]byte, map[string]int, err
 	var buf strings.Builder
 	rowCounts := make(map[string]int)
 
-	buf.WriteString("-- Helpdesk incremental backup delta\n")
+	buf.WriteString("-- Askflow incremental backup delta\n")
 	buf.WriteString(fmt.Sprintf("-- Since: %s\n\n", sinceTime))
 	buf.WriteString("BEGIN TRANSACTION;\n\n")
 
@@ -523,7 +523,7 @@ func Restore(archivePath, targetDir string) error {
 		deltaPath := filepath.Join(targetDir, "db_delta.sql")
 		fmt.Printf("\n检测到增量备份 SQL: %s\n", deltaPath)
 		fmt.Println("请在恢复全量备份后，执行以下命令应用增量数据:")
-		fmt.Printf("  sqlite3 %s < %s\n", filepath.Join(targetDir, "helpdesk.db"), deltaPath)
+		fmt.Printf("  sqlite3 %s < %s\n", filepath.Join(targetDir, "askflow.db"), deltaPath)
 	}
 	return nil
 }

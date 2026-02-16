@@ -1,7 +1,7 @@
 @echo off
 echo Restarting AskFlow service...
-taskkill /F /IM helpdesk.exe 2>nul
+taskkill /F /IM askflow.exe 2>nul
 timeout /t 2 /nobreak >nul
-start "" helpdesk.exe
+start "" askflow.exe
 echo Service restarted!
 pause

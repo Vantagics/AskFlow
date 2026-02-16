@@ -1,6 +1,6 @@
 // Package vectorstore provides vector storage and similarity search using SQLite.
 // This package is a thin wrapper around the sqlite-vec library, maintaining
-// backward compatibility with the existing helpdesk codebase.
+// backward compatibility with the existing askflow codebase.
 package vectorstore
 
 import (

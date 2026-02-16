@@ -1,6 +1,6 @@
 //go:build windows
 
-// Package svc provides Windows service support for the Helpdesk application.
+// Package svc provides Windows service support for the Askflow application.
 package svc
 
 import (
@@ -8,21 +8,21 @@ import (
 	"fmt"
 	"time"
 
-	"helpdesk/internal/service"
+	"askflow/internal/service"
 
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-// HelpdeskService implements the Windows service interface.
-type HelpdeskService struct {
+// AskflowService implements the Windows service interface.
+type AskflowService struct {
 	appService *service.AppService
 	logger     *ServiceLogger
 }
 
-// NewHelpdeskService creates a new Windows service instance.
-func NewHelpdeskService(appService *service.AppService, logger *ServiceLogger) *HelpdeskService {
-	return &HelpdeskService{
+// NewAskflowService creates a new Windows service instance.
+func NewAskflowService(appService *service.AppService, logger *ServiceLogger) *AskflowService {
+	return &AskflowService{
 		appService: appService,
 		logger:     logger,
 	}
@@ -30,10 +30,10 @@ func NewHelpdeskService(appService *service.AppService, logger *ServiceLogger) *
 
 // Execute implements the windows/svc.Handler interface.
 // This is called by the Windows Service Control Manager.
-func (hs *HelpdeskService) Execute(args []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (bool, uint32) {
+func (hs *AskflowService) Execute(args []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (bool, uint32) {
 	// Report service status as Running
 	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
-	hs.logger.Info("Helpdesk service started")
+	hs.logger.Info("Askflow service started")
 
 	// Start the application service in a goroutine
 	ctx, cancel := context.WithCancel(context.Background())
@@ -56,7 +56,7 @@ func (hs *HelpdeskService) Execute(args []string, r <-chan svc.ChangeRequest, s 
 				// Wait for Run() to finish instead of calling Shutdown again
 				<-errCh
 				s <- svc.Status{State: svc.Stopped}
-				hs.logger.Info("Helpdesk service stopped")
+				hs.logger.Info("Askflow service stopped")
 				return false, 0
 
 			case svc.Interrogate:

@@ -6,18 +6,18 @@ package svc
 import (
 	"fmt"
 
-	"helpdesk/internal/service"
+	"askflow/internal/service"
 )
 
-// HelpdeskService is a stub for non-Windows platforms.
-type HelpdeskService struct {
+// AskflowService is a stub for non-Windows platforms.
+type AskflowService struct {
 	appService *service.AppService
 	logger     *ServiceLogger
 }
 
-// NewHelpdeskService creates a stub service instance.
-func NewHelpdeskService(appService *service.AppService, logger *ServiceLogger) *HelpdeskService {
-	return &HelpdeskService{
+// NewAskflowService creates a stub service instance.
+func NewAskflowService(appService *service.AppService, logger *ServiceLogger) *AskflowService {
+	return &AskflowService{
 		appService: appService,
 		logger:     logger,
 	}

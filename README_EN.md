@@ -28,7 +28,7 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 
 ## Features
 
-- **Smart Q&A**: Intent classification → vector retrieval → LLM answer generation with source citations
+- **Smart Q&A**: Intent classification �?vector retrieval �?LLM answer generation with source citations
 - **Multimodal Retrieval**: Vectorize and search text, images, and video content with cross-modal matching
 - **Video Search**: Upload videos for automatic audio transcription and keyframe extraction, with precise timestamp localization in search results
 - **Image Q&A**: Users can paste images with questions; the system uses vision LLM combined with the knowledge base to generate answers
@@ -39,7 +39,7 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 - **Knowledge Entries**: Admins can directly add text + image knowledge entries, categorized by product
 - **Product-Scoped Search**: User queries search only within the selected product's knowledge base and the Public Library, ensuring accurate answers
 - **Content Deduplication**: Document-level SHA-256 hash dedup + chunk-level embedding reuse to prevent duplicate imports and redundant API calls
-- **3-Level Text Matching**: Level 1 text matching (zero API cost) → Level 2 vector confirmation + cache reuse (Embedding only) → Level 3 full RAG (Embedding + LLM), progressively escalating to save API costs
+- **3-Level Text Matching**: Level 1 text matching (zero API cost) �?Level 2 vector confirmation + cache reuse (Embedding only) �?Level 3 full RAG (Embedding + LLM), progressively escalating to save API costs
 - **Pending Questions**: Unanswered questions are automatically queued with product association; admin answers are auto-indexed
 - **User Authentication**: OAuth 2.0 (Google / Apple / Amazon / Facebook) + email/password registration
 - **Admin Hierarchy**: Super admin + sub-admins (editor role) with per-product permission assignment
@@ -53,47 +53,47 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Frontend SPA                       │
-│              (frontend/dist)                         │
-└──────────────────────┬──────────────────────────────┘
-                       │ HTTP API
-┌──────────────────────▼──────────────────────────────┐
-│                   Go HTTP Server                     │
-│  ┌─────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐ │
-│  │  Auth   │ │ Document │ │ Query  │ │  Config   │ │
-│  │ (OAuth  │ │ Manager  │ │ Engine │ │  Manager  │ │
-│  │ Session)│ │          │ │ (RAG)  │ │           │ │
-│  └─────────┘ └────┬─────┘ └───┬────┘ └───────────┘ │
-│  ┌─────────┐      │           │      ┌───────────┐  │
-│  │ Product │      │           │      │  Pending   │ │
-│  │ Service │      │           │      │  Manager   │ │
-│  └─────────┘      │           │      └───────────┘  │
-│  ┌─────────┐ ┌────▼─────┐ ┌──▼─────┐ ┌───────────┐ │
-│  │ Parser  │ │ Chunker  │ │Embedding│ │   LLM     │ │
-│  │(PDF/Word│ │(512/128) │ │ Service │ │  Service  │ │
-│  ┌─────────┐ ┌────▼─────┐ ┌──▼─────┐ ┌───────────┐ │
-│  │ Parser  │ │ Chunker  │ │Embedding│ │   LLM     │ │
-│  │(PDF/Word│ │(512/128) │ │ Service │ │  Service  │ │
-│  │Excel/PPT│ │          │ │(txt+img)│ │ (vision)  │ │
-│  └─────────┘ └──────────┘ └────┬────┘ └───────────┘ │
-│  ┌─────────┐                   │                      │
-│  │ Video   │                   │                      │
-│  │ Parser  │                   │                      │
-│  │(ffmpeg+ │                   │                      │
-│  │whisper) │                   │                      │
-│  └─────────┘                   │                      │
-│              ┌─────────────────▼──────────────────┐  │
-│              │     SQLite + Vector Store           │  │
-│              │  (WAL mode + in-memory cache +      │  │
-│              │   cosine similarity search)          │  │
-│              └────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-                       │
-          ┌────────────▼────────────┐
-          │  OpenAI-compatible API   │
-          │  (LLM + Embedding)       │
-          └─────────────────────────┘
+┌─────────────────────────────────────────────────────�?
+�?                  Frontend SPA                       �?
+�?             (frontend/dist)                         �?
+└──────────────────────┬──────────────────────────────�?
+                       �?HTTP API
+┌──────────────────────▼──────────────────────────────�?
+�?                  Go HTTP Server                     �?
+�? ┌─────────�?┌──────────�?┌────────�?┌───────────�?�?
+�? �? Auth   �?�?Document �?�?Query  �?�? Config   �?�?
+�? �?(OAuth  �?�?Manager  �?�?Engine �?�? Manager  �?�?
+�? �?Session)�?�?         �?�?(RAG)  �?�?          �?�?
+�? └─────────�?└────┬─────�?└───┬────�?└───────────�?�?
+�? ┌─────────�?     �?          �?     ┌───────────�? �?
+�? �?Product �?     �?          �?     �? Pending   �?�?
+�? �?Service �?     �?          �?     �? Manager   �?�?
+�? └─────────�?     �?          �?     └───────────�? �?
+�? ┌─────────�?┌────▼─────�?┌──▼─────�?┌───────────�?�?
+�? �?Parser  �?�?Chunker  �?│Embedding�?�?  LLM     �?�?
+�? �?PDF/Word�?�?512/128) �?�?Service �?�? Service  �?�?
+�? ┌─────────�?┌────▼─────�?┌──▼─────�?┌───────────�?�?
+�? �?Parser  �?�?Chunker  �?│Embedding�?�?  LLM     �?�?
+�? �?PDF/Word�?�?512/128) �?�?Service �?�? Service  �?�?
+�? │Excel/PPT�?�?         �?�?txt+img)�?�?(vision)  �?�?
+�? └─────────�?└──────────�?└────┬────�?└───────────�?�?
+�? ┌─────────�?                  �?                     �?
+�? �?Video   �?                  �?                     �?
+�? �?Parser  �?                  �?                     �?
+�? �?ffmpeg+ �?                  �?                     �?
+�? │whisper) �?                  �?                     �?
+�? └─────────�?                  �?                     �?
+�?             ┌─────────────────▼──────────────────�? �?
+�?             �?    SQLite + Vector Store           �? �?
+�?             �? (WAL mode + in-memory cache +      �? �?
+�?             �?  cosine similarity search)          �? �?
+�?             └────────────────────────────────────�? �?
+└─────────────────────────────────────────────────────�?
+                       �?
+          ┌────────────▼────────────�?
+          �? OpenAI-compatible API   �?
+          �? (LLM + Embedding)       �?
+          └─────────────────────────�?
 ```
 
 | Component | Technology |
@@ -120,51 +120,51 @@ askflow/
 ├── app.go                       # API facade: aggregates all service components
 ├── go.mod / go.sum              # Go module dependencies
 ├── build_local.sh               # Local build script (Linux/macOS)
-├── build.cmd                    # Remote deploy script (Windows → Linux server)
-│
+├── build.cmd                    # Remote deploy script (Windows �?Linux server)
+�?
 ├── internal/
-│   ├── auth/
-│   │   ├── oauth.go             # OAuth 2.0 multi-provider authentication
-│   │   └── session.go           # Session management (create/validate/cleanup)
-│   ├── config/
-│   │   └── config.go            # Config load/save/encrypt/hot-reload
-│   ├── db/
-│   │   └── db.go                # SQLite init, table creation, migrations
-│   ├── document/
-│   │   └── manager.go           # Document upload/parse/chunk/embed/store
-│   ├── parser/
-│   │   └── parser.go            # Multi-format parsing (PDF/Word/Excel/PPT/MD)
-│   ├── chunker/
-│   │   └── chunker.go           # Text chunking (fixed size + overlap)
-│   ├── embedding/
-│   │   └── service.go           # Embedding API client (text/image/batch)
-│   ├── llm/
-│   │   └── service.go           # LLM Chat Completion API client
-│   ├── vectorstore/
-│   │   └── store.go             # Vector storage & similarity search (in-memory cache)
-│   ├── query/
-│   │   └── engine.go            # RAG query engine (classify → retrieve → generate)
-│   ├── pending/
-│   │   └── manager.go           # Pending question management
-│   ├── product/
-│   │   └── service.go           # Product management (CRUD, admin-product assignment)
-│   ├── backup/
-│   │   └── backup.go            # Data backup & restore (full/incremental)
-│   ├── video/
-│   │   └── parser.go            # Video parsing (ffmpeg keyframes + whisper transcription)
-│   └── email/
-│       └── service.go           # SMTP email sending (verification/test)
-│
+�?  ├── auth/
+�?  �?  ├── oauth.go             # OAuth 2.0 multi-provider authentication
+�?  �?  └── session.go           # Session management (create/validate/cleanup)
+�?  ├── config/
+�?  �?  └── config.go            # Config load/save/encrypt/hot-reload
+�?  ├── db/
+�?  �?  └── db.go                # SQLite init, table creation, migrations
+�?  ├── document/
+�?  �?  └── manager.go           # Document upload/parse/chunk/embed/store
+�?  ├── parser/
+�?  �?  └── parser.go            # Multi-format parsing (PDF/Word/Excel/PPT/MD)
+�?  ├── chunker/
+�?  �?  └── chunker.go           # Text chunking (fixed size + overlap)
+�?  ├── embedding/
+�?  �?  └── service.go           # Embedding API client (text/image/batch)
+�?  ├── llm/
+�?  �?  └── service.go           # LLM Chat Completion API client
+�?  ├── vectorstore/
+�?  �?  └── store.go             # Vector storage & similarity search (in-memory cache)
+�?  ├── query/
+�?  �?  └── engine.go            # RAG query engine (classify �?retrieve �?generate)
+�?  ├── pending/
+�?  �?  └── manager.go           # Pending question management
+�?  ├── product/
+�?  �?  └── service.go           # Product management (CRUD, admin-product assignment)
+�?  ├── backup/
+�?  �?  └── backup.go            # Data backup & restore (full/incremental)
+�?  ├── video/
+�?  �?  └── parser.go            # Video parsing (ffmpeg keyframes + whisper transcription)
+�?  └── email/
+�?      └── service.go           # SMTP email sending (verification/test)
+�?
 ├── frontend/
-│   └── dist/                    # Frontend compiled assets (SPA)
-│       ├── index.html
-│       ├── app.js
-│       └── styles.css
-│
+�?  └── dist/                    # Frontend compiled assets (SPA)
+�?      ├── index.html
+�?      ├── app.js
+�?      └── styles.css
+�?
 └── data/
     ├── config.json              # System config (API keys encrypted)
     ├── encryption.key           # AES-256 encryption key
-    ├── helpdesk.db              # SQLite database
+    ├── askflow.db              # SQLite database
     ├── uploads/                 # Uploaded original documents (by doc ID)
     └── images/                  # Knowledge entry images
 ```
@@ -247,9 +247,9 @@ The config file is located at `data/config.json`. It can be modified via the web
 | Field | Default | Description |
 |-------|---------|-------------|
 | `llm.endpoint` | VolcEngine ARK | OpenAI-compatible API URL |
-| `llm.api_key` | — | API key (auto AES-encrypted on save) |
-| `llm.model_name` | — | Model name / Endpoint ID |
-| `llm.temperature` | `0.3` | Generation temperature (0–1) |
+| `llm.api_key` | �?| API key (auto AES-encrypted on save) |
+| `llm.model_name` | �?| Model name / Endpoint ID |
+| `llm.temperature` | `0.3` | Generation temperature (0�?) |
 | `llm.max_tokens` | `2048` | Max generation tokens |
 
 ### Embedding
@@ -257,30 +257,30 @@ The config file is located at `data/config.json`. It can be modified via the web
 | Field | Default | Description |
 |-------|---------|-------------|
 | `embedding.endpoint` | VolcEngine ARK | OpenAI-compatible API URL |
-| `embedding.api_key` | — | API key (auto AES-encrypted on save) |
-| `embedding.model_name` | — | Model name / Endpoint ID |
+| `embedding.api_key` | �?| API key (auto AES-encrypted on save) |
+| `embedding.model_name` | �?| Model name / Endpoint ID |
 | `embedding.use_multimodal` | `true` | Enable image embedding |
 
 ### Vector Search
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `vector.db_path` | `./data/helpdesk.db` | SQLite database path |
+| `vector.db_path` | `./data/askflow.db` | SQLite database path |
 | `vector.chunk_size` | `512` | Text chunk size (characters) |
 | `vector.overlap` | `128` | Overlap between adjacent chunks |
 | `vector.top_k` | `5` | Number of top results to retrieve |
-| `vector.threshold` | `0.5` | Cosine similarity threshold (0–1) |
+| `vector.threshold` | `0.5` | Cosine similarity threshold (0�?) |
 
 ### SMTP Email
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `smtp.host` | — | SMTP server address |
+| `smtp.host` | �?| SMTP server address |
 | `smtp.port` | `587` | SMTP port |
-| `smtp.username` | — | SMTP username |
-| `smtp.password` | — | SMTP password |
-| `smtp.from_addr` | — | Sender email address |
-| `smtp.from_name` | — | Sender display name |
+| `smtp.username` | �?| SMTP username |
+| `smtp.password` | �?| SMTP password |
+| `smtp.from_addr` | �?| Sender email address |
+| `smtp.from_name` | �?| Sender display name |
 | `smtp.use_tls` | `true` | Enable TLS |
 
 ### OAuth
@@ -319,8 +319,8 @@ Supported providers: `google`, `apple`, `amazon`, `facebook`.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `video.ffmpeg_path` | — | ffmpeg executable path; empty disables video support |
-| `video.whisper_path` | — | whisper CLI executable path; empty skips speech transcription |
+| `video.ffmpeg_path` | �?| ffmpeg executable path; empty disables video support |
+| `video.whisper_path` | �?| whisper CLI executable path; empty skips speech transcription |
 | `video.keyframe_interval` | `10` | Keyframe sampling interval in seconds |
 | `video.whisper_model` | `base` | whisper model name |
 
@@ -338,7 +338,7 @@ Video features require external tools. With only `ffmpeg_path` configured, only 
 
 | Variable | Description |
 |----------|-------------|
-| `HELPDESK_ENCRYPTION_KEY` | AES-256 encryption key (32-byte hex). Auto-generated and saved to `data/encryption.key` if not set |
+| `ASKFLOW_ENCRYPTION_KEY` | AES-256 encryption key (32-byte hex). Auto-generated and saved to `data/encryption.key` if not set |
 
 ---
 
@@ -372,7 +372,7 @@ Supported file extensions: `.pdf` `.doc` `.docx` `.xls` `.xlsx` `.ppt` `.pptx` `
 
 The system provides a data-level backup mechanism with full and incremental modes.
 
-Backup filename format: `helpdesk_<mode>_<hostname>_<date-time>.tar.gz`, e.g. `helpdesk_full_myserver_20260212-143000.tar.gz`.
+Backup filename format: `askflow_<mode>_<hostname>_<date-time>.tar.gz`, e.g. `askflow_full_myserver_20260212-143000.tar.gz`.
 
 #### Full Backup
 
@@ -391,7 +391,7 @@ askflow backup --output ./backups
 Based on a previous manifest file, exports only new database rows and newly uploaded files. Mutable tables (users, pending questions, products, etc.) are fully dumped to ensure updates are not lost.
 
 ```bash
-askflow backup --incremental --base ./backups/helpdesk_full_myserver_20260212-143000.manifest.json
+askflow backup --incremental --base ./backups/askflow_full_myserver_20260212-143000.manifest.json
 ```
 
 Incremental backup works at the data level, not the file level:
@@ -404,7 +404,7 @@ Incremental backup works at the data level, not the file level:
 
 ```bash
 # Restore from a full backup
-askflow restore helpdesk_full_myserver_20260212-143000.tar.gz
+askflow restore askflow_full_myserver_20260212-143000.tar.gz
 
 # Restore to a specific directory
 askflow restore --target ./data-new backup.tar.gz
@@ -415,7 +415,7 @@ Incremental restore workflow: first restore the full backup, then apply each inc
 ```bash
 askflow restore full-backup.tar.gz
 askflow restore incremental-backup.tar.gz
-sqlite3 ./data/helpdesk.db < ./data/db_delta.sql
+sqlite3 ./data/askflow.db < ./data/db_delta.sql
 ```
 
 ---
@@ -509,45 +509,45 @@ All APIs return JSON. Authenticated endpoints require `Authorization: Bearer <se
 
 ```
 User Question (text / text+image)
-   │
-   ▼
-Intent Classification (LLM) — skipped when image is attached
-   │
-   ├── greeting → Return friendly greeting
-   ├── irrelevant → Prompt user to ask product-related questions
-   └── product ──▼
-                  │
-            ┌─────┴─────┐
-            │           │
+   �?
+   �?
+Intent Classification (LLM) �?skipped when image is attached
+   �?
+   ├── greeting �?Return friendly greeting
+   ├── irrelevant �?Prompt user to ask product-related questions
+   └── product ──�?
+                  �?
+            ┌─────┴─────�?
+            �?          �?
          Text query  Image query (if any)
-            │           │
-            ▼           ▼
+            �?          �?
+            �?          �?
       Embed question  Embed image
       (Embedding)    (Multimodal Embedding)
-            │           │
-            ▼           ▼
+            �?          �?
+            �?          �?
       Vector search  Vector search (lower threshold)
       (Top-K)       (threshold × 0.6)
-            │           │
-            └─────┬─────┘
-                  │
+            �?          �?
+            └─────┬─────�?
+                  �?
             Merge & deduplicate results
-                  │
+                  �?
             Reorder by content_priority
-                  │
+                  �?
             Enrich with video timestamps
-                  │
-           ┌──────┴──────┐
-           │             │
+                  �?
+           ┌──────┴──────�?
+           �?            �?
        Results found   No results
-           │             │
-           ▼             ▼
+           �?            �?
+           �?            �?
      Build context   Create pending question
      Call LLM        Notify user to wait
      (Vision LLM
       if image)
-           │
-           ▼
+           �?
+           �?
      Return answer + source citations + video timestamps
 ```
 
@@ -555,22 +555,22 @@ Intent Classification (LLM) — skipped when image is attached
 
 ```
 User Question
-   │
-   ▼
+   �?
+   �?
 Level 1: Local text matching (zero API cost)
-   │  Character bigram similarity search against chunk cache
-   │
-   ├── Hit + cached answer → Return immediately (zero cost)
-   └── Hit but no cache ──▼
-                           │
+   �? Character bigram similarity search against chunk cache
+   �?
+   ├── Hit + cached answer �?Return immediately (zero cost)
+   └── Hit but no cache ──�?
+                           �?
 Level 2: Vector confirmation + cache reuse (Embedding API only)
-   │  Call Embedding API for vector, search to confirm
-   │
-   ├── Confirmed + cached answer → Return (Embedding cost only)
-   └── No cached answer ──▼
-                           │
+   �? Call Embedding API for vector, search to confirm
+   �?
+   ├── Confirmed + cached answer �?Return (Embedding cost only)
+   └── No cached answer ──�?
+                           �?
 Level 3: Full RAG (Embedding + LLM)
-   │  Vector search → Build context → Call LLM to generate answer
+   �? Vector search �?Build context �?Call LLM to generate answer
    └── Return answer (full cost)
 ```
 
@@ -578,41 +578,41 @@ Level 3: Full RAG (Embedding + LLM)
 
 ```
 File Upload / URL Import / CLI Batch Import
-   │
-   ▼
+   �?
+   �?
 File Type Detection
-   │
+   �?
    ├── Documents (PDF/Word/Excel/PPT/Markdown/HTML)
-   │     │
-   │     ▼
-   │   Parse document (extract text + images)
-   │     │
-   │     ▼
-   │   Content dedup check (SHA-256 hash)
-   │     │
-   │     ├── Duplicate → Reject import
-   │     └── New content ──▼
-   │                        │
-   │                  Text chunking + chunk-level dedup
-   │                        │
-   │                        ▼
-   │                  Text embedding + image multimodal embedding
-   │                        │
-   │                        ▼
-   │                  Store in SQLite + in-memory cache
-   │
+   �?    �?
+   �?    �?
+   �?  Parse document (extract text + images)
+   �?    �?
+   �?    �?
+   �?  Content dedup check (SHA-256 hash)
+   �?    �?
+   �?    ├── Duplicate �?Reject import
+   �?    └── New content ──�?
+   �?                       �?
+   �?                 Text chunking + chunk-level dedup
+   �?                       �?
+   �?                       �?
+   �?                 Text embedding + image multimodal embedding
+   �?                       �?
+   �?                       �?
+   �?                 Store in SQLite + in-memory cache
+   �?
    └── Video (MP4/AVI/MKV/MOV/WebM)
-         │
-         ├── ffmpeg extract audio → whisper transcription
-         │     │
-         │     ▼
-         │   Chunk transcript text → embed → store
-         │   Create video_segments records (with time ranges)
-         │
+         �?
+         ├── ffmpeg extract audio �?whisper transcription
+         �?    �?
+         �?    �?
+         �?  Chunk transcript text �?embed �?store
+         �?  Create video_segments records (with time ranges)
+         �?
          └── ffmpeg extract keyframes at intervals
-               │
-               ▼
-             Keyframes → multimodal embedding → store
+               �?
+               �?
+             Keyframes �?multimodal embedding �?store
              Create video_segments records (with timestamps)
 ```
 
@@ -643,7 +643,7 @@ go build -o askflow .
 ./askflow
 ```
 
-### Remote Deploy (Windows → Linux)
+### Remote Deploy (Windows �?Linux)
 
 The `build.cmd` script uses PuTTY tools (plink/pscp) for one-click package, upload, remote build, and restart:
 
@@ -662,11 +662,11 @@ This script will:
 The system includes a built-in CLI backup tool supporting full and incremental modes. See the [CLI Usage](#cli-usage) section for details.
 
 Critical data files:
-- `data/config.json` — System configuration
-- `data/helpdesk.db` — Database (documents, vectors, users, sessions, etc.)
-- `data/encryption.key` — Encryption key (loss prevents decryption of encrypted API keys)
-- `data/uploads/` — Uploaded original documents
-- `data/images/` — Knowledge entry images
+- `data/config.json` �?System configuration
+- `data/askflow.db` �?Database (documents, vectors, users, sessions, etc.)
+- `data/encryption.key` �?Encryption key (loss prevents decryption of encrypted API keys)
+- `data/uploads/` �?Uploaded original documents
+- `data/images/` �?Knowledge entry images
 
 Backup examples:
 
@@ -675,10 +675,10 @@ Backup examples:
 askflow backup --output ./backups
 
 # Incremental backup (based on previous full)
-askflow backup --output ./backups --incremental --base ./backups/helpdesk_full_myserver_20260212-143000.manifest.json
+askflow backup --output ./backups --incremental --base ./backups/askflow_full_myserver_20260212-143000.manifest.json
 
 # Restore
-askflow restore ./backups/helpdesk_full_myserver_20260212-143000.tar.gz
+askflow restore ./backups/askflow_full_myserver_20260212-143000.tar.gz
 ```
 
 ---
@@ -704,5 +704,5 @@ An empty or NULL `product_id` indicates the record belongs to the Public Library
 
 ## Related Documentation
 
-- [introduce.md](./introduce.md) — Product Introduction (Chinese)
-- [manual.md](./manual.md) — Detailed User Manual with full API examples (Chinese)
+- [introduce.md](./introduce.md) �?Product Introduction (Chinese)
+- [manual.md](./manual.md) �?Detailed User Manual with full API examples (Chinese)

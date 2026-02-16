@@ -1,6 +1,6 @@
 //go:build windows
 
-// Package svc provides Windows service support for the Helpdesk application.
+// Package svc provides Windows service support for the Askflow application.
 package svc
 
 import (
@@ -31,7 +31,7 @@ func NewServiceLogger(serviceName string, isService bool, logDir string) (*Servi
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
-	logPath := filepath.Join(logDir, "helpdesk.log")
+	logPath := filepath.Join(logDir, "askflow.log")
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)

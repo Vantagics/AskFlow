@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"helpdesk/internal/config"
+	"askflow/internal/config"
 )
 
 // TranscriptSegment 表示语音识别输出的一个转录片段

@@ -1,4 +1,4 @@
-// Package product provides product management for the helpdesk system.
+// Package product provides product management for the askflow system.
 package product
 
 import (

@@ -1,15 +1,15 @@
 # Build artifacts
 deploy.tar.gz
 *.exe
-helpdesk
+askflow
 build/dist/
-build/installer/helpdesk-installer.exe
+build/installer/askflow-installer.exe
 frontend.zip
-helpdesk_release_linux.tar.gz
+askflow_release_linux.tar.gz
 
 # Upload data (test/runtime files)
 data/uploads/
-data/helpdesk.db
+data/askflow.db
 data/encryption.key
 data/config.json
 data/images/

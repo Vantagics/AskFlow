@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"helpdesk/internal/config"
+	"askflow/internal/config"
 
 	"pgregory.net/rapid"
 )

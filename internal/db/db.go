@@ -1,4 +1,4 @@
-// Package db provides SQLite database initialization and migration for the helpdesk system.
+// Package db provides SQLite database initialization and migration for the askflow system.
 package db
 
 import (

@@ -1,5 +1,5 @@
 // Package main provides the App struct that serves as the API facade
-// for the helpdesk system, delegating to internal service components.
+// for the askflow system, delegating to internal service components.
 package main
 
 import (
@@ -15,16 +15,16 @@ import (
 	"sync"
 	"time"
 
-	"helpdesk/internal/auth"
-	"helpdesk/internal/config"
-	"helpdesk/internal/product"
-	"helpdesk/internal/document"
-	"helpdesk/internal/email"
-	"helpdesk/internal/embedding"
-	"helpdesk/internal/llm"
-	"helpdesk/internal/pending"
-	"helpdesk/internal/query"
-	"helpdesk/internal/vectorstore"
+	"askflow/internal/auth"
+	"askflow/internal/config"
+	"askflow/internal/product"
+	"askflow/internal/document"
+	"askflow/internal/email"
+	"askflow/internal/embedding"
+	"askflow/internal/llm"
+	"askflow/internal/pending"
+	"askflow/internal/query"
+	"askflow/internal/vectorstore"
 )
 
 // App is the API facade that binds all backend services for the frontend.

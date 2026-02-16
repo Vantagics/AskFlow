@@ -1,5 +1,5 @@
 // Package document provides the Document Manager for handling document upload,
-// processing, deletion, and listing in the helpdesk system.
+// processing, deletion, and listing in the askflow system.
 package document
 
 import (
@@ -19,12 +19,12 @@ import (
 	"sync"
 	"time"
 
-	"helpdesk/internal/chunker"
-	"helpdesk/internal/config"
-	"helpdesk/internal/embedding"
-	"helpdesk/internal/parser"
-	"helpdesk/internal/vectorstore"
-	"helpdesk/internal/video"
+	"askflow/internal/chunker"
+	"askflow/internal/config"
+	"askflow/internal/embedding"
+	"askflow/internal/parser"
+	"askflow/internal/vectorstore"
+	"askflow/internal/video"
 )
 
 // supportedFileTypes lists the file types accepted for upload.

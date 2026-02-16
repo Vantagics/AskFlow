@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-BINARY_NAME="helpdesk"
+BINARY_NAME="askflow"
 
 echo "============================================"
-echo " Helpdesk Local Build"
+echo " Askflow Local Build"
 echo "============================================"
 echo
 

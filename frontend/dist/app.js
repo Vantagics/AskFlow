@@ -5,10 +5,10 @@
 (function () {
     'use strict';
 
-    var SESSION_KEY = 'helpdesk_session';
-    var USER_KEY = 'helpdesk_user';
-    var ADMIN_SESSION_KEY = 'helpdesk_admin_session';
-    var ADMIN_USER_KEY = 'helpdesk_admin_user';
+    var SESSION_KEY = 'askflow_session';
+    var USER_KEY = 'askflow_user';
+    var ADMIN_SESSION_KEY = 'askflow_admin_session';
+    var ADMIN_USER_KEY = 'askflow_admin_user';
     var adminLoginRoute = '/admin'; // default, will be fetched from server
     var systemReady = true; // assume ready until checked
     var loginCaptchaId = '';
@@ -30,7 +30,7 @@
         }
     })();
 
-    // Shared product fetch — returns a promise, caches the result
+    // Shared product fetch �?returns a promise, caches the result
     var _productFetchPromise = null;
     function fetchProducts() {
         if (cachedProducts) {
@@ -346,7 +346,7 @@
                 // Product selection is handled in chat page, just set user's default if available
                 var defaultPid = (data.user && data.user.default_product_id) ? data.user.default_product_id : '';
                 if (defaultPid) {
-                    localStorage.setItem('helpdesk_product_id', defaultPid);
+                    localStorage.setItem('askflow_product_id', defaultPid);
                 }
                 navigate('/chat');
             }
@@ -713,14 +713,14 @@
                 if (defaultSelect) defaultSelect.innerHTML = defaultHTML;
 
                 // Set current product, default to first product if none selected
-                var currentPid = localStorage.getItem('helpdesk_product_id') || '';
+                var currentPid = localStorage.getItem('askflow_product_id') || '';
                 if (currentPid) {
                     selector.value = currentPid;
                 } else if (filtered.length > 0) {
                     // Default to first product
                     selector.value = filtered[0].id;
-                    localStorage.setItem('helpdesk_product_id', filtered[0].id);
-                    localStorage.setItem('helpdesk_product_name', filtered[0].name);
+                    localStorage.setItem('askflow_product_id', filtered[0].id);
+                    localStorage.setItem('askflow_product_name', filtered[0].name);
                 }
 
                 // Set default product in dropdown
@@ -747,12 +747,12 @@
                     selector.addEventListener('change', function () {
                         var newPid = this.value;
                         if (newPid) {
-                            localStorage.setItem('helpdesk_product_id', newPid);
+                            localStorage.setItem('askflow_product_id', newPid);
                             var selOpt = this.options[this.selectedIndex];
-                            if (selOpt) localStorage.setItem('helpdesk_product_name', selOpt.textContent);
+                            if (selOpt) localStorage.setItem('askflow_product_name', selOpt.textContent);
                         } else {
-                            localStorage.removeItem('helpdesk_product_id');
-                            localStorage.removeItem('helpdesk_product_name');
+                            localStorage.removeItem('askflow_product_id');
+                            localStorage.removeItem('askflow_product_name');
                         }
                         // Clear chat and load new welcome message
                         chatMessages = [];
@@ -774,8 +774,8 @@
                     var lowerURL = urlProductName.toLowerCase();
                     for (var j = 0; j < products.length; j++) {
                         if (products[j].name.toLowerCase() === lowerURL) {
-                            localStorage.setItem('helpdesk_product_id', products[j].id);
-                            localStorage.setItem('helpdesk_product_name', products[j].name);
+                            localStorage.setItem('askflow_product_id', products[j].id);
+                            localStorage.setItem('askflow_product_name', products[j].name);
                             var selector = document.getElementById('chat-product-selector');
                             if (selector) selector.value = products[j].id;
                             break;
@@ -788,7 +788,7 @@
         }
 
         // 2. If no localStorage product, try user's default
-        if (!localStorage.getItem('helpdesk_product_id')) {
+        if (!localStorage.getItem('askflow_product_id')) {
             var session = getSession();
             if (session) {
                 var token = session.id || session.session_id || '';
@@ -798,7 +798,7 @@
                 .then(function (res) { return res.json(); })
                 .then(function (pref) {
                     if (pref.default_product_id) {
-                        localStorage.setItem('helpdesk_product_id', pref.default_product_id);
+                        localStorage.setItem('askflow_product_id', pref.default_product_id);
                         var selector = document.getElementById('chat-product-selector');
                         if (selector) selector.value = pref.default_product_id;
                     }
@@ -814,7 +814,7 @@
 
     // Load welcome message for current product
     function loadWelcomeMessage() {
-        var productId = localStorage.getItem('helpdesk_product_id') || '';
+        var productId = localStorage.getItem('askflow_product_id') || '';
         var introUrl = '/api/product-intro' + (productId ? '?product_id=' + encodeURIComponent(productId) : '');
         fetch(introUrl)
             .then(function (res) { return res.json(); })
@@ -859,7 +859,7 @@
         })
         .then(function (res) {
             if (res.ok) {
-                showChatToast(i18n.t('chat_default_product_saved') || '默认产品已保存', 'success');
+                showChatToast(i18n.t('chat_default_product_saved') || '默认产品已保�?, 'success');
             }
         })
         .catch(function () { /* ignore */ });
@@ -1055,7 +1055,7 @@
         html += '<div class="chat-msg-bubble">';
 
         if (msg.isPending) {
-            html += '<span class="pending-icon">⏳</span>';
+            html += '<span class="pending-icon">�?/span>';
         }
         html += renderMarkdown(msg.content);
 
@@ -1111,10 +1111,10 @@
         if (msg.sources && msg.sources.length > 0) {
             var srcId = 'sources-' + msg.timestamp;
             var downloadableTypes = { pdf:1, doc:1, docx:1, word:1, xls:1, xlsx:1, excel:1, ppt:1, pptx:1, video:1, mp4:1, avi:1, mkv:1, mov:1, webm:1 };
-            var productId = localStorage.getItem('helpdesk_product_id') || '';
+            var productId = localStorage.getItem('askflow_product_id') || '';
             html += '<div class="chat-sources">';
             html += '<button class="chat-sources-toggle" onclick="toggleSources(\'' + srcId + '\', this)">';
-            html += '<span class="arrow">▶</span> ' + i18n.t('chat_source_toggle') + '（' + msg.sources.length + '）';
+            html += '<span class="arrow">�?/span> ' + i18n.t('chat_source_toggle') + '�? + msg.sources.length + '�?;
             html += '</button>';
             html += '<ul id="' + srcId + '" class="chat-sources-list">';
             for (var j = 0; j < msg.sources.length; j++) {
@@ -1133,7 +1133,7 @@
                     if (src.end_time > 0 && src.end_time !== src.start_time) {
                         timeLabel += ' - ' + formatMediaTime(src.end_time);
                     }
-                    html += '<span class="chat-source-time">⏱ ' + timeLabel + '</span>';
+                    html += '<span class="chat-source-time">�?' + timeLabel + '</span>';
                 }
                 if (src.snippet) {
                     html += '<span class="chat-source-snippet">' + escapeHtml(src.snippet) + '</span>';
@@ -1151,7 +1151,7 @@
             var dbgId = 'debug-' + msg.timestamp;
             html += '<div class="chat-sources">';
             html += '<button class="chat-sources-toggle" onclick="toggleSources(\'' + dbgId + '\', this)">';
-            html += '<span class="arrow">▶</span> 🔍 ' + i18n.t('chat_debug_toggle');
+            html += '<span class="arrow">�?/span> 🔍 ' + i18n.t('chat_debug_toggle');
             html += '</button>';
             html += '<div id="' + dbgId + '" class="chat-sources-list chat-debug-info" style="font-size:12px;font-family:monospace;">';
             var di = msg.debugInfo;
@@ -1394,7 +1394,7 @@
             var reqBody = {
                 question: userMsg.content,
                 user_id: getChatUserID(),
-                product_id: localStorage.getItem('helpdesk_product_id') || ''
+                product_id: localStorage.getItem('askflow_product_id') || ''
             };
             if (userMsg.imageUrl) {
                 reqBody.image_data = userMsg.imageUrl;
@@ -1414,7 +1414,7 @@
                     if (res.status === 401) {
                         clearSession();
                         navigate('/login');
-                        throw new Error(i18n.t('session_expired') || '会话已过期，请重新登录');
+                        throw new Error(i18n.t('session_expired') || '会话已过期，请重新登�?);
                     }
                     throw new Error('failed');
                 }
@@ -1528,7 +1528,7 @@
         var reqBody = {
             question: question,
             user_id: getChatUserID(),
-            product_id: localStorage.getItem('helpdesk_product_id') || ''
+            product_id: localStorage.getItem('askflow_product_id') || ''
         };
         if (imageData) {
             reqBody.image_data = imageData;
@@ -1554,7 +1554,7 @@
                 if (res.status === 401) {
                     clearSession();
                     navigate('/login');
-                    throw new Error(i18n.t('session_expired') || '会话已过期，请重新登录');
+                    throw new Error(i18n.t('session_expired') || '会话已过期，请重新登�?);
                 }
                 return res.text().then(function (text) {
                     try {
@@ -1628,9 +1628,9 @@
         options.headers['Authorization'] = 'Bearer ' + getAdminToken();
         return fetch(url, options).then(function (res) {
             if (res.status === 401) {
-                // Session expired or invalid — redirect to login
+                // Session expired or invalid �?redirect to login
                 clearAdminSession();
-                showAdminToast(i18n.t('admin_session_expired') || '会话已过期，请重新登录', 'error');
+                showAdminToast(i18n.t('admin_session_expired') || '会话已过期，请重新登�?, 'error');
                 setTimeout(function () { navigate(adminLoginRoute || '/admin'); }, 1500);
             }
             return res;
@@ -2776,7 +2776,7 @@
         var temperature = parseFloat(getVal('cfg-llm-temperature')) || 0.3;
         var maxTokens = parseInt(getVal('cfg-llm-maxtokens')) || 64;
 
-        // Allow empty apiKey — backend will fall back to saved config
+        // Allow empty apiKey �?backend will fall back to saved config
         var apiKeyEl = document.getElementById('cfg-llm-apikey');
         var hasSavedKey = apiKeyEl && apiKeyEl.placeholder && apiKeyEl.placeholder.indexOf('***') !== -1;
         if (!endpoint || (!apiKey && !hasSavedKey) || !model) {
@@ -2797,10 +2797,10 @@
             return res.json();
         })
         .then(function (data) {
-            if (result) { result.textContent = '✅ ' + i18n.t('admin_settings_test_success') + (data.reply ? ' — ' + data.reply : ''); result.style.color = '#38a169'; }
+            if (result) { result.textContent = '�?' + i18n.t('admin_settings_test_success') + (data.reply ? ' �?' + data.reply : ''); result.style.color = '#38a169'; }
         })
         .catch(function (err) {
-            if (result) { result.textContent = '❌ ' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
+            if (result) { result.textContent = '�?' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
         })
         .finally(function () {
             if (btn) btn.disabled = false;
@@ -2818,7 +2818,7 @@
         var multimodal = document.getElementById('cfg-emb-multimodal');
         var useMultimodal = multimodal ? multimodal.value === 'true' : false;
 
-        // Allow empty apiKey — backend will fall back to saved config
+        // Allow empty apiKey �?backend will fall back to saved config
         var apiKeyEl = document.getElementById('cfg-emb-apikey');
         var hasSavedKey = apiKeyEl && apiKeyEl.placeholder && apiKeyEl.placeholder.indexOf('***') !== -1;
         if (!endpoint || (!apiKey && !hasSavedKey) || !model) {
@@ -2839,10 +2839,10 @@
             return res.json();
         })
         .then(function (data) {
-            if (result) { result.textContent = '✅ ' + i18n.t('admin_settings_test_success') + ' — ' + (data.dimensions || 0) + ' dims'; result.style.color = '#38a169'; }
+            if (result) { result.textContent = '�?' + i18n.t('admin_settings_test_success') + ' �?' + (data.dimensions || 0) + ' dims'; result.style.color = '#38a169'; }
         })
         .catch(function (err) {
-            if (result) { result.textContent = '❌ ' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
+            if (result) { result.textContent = '�?' + (err.message || i18n.t('admin_settings_test_failed')); result.style.color = '#e53e3e'; }
         })
         .finally(function () {
             if (btn) btn.disabled = false;
@@ -2987,25 +2987,25 @@
         var ffmpegLabel = document.getElementById('dep-ffmpeg-label');
         var rapidspeechIcon = document.getElementById('dep-rapidspeech-icon');
         var rapidspeechLabel = document.getElementById('dep-rapidspeech-label');
-        if (ffmpegIcon) ffmpegIcon.textContent = '⏳';
+        if (ffmpegIcon) ffmpegIcon.textContent = '�?;
         if (ffmpegLabel) ffmpegLabel.textContent = i18n.t('admin_multimodal_checking');
-        if (rapidspeechIcon) rapidspeechIcon.textContent = '⏳';
+        if (rapidspeechIcon) rapidspeechIcon.textContent = '�?;
         if (rapidspeechLabel) rapidspeechLabel.textContent = i18n.t('admin_multimodal_checking');
 
         adminFetch('/api/video/check-deps')
             .then(function (res) { return res.json(); })
             .then(function (data) {
-                if (ffmpegIcon) ffmpegIcon.textContent = data.ffmpeg_ok ? '✅' : '❌';
+                if (ffmpegIcon) ffmpegIcon.textContent = data.ffmpeg_ok ? '�? : '�?;
                 if (ffmpegLabel) ffmpegLabel.textContent = data.ffmpeg_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
                 if (ffmpegLabel) ffmpegLabel.style.color = data.ffmpeg_ok ? '#38a169' : '#e53e3e';
-                if (rapidspeechIcon) rapidspeechIcon.textContent = data.rapidspeech_ok ? '✅' : '❌';
+                if (rapidspeechIcon) rapidspeechIcon.textContent = data.rapidspeech_ok ? '�? : '�?;
                 if (rapidspeechLabel) rapidspeechLabel.textContent = data.rapidspeech_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
                 if (rapidspeechLabel) rapidspeechLabel.style.color = data.rapidspeech_ok ? '#38a169' : '#e53e3e';
             })
             .catch(function () {
-                if (ffmpegIcon) ffmpegIcon.textContent = '❓';
+                if (ffmpegIcon) ffmpegIcon.textContent = '�?;
                 if (ffmpegLabel) ffmpegLabel.textContent = i18n.t('admin_multimodal_check_failed');
-                if (rapidspeechIcon) rapidspeechIcon.textContent = '❓';
+                if (rapidspeechIcon) rapidspeechIcon.textContent = '�?;
                 if (rapidspeechLabel) rapidspeechLabel.textContent = i18n.t('admin_multimodal_check_failed');
             });
     };
@@ -3631,7 +3631,7 @@
             var p = products[i];
             var createdAt = p.created_at ? new Date(p.created_at).toLocaleString() : '-';
             var typeLabel = p.type === 'knowledge_base' ? i18n.t('admin_products_type_knowledge') : i18n.t('admin_products_type_service');
-            var dlLabel = p.allow_download ? '✅' : '—';
+            var dlLabel = p.allow_download ? '�? : '�?;
             html += '<tr>' +
                 '<td>' + escapeHtml(p.name) + '</td>' +
                 '<td>' + escapeHtml(typeLabel) + '</td>' +
@@ -4034,8 +4034,8 @@
     window.logout = function () {
         chatMessages = [];
         chatLoading = false;
-        localStorage.removeItem('helpdesk_product_id');
-        localStorage.removeItem('helpdesk_product_name');
+        localStorage.removeItem('askflow_product_id');
+        localStorage.removeItem('askflow_product_name');
         clearSession();
         navigate('/login');
     };
@@ -4147,7 +4147,7 @@
                 var sel = document.getElementById('batch-product-select');
                 if (!sel) return;
                 var products = data.products || [];
-                sel.innerHTML = '<option value="">公共库</option>';
+                sel.innerHTML = '<option value="">公共�?/option>';
                 products.forEach(function (p) {
                     sel.innerHTML += '<option value="' + p.id + '">' + p.name + '</option>';
                 });
@@ -4167,7 +4167,7 @@
         var productID = document.getElementById('batch-product-select').value || '';
         var btn = document.getElementById('batch-import-btn');
         btn.disabled = true;
-        btn.textContent = '导入中...';
+        btn.textContent = '导入�?..';
 
         // Reset UI
         var progressSection = document.getElementById('batch-progress-section');
@@ -4176,7 +4176,7 @@
         reportSection.classList.add('hidden');
         document.getElementById('batch-progress-log').innerHTML = '';
         document.getElementById('batch-progress-fill').style.width = '0%';
-        document.getElementById('batch-progress-text').textContent = '准备中...';
+        document.getElementById('batch-progress-text').textContent = '准备�?..';
         document.getElementById('batch-progress-percent').textContent = '0%';
 
         var token = getAdminToken();
@@ -4228,7 +4228,7 @@
             showAdminToast('批量导入失败: ' + err.message, 'error');
         }).finally(function () {
             btn.disabled = false;
-            btn.textContent = '开始导入';
+            btn.textContent = '开始导�?;
         });
     };
 
@@ -4239,7 +4239,7 @@
         var percentEl = document.getElementById('batch-progress-percent');
 
         if (event === 'start') {
-            textEl.textContent = '共 ' + data.total + ' 个文件，开始导入...';
+            textEl.textContent = '�?' + data.total + ' 个文件，开始导�?..';
         } else if (event === 'progress') {
             var pct = Math.round((data.index / data.total) * 100);
             fillEl.style.width = pct + '%';
@@ -4250,10 +4250,10 @@
             item.className = 'log-item';
             if (data.status === 'success') {
                 item.className += ' log-success';
-                item.textContent = '[' + data.index + '/' + data.total + '] ✓ ' + data.file;
+                item.textContent = '[' + data.index + '/' + data.total + '] �?' + data.file;
             } else {
                 item.className += ' log-failed';
-                item.textContent = '[' + data.index + '/' + data.total + '] ✗ ' + data.file + ' — ' + data.reason;
+                item.textContent = '[' + data.index + '/' + data.total + '] �?' + data.file + ' �?' + data.reason;
             }
             logEl.appendChild(item);
             logEl.scrollTop = logEl.scrollHeight;

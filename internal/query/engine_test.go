@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"helpdesk/internal/config"
-	"helpdesk/internal/vectorstore"
+	"askflow/internal/config"
+	"askflow/internal/vectorstore"
 
 	_ "github.com/mattn/go-sqlite3"
 	"pgregory.net/rapid"

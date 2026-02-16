@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 echo ================================================
-echo   Helpdesk Windows Installer Builder
+echo   Askflow Windows Installer Builder
 echo ================================================
 echo.
 
@@ -27,15 +27,15 @@ if not exist build\dist mkdir build\dist
 if not exist build\installer mkdir build\installer
 
 REM Build executable
-echo [2/5] Building helpdesk.exe for Windows...
+echo [2/5] Building askflow.exe for Windows...
 set GOOS=windows
 set GOARCH=amd64
-go build -o build\dist\helpdesk.exe .
+go build -o build\dist\askflow.exe .
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to build executable
     exit /b 1
 )
-echo       âœ“ Executable built successfully
+echo       âœ?Executable built successfully
 
 REM Copy frontend files
 echo [3/5] Copying frontend files...
@@ -45,7 +45,7 @@ if %errorlevel% neq 0 (
     echo [ERROR] Failed to copy frontend files
     exit /b 1
 )
-echo       âœ“ Frontend files copied
+echo       âœ?Frontend files copied
 
 REM Check for LICENSE file
 echo [4/5] Checking for LICENSE file...
@@ -53,16 +53,16 @@ if not exist LICENSE (
     echo [WARNING] LICENSE file not found, creating placeholder...
     echo MIT License > LICENSE
 )
-echo       âœ“ LICENSE file present
+echo       âœ?LICENSE file present
 
 REM Build installer
 echo [5/5] Building NSIS installer...
-"%NSIS_PATH%" /V2 build\installer\helpdesk.nsi
+"%NSIS_PATH%" /V2 build\installer\askflow.nsi
 if %errorlevel% neq 0 (
     echo [ERROR] Failed to build installer
     exit /b 1
 )
-echo       âœ“ Installer built successfully
+echo       âœ?Installer built successfully
 
 REM Show results
 echo.
@@ -70,10 +70,10 @@ echo ================================================
 echo   Build Complete!
 echo ================================================
 echo.
-echo Installer: build\installer\helpdesk-installer.exe
+echo Installer: build\installer\askflow-installer.exe
 echo.
 echo You can now distribute this installer to install
-echo Helpdesk as a Windows service.
+echo Askflow as a Windows service.
 echo.
 
 endlocal

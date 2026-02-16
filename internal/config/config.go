@@ -19,7 +19,7 @@ import (
 )
 
 // encryptionKeyEnvVar is the environment variable name for the AES encryption key.
-const encryptionKeyEnvVar = "HELPDESK_ENCRYPTION_KEY"
+const encryptionKeyEnvVar = "ASKFLOW_ENCRYPTION_KEY"
 
 // encryptedPrefix marks a value as AES-encrypted in the config file.
 const encryptedPrefix = "enc:"
@@ -128,7 +128,7 @@ type ConfigManager struct {
 }
 
 // NewConfigManager creates a new ConfigManager for the given config file path.
-// The AES encryption key is read from the HELPDESK_ENCRYPTION_KEY environment variable.
+// The AES encryption key is read from the ASKFLOW_ENCRYPTION_KEY environment variable.
 // If the env var is not set, a random 32-byte key is generated and set in the environment.
 func NewConfigManager(configPath string) (*ConfigManager, error) {
 	key, err := getOrCreateEncryptionKey()
@@ -175,7 +175,7 @@ func DefaultConfig() *Config {
 			UseMultimodal: true,
 		},
 		Vector: VectorConfig{
-			DBPath:           "helpdesk.db",
+			DBPath:           "askflow.db",
 			ChunkSize:        512,
 			Overlap:          128,
 			TopK:             5,

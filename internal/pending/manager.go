@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"helpdesk/internal/chunker"
-	"helpdesk/internal/embedding"
-	"helpdesk/internal/llm"
-	"helpdesk/internal/vectorstore"
+	"askflow/internal/chunker"
+	"askflow/internal/embedding"
+	"askflow/internal/llm"
+	"askflow/internal/vectorstore"
 )
 
 // PendingQuestion represents a user question awaiting admin response.

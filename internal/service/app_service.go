@@ -1,5 +1,5 @@
 // Package service provides the application service layer that encapsulates
-// initialization and lifecycle management for the Helpdesk application.
+// initialization and lifecycle management for the Askflow application.
 package service
 
 import (
@@ -14,20 +14,20 @@ import (
 	"sync"
 	"time"
 
-	"helpdesk/internal/auth"
-	"helpdesk/internal/chunker"
-	"helpdesk/internal/config"
-	"helpdesk/internal/db"
-	"helpdesk/internal/document"
-	"helpdesk/internal/email"
-	"helpdesk/internal/embedding"
-	"helpdesk/internal/llm"
-	"helpdesk/internal/parser"
-	"helpdesk/internal/pending"
-	"helpdesk/internal/product"
-	"helpdesk/internal/query"
-	"helpdesk/internal/vectorstore"
-	"helpdesk/internal/video"
+	"askflow/internal/auth"
+	"askflow/internal/chunker"
+	"askflow/internal/config"
+	"askflow/internal/db"
+	"askflow/internal/document"
+	"askflow/internal/email"
+	"askflow/internal/embedding"
+	"askflow/internal/llm"
+	"askflow/internal/parser"
+	"askflow/internal/pending"
+	"askflow/internal/product"
+	"askflow/internal/query"
+	"askflow/internal/vectorstore"
+	"askflow/internal/video"
 )
 
 // AppService encapsulates the entire application initialization and lifecycle.
@@ -172,10 +172,10 @@ func (as *AppService) Run(ctx context.Context) error {
 	errCh := make(chan error, 1)
 	go func() {
 		if as.cfg.Server.SSLCert != "" && as.cfg.Server.SSLKey != "" {
-			log.Printf("Helpdesk system starting on https://%s", as.server.Addr)
+			log.Printf("Askflow system starting on https://%s", as.server.Addr)
 			errCh <- as.server.ListenAndServeTLS(as.cfg.Server.SSLCert, as.cfg.Server.SSLKey)
 		} else {
-			log.Printf("Helpdesk system starting on http://%s", as.server.Addr)
+			log.Printf("Askflow system starting on http://%s", as.server.Addr)
 			errCh <- as.server.ListenAndServe()
 		}
 	}()

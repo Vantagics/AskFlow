@@ -8,9 +8,9 @@ import (
 	"testing/quick"
 	"time"
 
-	"helpdesk/internal/chunker"
-	"helpdesk/internal/db"
-	"helpdesk/internal/vectorstore"
+	"askflow/internal/chunker"
+	"askflow/internal/db"
+	"askflow/internal/vectorstore"
 )
 
 // mockEmbeddingService implements embedding.EmbeddingService for testing.

@@ -7,11 +7,11 @@ if "%DEPLOY_PASS%"=="" set /p DEPLOY_PASS=Enter password:
 
 set PASS=%DEPLOY_PASS%
 set REMOTE_DIR=/root/vantageselfservice
-set BINARY_NAME=helpdesk
+set BINARY_NAME=askflow
 set SSHPASS=C:\Users\ma139\sshpass\sshpass
 
 echo ============================================
-echo  Helpdesk One-Click Deploy
+echo  Askflow One-Click Deploy
 echo  Target: %USER%@%SERVER%:%REMOTE_DIR%
 echo ============================================
 echo.
@@ -57,7 +57,7 @@ echo        Build OK
 echo.
 
 echo [3.5/4] Packaging built artifacts on server...
-set RELEASE_NAME=helpdesk_release_linux.tar.gz
+set RELEASE_NAME=askflow_release_linux.tar.gz
 %SSHPASS% -p %PASS% ssh -o StrictHostKeyChecking=accept-new %USER%@%SERVER% "cd %REMOTE_DIR% && tar -czf %RELEASE_NAME% %BINARY_NAME% frontend"
 echo        Package OK
 echo.

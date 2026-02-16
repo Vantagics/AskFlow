@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"helpdesk/internal/config"
+	"askflow/internal/config"
 
 	"golang.org/x/oauth2"
 )

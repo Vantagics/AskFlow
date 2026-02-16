@@ -1,13 +1,13 @@
 # Windows Service Installation Guide
 
-Helpdesk now supports running as a Windows service with automatic startup.
+Askflow now supports running as a Windows service with automatic startup.
 
 ## Installation Methods
 
 ### Method 1: Using the Installer (Recommended)
 
 1. Run `build\build_installer.cmd` to create the installer
-2. Run the generated `build\installer\helpdesk-installer.exe`
+2. Run the generated `build\installer\askflow-installer.exe`
 3. Follow the installation wizard
 4. The service will be installed and started automatically
 
@@ -16,7 +16,7 @@ Helpdesk now supports running as a Windows service with automatic startup.
 #### Install the Service
 
 ```cmd
-helpdesk.exe install --datadir="C:\ProgramData\Helpdesk\data"
+askflow.exe install --datadir="C:\ProgramData\Askflow\data"
 ```
 
 Options:
@@ -25,22 +25,22 @@ Options:
 #### Start the Service
 
 ```cmd
-helpdesk.exe start
+askflow.exe start
 ```
 
-Or use Windows Services Manager (`services.msc`) to start "Helpdesk Support Service"
+Or use Windows Services Manager (`services.msc`) to start "Askflow Support Service"
 
 #### Stop the Service
 
 ```cmd
-helpdesk.exe stop
+askflow.exe stop
 ```
 
 #### Uninstall the Service
 
 ```cmd
-helpdesk.exe stop
-helpdesk.exe remove
+askflow.exe stop
+askflow.exe remove
 ```
 
 ## Service Configuration
@@ -58,9 +58,9 @@ You can specify a custom data directory during installation or when manually ins
 
 ### Logging
 
-When running as a service, Helpdesk logs to:
-1. **Windows Event Log**: Application log with source "HelpdeskService"
-2. **File Log**: `<datadir>\logs\helpdesk.log`
+When running as a service, Askflow logs to:
+1. **Windows Event Log**: Application log with source "AskflowService"
+2. **File Log**: `<datadir>\logs\askflow.log`
 
 View Windows event logs:
 ```cmd
@@ -69,7 +69,7 @@ eventvwr.msc
 
 View file logs:
 ```cmd
-type C:\ProgramData\Helpdesk\data\logs\helpdesk.log
+type C:\ProgramData\Askflow\data\logs\askflow.log
 ```
 
 ### Port Configuration
@@ -78,22 +78,22 @@ The service listens on port 8080 by default. To change:
 1. Edit `<datadir>\config.json`
 2. Restart the service:
    ```cmd
-   helpdesk stop
-   helpdesk start
+   askflow stop
+   askflow start
    ```
 
 ## Console Mode
 
-You can still run Helpdesk in console mode (not as a service):
+You can still run Askflow in console mode (not as a service):
 
 ```cmd
-helpdesk.exe
+askflow.exe
 ```
 
 Or with custom data directory:
 
 ```cmd
-helpdesk.exe --datadir="C:\CustomPath\data"
+askflow.exe --datadir="C:\CustomPath\data"
 ```
 
 Console mode is useful for:
@@ -107,16 +107,16 @@ All CLI commands work regardless of service status:
 
 ```cmd
 # Import documents
-helpdesk.exe import --product <id> C:\Docs
+askflow.exe import --product <id> C:\Docs
 
 # List products
-helpdesk.exe products
+askflow.exe products
 
 # Backup database
-helpdesk.exe backup --output C:\Backups
+askflow.exe backup --output C:\Backups
 
 # Restore from backup
-helpdesk.exe restore C:\Backups\helpdesk_full_*.tar.gz
+askflow.exe restore C:\Backups\askflow_full_*.tar.gz
 ```
 
 ## Troubleshooting
@@ -130,14 +130,14 @@ helpdesk.exe restore C:\Backups\helpdesk_full_*.tar.gz
 
 2. Check file log:
    ```cmd
-   type C:\ProgramData\Helpdesk\data\logs\helpdesk.log
+   type C:\ProgramData\Askflow\data\logs\askflow.log
    ```
 
 3. Verify data directory exists and is writable
 
 4. Try running in console mode to see errors:
    ```cmd
-   helpdesk.exe --datadir="C:\ProgramData\Helpdesk\data"
+   askflow.exe --datadir="C:\ProgramData\Askflow\data"
    ```
 
 ### Access Denied Errors
@@ -150,22 +150,22 @@ If using a custom data directory, ensure the service account has read/write perm
 
 If port 8080 is already in use:
 1. Stop the conflicting service
-2. Or change Helpdesk port in `config.json`
+2. Or change Askflow port in `config.json`
 
 ### Cannot Install Service
 
 Ensure you're running as Administrator:
-- Right-click `cmd.exe` â†’ "Run as administrator"
+- Right-click `cmd.exe` â†?"Run as administrator"
 - Then run the install command
 
 ## Automatic Startup
 
-When installed as a service, Helpdesk starts automatically on system boot.
+When installed as a service, Askflow starts automatically on system boot.
 
 To disable automatic startup:
 1. Open `services.msc`
-2. Find "Helpdesk Support Service"
-3. Right-click â†’ Properties
+2. Find "Askflow Support Service"
+3. Right-click â†?Properties
 4. Change "Startup type" to "Manual" or "Disabled"
 
 ## Uninstalling
@@ -173,20 +173,20 @@ To disable automatic startup:
 ### Using the Installer
 
 1. Open "Add or Remove Programs"
-2. Find "Helpdesk Support Service"
+2. Find "Askflow Support Service"
 3. Click "Uninstall"
 4. Choose whether to keep or delete data directory
 
 ### Manual Uninstall
 
 ```cmd
-helpdesk.exe stop
-helpdesk.exe remove
+askflow.exe stop
+askflow.exe remove
 ```
 
 Then manually delete:
-- Installation directory (e.g., `C:\Program Files\Helpdesk`)
-- Data directory (e.g., `C:\ProgramData\Helpdesk\data`)
+- Installation directory (e.g., `C:\Program Files\Askflow`)
+- Data directory (e.g., `C:\ProgramData\Askflow\data`)
 
 ## Building the Installer
 
@@ -202,7 +202,7 @@ build\build_installer.cmd
 
 The installer will be created at:
 ```
-build\installer\helpdesk-installer.exe
+build\installer\askflow-installer.exe
 ```
 
 ## Architecture

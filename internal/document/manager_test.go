@@ -10,11 +10,11 @@ import (
 	"testing/quick"
 	"time"
 
-	"helpdesk/internal/chunker"
-	"helpdesk/internal/config"
-	"helpdesk/internal/db"
-	"helpdesk/internal/parser"
-	"helpdesk/internal/vectorstore"
+	"askflow/internal/chunker"
+	"askflow/internal/config"
+	"askflow/internal/db"
+	"askflow/internal/parser"
+	"askflow/internal/vectorstore"
 
 	"pgregory.net/rapid"
 )
@@ -212,7 +212,7 @@ func TestUploadURL_Success(t *testing.T) {
 	defer cleanup()
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("This is test content from a URL for the helpdesk knowledge base."))
+		w.Write([]byte("This is test content from a URL for the askflow knowledge base."))
 	}))
 	defer ts.Close()
 

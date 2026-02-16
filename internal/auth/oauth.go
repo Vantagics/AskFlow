@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"helpdesk/internal/config"
+	"askflow/internal/config"
 
 	"golang.org/x/oauth2"
 )

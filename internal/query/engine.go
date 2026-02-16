@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"helpdesk/internal/config"
-	"helpdesk/internal/embedding"
-	"helpdesk/internal/llm"
-	"helpdesk/internal/vectorstore"
+	"askflow/internal/config"
+	"askflow/internal/embedding"
+	"askflow/internal/llm"
+	"askflow/internal/vectorstore"
 )
 
 // QueryRequest represents a user's question submission.

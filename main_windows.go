@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"helpdesk/internal/service"
-	helpdeskSvc "helpdesk/internal/svc"
+	"askflow/internal/service"
+	askflowSvc "askflow/internal/svc"
 
 	"golang.org/x/sys/windows/svc"
 )
@@ -46,12 +46,12 @@ func handleInstall(args []string) {
 		serviceArgs = append(serviceArgs, fmt.Sprintf("--port=%d", port))
 	}
 
-	err = helpdeskSvc.InstallService(serviceName, displayName, description, exePath, serviceArgs)
+	err = askflowSvc.InstallService(serviceName, displayName, description, exePath, serviceArgs)
 	if err != nil {
 		log.Fatalf("Failed to install service: %v", err)
 	}
 
-	fmt.Println("âœ“ Service installed successfully")
+	fmt.Println("âœ?Service installed successfully")
 	if dataDir != "./data" {
 		fmt.Printf("  Data directory: %s\n", dataDir)
 	}
@@ -62,41 +62,41 @@ func handleInstall(args []string) {
 		fmt.Printf("  Port: %d\n", port)
 	}
 	fmt.Println("\nTo start the service, run:")
-	fmt.Println("  helpdesk start")
+	fmt.Println("  askflow start")
 	fmt.Println("\nOr use Windows Services Manager (services.msc)")
 }
 
 // handleRemove uninstalls the Windows service.
 func handleRemove() {
-	err := helpdeskSvc.RemoveService(serviceName)
+	err := askflowSvc.RemoveService(serviceName)
 	if err != nil {
 		log.Fatalf("Failed to remove service: %v", err)
 	}
-	fmt.Println("âœ“ Service removed successfully")
+	fmt.Println("âœ?Service removed successfully")
 }
 
 // handleStart starts the Windows service.
 func handleStart() {
-	err := helpdeskSvc.StartService(serviceName)
+	err := askflowSvc.StartService(serviceName)
 	if err != nil {
 		log.Fatalf("Failed to start service: %v", err)
 	}
-	fmt.Println("âœ“ Service started successfully")
+	fmt.Println("âœ?Service started successfully")
 }
 
 // handleStop stops the Windows service.
 func handleStop() {
-	err := helpdeskSvc.StopService(serviceName)
+	err := askflowSvc.StopService(serviceName)
 	if err != nil {
 		log.Fatalf("Failed to stop service: %v", err)
 	}
-	fmt.Println("âœ“ Service stopped successfully")
+	fmt.Println("âœ?Service stopped successfully")
 }
 
 // runAsService runs the application as a Windows service.
 func runAsService(dataDir string) {
 	// Initialize service logger
-	logger, err := helpdeskSvc.NewServiceLogger(serviceName, true, filepath.Join(dataDir, "logs"))
+	logger, err := askflowSvc.NewServiceLogger(serviceName, true, filepath.Join(dataDir, "logs"))
 	if err != nil {
 		log.Fatalf("Failed to create service logger: %v", err)
 	}
@@ -118,11 +118,11 @@ func runAsService(dataDir string) {
 	http.Handle("/", spaHandler("frontend/dist"))
 
 	// Create Windows service handler
-	helpdeskService := helpdeskSvc.NewHelpdeskService(appSvc, logger)
+	askflowService := askflowSvc.NewaskflowService(appSvc, logger)
 
 	// Run as Windows service
-	logger.Info("Starting Helpdesk service...")
-	if err := svc.Run(serviceName, helpdeskService); err != nil {
+	logger.Info("Starting Askflow service...")
+	if err := svc.Run(serviceName, askflowService); err != nil {
 		logger.Error("Service failed: %v", err)
 		log.Fatalf("Service failed: %v", err)
 	}

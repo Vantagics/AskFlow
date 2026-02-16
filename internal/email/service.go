@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"helpdesk/internal/config"
+	"askflow/internal/config"
 )
 
 // Service sends emails via SMTP.

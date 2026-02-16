@@ -73,8 +73,8 @@ func TestLoad_CreatesDefaultOnMissing(t *testing.T) {
 	if cfg.LLM.MaxTokens != 2048 {
 		t.Errorf("MaxTokens = %d, want 2048", cfg.LLM.MaxTokens)
 	}
-	if cfg.Vector.DBPath != "./data/helpdesk.db" {
-		t.Errorf("DBPath = %q, want ./data/helpdesk.db", cfg.Vector.DBPath)
+	if cfg.Vector.DBPath != "./data/askflow.db" {
+		t.Errorf("DBPath = %q, want ./data/askflow.db", cfg.Vector.DBPath)
 	}
 }
 
