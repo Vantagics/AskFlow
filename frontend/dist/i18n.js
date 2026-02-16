@@ -199,8 +199,8 @@
 
             // Admin - delete dialog
             'admin_delete_title': '确认删除',
-            'admin_delete_msg': '确定要删除文�?{name}"吗？此操作不可撤销�?,
-            'admin_delete_default_msg': '确定要删除该文档吗？此操作不可撤销�?,
+            'admin_delete_msg': '确定要删除文档"{name}"吗？此操作不可撤销。',
+            'admin_delete_default_msg': '确定要删除该文档吗？此操作不可撤销。',
             'admin_delete_cancel': '取消',
             'admin_delete_confirm': '删除',
             'admin_delete_success': '文档已删�?,
