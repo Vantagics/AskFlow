@@ -51,7 +51,7 @@ func handleInstall(args []string) {
 		log.Fatalf("Failed to install service: %v", err)
 	}
 
-	fmt.Println("âœ?Service installed successfully")
+	fmt.Println("âœ“ Service installed successfully")
 	if dataDir != "./data" {
 		fmt.Printf("  Data directory: %s\n", dataDir)
 	}
@@ -72,7 +72,7 @@ func handleRemove() {
 	if err != nil {
 		log.Fatalf("Failed to remove service: %v", err)
 	}
-	fmt.Println("âœ?Service removed successfully")
+	fmt.Println("ï¿½?Service removed successfully")
 }
 
 // handleStart starts the Windows service.
@@ -81,7 +81,7 @@ func handleStart() {
 	if err != nil {
 		log.Fatalf("Failed to start service: %v", err)
 	}
-	fmt.Println("âœ?Service started successfully")
+	fmt.Println("ï¿½?Service started successfully")
 }
 
 // handleStop stops the Windows service.
@@ -90,7 +90,7 @@ func handleStop() {
 	if err != nil {
 		log.Fatalf("Failed to stop service: %v", err)
 	}
-	fmt.Println("âœ?Service stopped successfully")
+	fmt.Println("ï¿½?Service stopped successfully")
 }
 
 // runAsService runs the application as a Windows service.
@@ -118,7 +118,7 @@ func runAsService(dataDir string) {
 	http.Handle("/", spaHandler("frontend/dist"))
 
 	// Create Windows service handler
-	askflowService := askflowSvc.NewaskflowService(appSvc, logger)
+	askflowService := askflowSvc.NewAskflowService(appSvc, logger)
 
 	// Run as Windows service
 	logger.Info("Starting Askflow service...")
