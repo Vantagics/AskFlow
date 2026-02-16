@@ -745,6 +745,7 @@ func registerAPIHandlers(app *App) {
 	http.HandleFunc("/api/auth/login", secureAPI(rateLimit(handleUserLogin(app))))
 	http.HandleFunc("/api/auth/verify", secureAPI(handleVerifyEmail(app)))
 	http.HandleFunc("/api/auth/sn-login", secureAPI(rateLimit(handleSNLogin(app))))
+	http.HandleFunc("/api/auth/ticket-exchange", secureAPI(rateLimit(handleTicketExchange(app))))
 	http.HandleFunc("/auth/ticket-login", handleTicketLogin(app))
 	http.HandleFunc("/api/captcha", secureAPI(handleCaptcha()))
 	http.HandleFunc("/api/captcha/image", secureAPI(rateLimit(handleCaptchaImage())))
@@ -1221,8 +1222,8 @@ func handleSNLogin(app *App) http.HandlerFunc {
 	}
 }
 
-// handleTicketLogin handles GET /auth/ticket-login?ticket=xxx — validates a one-time
-// login ticket, creates a session, and redirects to the main page.
+// handleTicketLogin handles GET /auth/ticket-login?ticket=xxx — redirects to the
+// SPA with the ticket as a query parameter so the frontend can exchange it via JS.
 func handleTicketLogin(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -1230,23 +1231,75 @@ func handleTicketLogin(app *App) http.HandlerFunc {
 			return
 		}
 		ticket := r.URL.Query().Get("ticket")
-		sessionID, err := app.ValidateLoginTicket(ticket)
-		if err != nil {
-			http.Redirect(w, r, "/login?error="+err.Error(), http.StatusFound)
+		if ticket == "" {
+			http.Redirect(w, r, "/login?error=invalid_ticket", http.StatusFound)
 			return
 		}
-		// Set session cookie
-		isHTTPS := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-		http.SetCookie(w, &http.Cookie{
-			Name:     "session_id",
-			Value:    sessionID,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   isHTTPS,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   86400, // 24 hours
+		// Pass ticket to frontend — the SPA will call /api/auth/ticket-exchange to
+		// validate it and store the session in localStorage (same pattern as OAuth).
+		http.Redirect(w, r, "/?ticket="+ticket, http.StatusFound)
+	}
+}
+
+// handleTicketExchange handles POST /api/auth/ticket-exchange — validates a one-time
+// login ticket and returns {session, user} JSON for the frontend to store in localStorage.
+func handleTicketExchange(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var req struct {
+			Ticket string `json:"ticket"`
+		}
+		if err := readJSONBody(r, &req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false, "message": "ticket is required",
+			})
+			return
+		}
+		if req.Ticket == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false, "message": "ticket is required",
+			})
+			return
+		}
+
+		sessionID, err := app.ValidateLoginTicket(req.Ticket)
+		if err != nil {
+			status := http.StatusUnauthorized
+			writeJSON(w, status, map[string]interface{}{
+				"success": false, "message": err.Error(),
+			})
+			return
+		}
+
+		// Fetch session details
+		session, err := app.sessionManager.ValidateSession(sessionID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+				"success": false, "message": "internal error",
+			})
+			return
+		}
+
+		// Fetch user info
+		var email, name, provider string
+		_ = app.db.QueryRow(
+			"SELECT COALESCE(email,''), COALESCE(name,''), COALESCE(provider,'') FROM users WHERE id = ?",
+			session.UserID,
+		).Scan(&email, &name, &provider)
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"session": session,
+			"user": map[string]string{
+				"id":       session.UserID,
+				"email":    email,
+				"name":     name,
+				"provider": provider,
+			},
 		})
-		http.Redirect(w, r, "/", http.StatusFound)
 	}
 }
 
