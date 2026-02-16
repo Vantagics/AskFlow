@@ -1180,14 +1180,14 @@ a.chat-source-download:hover {
 
 .chat-input-wrapper {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 0.5rem;
     max-width: 800px;
     margin: 0 auto;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
-    padding: 0.5rem 0.5rem 0.5rem 1rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.5rem;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 
