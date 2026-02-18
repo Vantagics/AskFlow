@@ -1689,8 +1689,8 @@
         if (tab === 'documents') { loadAdminProductSelectors().then(function() { loadDocumentList(); }); }
         if (tab === 'pending') loadPendingQuestions();
         if (tab === 'knowledge') loadAdminProductSelectors();
-        if (tab === 'settings') loadAdminSettings();
-        if (tab === 'multimodal') loadMultimodalSettings();
+        if (tab === 'settings') { loadAdminSettings(); i18n.applyI18nToPage(); }
+        if (tab === 'multimodal') { loadMultimodalSettings(); i18n.applyI18nToPage(); }
         if (tab === 'users') { loadAdminUsers(); loadProductCheckboxes(); i18n.applyI18nToPage(); }
         if (tab === 'products') { loadProducts(); i18n.applyI18nToPage(); }
         if (tab === 'bans') loadLoginBans();
@@ -3144,7 +3144,7 @@
                 }
             })
             .catch(function () {
-                showAdminToast(i18n.t('admin_multimodal_check_failed') || 'RapidSpeech 配置验证失败', 'error');
+                showAdminToast(i18n.t('admin_multimodal_validate_failed'), 'error');
             });
         } else {
             doSave();
@@ -3179,6 +3179,7 @@
     };
 
     window.closeAutoSetup = function () {
+        var wasRunning = autoSetupRunning;
         if (autoSetupRunning) {
             if (!confirm(i18n.t('admin_multimodal_auto_setup_cancel_confirm'))) return;
             if (autoSetupAbort) { autoSetupAbort.abort(); autoSetupAbort = null; }
@@ -3186,8 +3187,10 @@
         }
         var modal = document.getElementById('auto-setup-modal');
         if (modal) modal.classList.add('hidden');
-        checkMultimodalDeps();
-        loadMultimodalSettings();
+        if (wasRunning) {
+            checkMultimodalDeps();
+            loadMultimodalSettings();
+        }
     };
 
     window.confirmAutoSetup = function () {
@@ -3250,7 +3253,7 @@
         }).then(function (response) {
             if (!response.ok) {
                 return response.json().then(function (data) {
-                    throw new Error(data.error || 'Auto-setup failed');
+                    throw new Error(data.error || i18n.t('admin_multimodal_auto_setup_failed'));
                 });
             }
             var reader = response.body.getReader();
@@ -3262,6 +3265,7 @@
                     if (result.done) {
                         flushLogs();
                         autoSetupRunning = false;
+                        autoSetupAbort = null;
                         if (closeBtn) closeBtn.disabled = false;
                         return;
                     }
@@ -3292,6 +3296,7 @@
                                     if (status) { status.className = 'auto-setup-status error'; }
                                 }
                                 autoSetupRunning = false;
+                                autoSetupAbort = null;
                                 if (closeBtn) closeBtn.disabled = false;
                                 if (isSuccess) { checkMultimodalDeps(); loadMultimodalSettings(); }
                             } else if (evt.type === 'log') {
@@ -3306,13 +3311,14 @@
         }).catch(function (err) {
             flushLogs();
             if (err.name === 'AbortError') {
-                appendLog('⚠️ ' + (i18n.t('admin_multimodal_auto_setup_aborted') || '安装已取消'), 'log-error');
-                if (status) { status.textContent = i18n.t('admin_multimodal_auto_setup_aborted') || '安装已取消'; status.className = 'auto-setup-status error'; }
+                appendLog('⚠️ ' + i18n.t('admin_multimodal_auto_setup_aborted'), 'log-error');
+                if (status) { status.textContent = i18n.t('admin_multimodal_auto_setup_aborted'); status.className = 'auto-setup-status error'; }
             } else {
-                appendLog('❌ ' + (err.message || 'Connection failed'), 'log-error');
-                if (status) { status.textContent = err.message || 'Failed'; status.className = 'auto-setup-status error'; }
+                appendLog('❌ ' + (err.message || i18n.t('admin_multimodal_auto_setup_conn_failed')), 'log-error');
+                if (status) { status.textContent = err.message || i18n.t('admin_multimodal_auto_setup_conn_failed'); status.className = 'auto-setup-status error'; }
             }
             autoSetupRunning = false;
+            autoSetupAbort = null;
             if (closeBtn) closeBtn.disabled = false;
         });
     };
