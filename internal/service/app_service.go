@@ -21,6 +21,7 @@ import (
 	"askflow/internal/document"
 	"askflow/internal/email"
 	"askflow/internal/embedding"
+	"askflow/internal/errlog"
 	"askflow/internal/llm"
 	"askflow/internal/parser"
 	"askflow/internal/pending"
@@ -53,6 +54,11 @@ type AppService struct {
 // overrideBind and overridePort can be used to bypass settings in the config file.
 func (as *AppService) Initialize(dataDir string, overrideBind string, overridePort int) error {
 	as.dataDir = dataDir
+
+	// 0. Initialize error logger (/var/log/askflow/error.log)
+	if err := errlog.Init(); err != nil {
+		log.Printf("Warning: error logger init failed: %v (errors will not be persisted to file)", err)
+	}
 
 	// 1. Ensure data directory exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -260,6 +266,7 @@ func (as *AppService) Shutdown(timeout time.Duration) error {
 	}
 
 	log.Println("Server stopped")
+	errlog.Close()
 	return nil
 }
 

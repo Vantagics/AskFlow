@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"askflow/internal/errlog"
 )
 
 // LLMService defines the interface for LLM text generation.
@@ -144,6 +146,7 @@ func (s *APILLMService) Generate(prompt string, context []string, question strin
 		return answer, nil
 	}
 	log.Printf("LLM API retry failed: %v", err)
+	errlog.Logf("[LLM] API failed after retries: %v", err)
 
 	return "服务暂时不可用，请稍后重试", fmt.Errorf("LLM API failed after retries: %w", err)
 }

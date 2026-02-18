@@ -26,6 +26,7 @@ import (
 	"askflow/internal/document"
 	"askflow/internal/email"
 	"askflow/internal/embedding"
+	"askflow/internal/errlog"
 	"askflow/internal/llm"
 	"askflow/internal/pending"
 	"askflow/internal/product"
@@ -1460,6 +1461,7 @@ func handleQuery(app *App) http.HandlerFunc {
 		resp, err := app.queryEngine.Query(req)
 		if err != nil {
 			log.Printf("[Query] error: %v", err)
+			errlog.Logf("[Query] query processing failed: %v", err)
 			writeError(w, http.StatusInternalServerError, "查询处理失败，请稍后重试")
 			return
 		}
@@ -1560,6 +1562,7 @@ func handleDocumentUpload(app *App) http.HandlerFunc {
 		}
 		doc, err := app.UploadFile(req)
 		if err != nil {
+			errlog.Logf("[API] file upload rejected file=%q type=%s: %v", header.Filename, fileType, err)
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -1613,6 +1616,7 @@ func handleDocumentURL(app *App) http.HandlerFunc {
 		}
 		doc, err := app.UploadURL(req)
 		if err != nil {
+			errlog.Logf("[API] URL upload rejected url=%q: %v", req.URL, err)
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -1763,6 +1767,7 @@ func handleDocumentByID(app *App) http.HandlerFunc {
 
 		if err := app.DeleteDocument(docID); err != nil {
 			log.Printf("[Documents] delete error for %s: %v", docID, err)
+			errlog.Logf("[Documents] delete failed for doc=%s: %v", docID, err)
 			writeError(w, http.StatusInternalServerError, "删除文档失败")
 			return
 		}
@@ -2146,12 +2151,14 @@ func handleEmailTest(app *App) http.HandlerFunc {
 			svc := email.NewService(func() config.SMTPConfig { return smtpCfg })
 			if err := svc.SendTest(req.Email); err != nil {
 				log.Printf("[EmailTest] error: %v", err)
+				errlog.Logf("[Email] test send failed to=%s host=%s:%d: %v", req.Email, req.Host, req.Port, err)
 				writeError(w, http.StatusBadRequest, "发送测试邮件失败，请检查SMTP配置")
 				return
 			}
 		} else {
 			if err := app.TestEmail(req.Email); err != nil {
 				log.Printf("[EmailTest] error: %v", err)
+				errlog.Logf("[Email] test send failed to=%s: %v", req.Email, err)
 				writeError(w, http.StatusBadRequest, "发送测试邮件失败，请检查SMTP配置")
 				return
 			}
@@ -3012,6 +3019,7 @@ func handleConfigWithRole(app *App) http.HandlerFunc {
 			}
 			if err := app.UpdateConfig(updates); err != nil {
 				log.Printf("[Config] update error: %v", err)
+				errlog.Logf("[Config] update failed: %v", err)
 				writeError(w, http.StatusInternalServerError, "更新配置失败")
 				return
 			}

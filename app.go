@@ -24,6 +24,7 @@ import (
 	"askflow/internal/document"
 	"askflow/internal/email"
 	"askflow/internal/embedding"
+	"askflow/internal/errlog"
 	"askflow/internal/llm"
 	"askflow/internal/pending"
 	"askflow/internal/query"
@@ -547,6 +548,7 @@ func (a *App) Register(req RegisterRequest, baseURL string) error {
 		}()
 		if err := a.emailService.SendVerification(email, name, verifyURL); err != nil {
 			log.Printf("[Register] failed to send verification email to %s: %v", email, err)
+			errlog.Logf("[Email] failed to send verification email to %s: %v", email, err)
 		}
 	}()
 

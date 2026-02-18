@@ -23,6 +23,7 @@ import (
 	"askflow/internal/chunker"
 	"askflow/internal/config"
 	"askflow/internal/embedding"
+	"askflow/internal/errlog"
 	"askflow/internal/parser"
 	"askflow/internal/vectorstore"
 	"askflow/internal/video"
@@ -131,6 +132,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 	if err := dm.saveOriginalFile(docID, req.FileName, req.FileData); err != nil {
 		// Non-fatal: log but continue processing
 		log.Printf("Warning: failed to save original file: %v", err)
+		errlog.Logf("[Upload] failed to save original file %q (doc=%s): %v", req.FileName, docID, err)
 	}
 
 	// For video files, process asynchronously to avoid HTTP timeout
@@ -162,6 +164,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 				if processErr != nil {
 					dm.updateDocumentStatus(docID, "failed", processErr.Error())
 					log.Printf("Video processing failed for %s: %v", docID, processErr)
+					errlog.Logf("[Video] processing failed for doc=%s file=%q: %v", docID, req.FileName, processErr)
 				} else {
 					dm.updateDocumentStatus(docID, "success", "")
 					log.Printf("Video processing completed for %s", docID)
@@ -169,6 +172,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 			case <-ctx.Done():
 				dm.updateDocumentStatus(docID, "failed", "视频处理超时")
 				log.Printf("Video processing timed out for %s", docID)
+				errlog.Logf("[Video] processing timed out for doc=%s file=%q", docID, req.FileName)
 			}
 		}()
 		return doc, nil
@@ -180,6 +184,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 		dm.updateDocumentStatus(docID, "failed", processErr.Error())
 		doc.Status = "failed"
 		doc.Error = processErr.Error()
+		errlog.Logf("[Upload] file processing failed for doc=%s file=%q type=%s: %v", docID, req.FileName, fileType, processErr)
 		return doc, nil
 	}
 
@@ -348,6 +353,7 @@ func (dm *DocumentManager) UploadURL(req UploadURLRequest) (*DocumentInfo, error
 		dm.updateDocumentStatus(docID, "failed", err.Error())
 		doc.Status = "failed"
 		doc.Error = err.Error()
+		errlog.Logf("[Upload] URL processing failed for doc=%s url=%q: %v", docID, req.URL, err)
 		return doc, nil
 	}
 
@@ -430,6 +436,7 @@ func (dm *DocumentManager) ListDocuments(productID string) ([]DocumentInfo, erro
 func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, fileType string, productID string) (*ImportStats, error) {
 	result, err := dm.parser.Parse(fileData, fileType)
 	if err != nil {
+		errlog.Logf("[Parse] failed to parse doc=%s file=%q type=%s: %v", docID, docName, fileType, err)
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 	if result.Text == "" && len(result.Images) == 0 {
