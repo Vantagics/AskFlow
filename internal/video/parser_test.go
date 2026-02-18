@@ -164,12 +164,18 @@ func TestNewParser_NegativeInterval(t *testing.T) {
 
 func TestCheckDependencies_NoPaths(t *testing.T) {
 	p := &Parser{}
-	ffmpegOK, rapidSpeechOK := p.CheckDependencies()
-	if ffmpegOK {
+	result := p.CheckDependencies()
+	if result.FFmpegOK {
 		t.Error("expected ffmpegOK=false when path is empty")
 	}
-	if rapidSpeechOK {
+	if result.RapidSpeechOK {
 		t.Error("expected rapidSpeechOK=false when path is empty")
+	}
+	if result.FFmpegError == "" {
+		t.Error("expected ffmpeg error message when path is empty")
+	}
+	if result.RapidSpeechError == "" {
+		t.Error("expected rapidspeech error message when path is empty")
 	}
 }
 
@@ -178,12 +184,18 @@ func TestCheckDependencies_InvalidPaths(t *testing.T) {
 		FFmpegPath:      "/nonexistent/ffmpeg_fake_binary",
 		RapidSpeechPath: "/nonexistent/rs_fake_binary",
 	}
-	ffmpegOK, rapidSpeechOK := p.CheckDependencies()
-	if ffmpegOK {
+	result := p.CheckDependencies()
+	if result.FFmpegOK {
 		t.Error("expected ffmpegOK=false for nonexistent binary")
 	}
-	if rapidSpeechOK {
+	if result.RapidSpeechOK {
 		t.Error("expected rapidSpeechOK=false for nonexistent binary")
+	}
+	if result.FFmpegError == "" {
+		t.Error("expected ffmpeg error detail for nonexistent binary")
+	}
+	if result.RapidSpeechError == "" {
+		t.Error("expected rapidspeech error detail for nonexistent binary")
 	}
 }
 

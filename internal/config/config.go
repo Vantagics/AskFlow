@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -619,6 +620,21 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if strings.ContainsAny(s, "|;&$`") {
 			return errors.New("rapidspeech path contains invalid characters")
 		}
+		// Allow clearing the path
+		if s != "" {
+			// Check file exists
+			info, err := os.Stat(s)
+			if err != nil {
+				return fmt.Errorf("rapidspeech 可执行文件不存在: %s", s)
+			}
+			if info.IsDir() {
+				return fmt.Errorf("rapidspeech 路径指向目录而非文件: %s", s)
+			}
+			// Try to set execute permission and verify
+			if err := ensureExecutable(s); err != nil {
+				return fmt.Errorf("rapidspeech 可执行文件权限设置失败: %w", err)
+			}
+		}
 		cm.config.Video.RapidSpeechPath = s
 	case "video.keyframe_interval":
 		n, err := toInt(val)
@@ -637,6 +653,21 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		// Validate path doesn't contain shell metacharacters
 		if strings.ContainsAny(s, "|;&$`") {
 			return errors.New("rapidspeech model path contains invalid characters")
+		}
+		// Allow clearing the path
+		if s != "" {
+			// Check model file exists
+			info, err := os.Stat(s)
+			if err != nil {
+				return fmt.Errorf("rapidspeech 模型文件不存在: %s", s)
+			}
+			if info.IsDir() {
+				return fmt.Errorf("rapidspeech 模型路径指向目录而非文件: %s", s)
+			}
+			// Verify it looks like a valid model file
+			if !strings.HasSuffix(strings.ToLower(s), ".gguf") && !strings.HasSuffix(strings.ToLower(s), ".bin") {
+				return fmt.Errorf("rapidspeech 模型文件应为 .gguf 或 .bin 格式")
+			}
 		}
 		cm.config.Video.RapidSpeechModel = s
 	case "video.max_upload_size_mb":
@@ -952,6 +983,41 @@ func getOrCreateEncryptionKey() ([]byte, error) {
 }
 
 // --- Type conversion helpers ---
+
+// ensureExecutable checks that the given path is an executable file.
+// On Unix systems, it also attempts to set the execute permission if missing.
+func ensureExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("文件不存在: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("路径指向目录而非文件: %s", path)
+	}
+
+	// On Windows, file permissions work differently — existence is sufficient.
+	// On Unix, check and set execute permission.
+	if runtime.GOOS != "windows" {
+		mode := info.Mode()
+		if mode&0111 == 0 {
+			// No execute bits set, try to add owner execute
+			newMode := mode | 0755
+			if err := os.Chmod(path, newMode); err != nil {
+				return fmt.Errorf("无法设置执行权限: %w", err)
+			}
+		}
+
+		// Re-stat to verify
+		info, err = os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("权限设置后无法访问文件: %w", err)
+		}
+		if info.Mode()&0111 == 0 {
+			return fmt.Errorf("文件没有执行权限: %s", path)
+		}
+	}
+	return nil
+}
 
 func toFloat64(val interface{}) (float64, error) {
 	switch v := val.(type) {

@@ -107,14 +107,19 @@ func (as *AppService) Initialize(dataDir string, overrideBind string, overridePo
 	// Video dependency check
 	if as.cfg.Video.FFmpegPath != "" || as.cfg.Video.RapidSpeechPath != "" {
 		vp := video.NewParser(as.cfg.Video)
-		ffmpegOK, rapidSpeechOK := vp.CheckDependencies()
-		statusStr := func(ok bool) string {
+		depsResult := vp.CheckDependencies()
+		statusStr := func(ok bool, errMsg string) string {
 			if ok {
 				return "可用"
 			}
+			if errMsg != "" {
+				return "不可用 (" + errMsg + ")"
+			}
 			return "不可用"
 		}
-		log.Printf("视频检索: ffmpeg=%s, rapidspeech=%s", statusStr(ffmpegOK), statusStr(rapidSpeechOK))
+		log.Printf("视频检索: ffmpeg=%s, rapidspeech=%s",
+			statusStr(depsResult.FFmpegOK, depsResult.FFmpegError),
+			statusStr(depsResult.RapidSpeechOK, depsResult.RapidSpeechError))
 	}
 
 	as.productService = product.NewProductService(database)

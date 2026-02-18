@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -79,24 +80,112 @@ func NewParser(cfg config.VideoConfig) *Parser {
 	}
 }
 
-// CheckDependencies 检测 ffmpeg 和 RapidSpeech 是否可用
-func (p *Parser) CheckDependencies() (ffmpegOK bool, rapidSpeechOK bool) {
-	if p.FFmpegPath != "" {
-		cmd := exec.Command(p.FFmpegPath, "-version")
-		if err := cmd.Run(); err == nil {
-			ffmpegOK = true
-		}
-	}
-	if p.RapidSpeechPath != "" && p.RapidSpeechModel != "" {
-		// 检查 rs-asr-offline 可执行文件是否存在
-		if _, err := os.Stat(p.RapidSpeechPath); err == nil {
-			// 检查模型文件是否存在
-			if _, err := os.Stat(p.RapidSpeechModel); err == nil {
-				rapidSpeechOK = true
+// DepsCheckResult 依赖检测结果，包含详细错误信息
+type DepsCheckResult struct {
+	FFmpegOK       bool   `json:"ffmpeg_ok"`
+	FFmpegError    string `json:"ffmpeg_error,omitempty"`
+	RapidSpeechOK  bool   `json:"rapidspeech_ok"`
+	RapidSpeechError string `json:"rapidspeech_error,omitempty"`
+}
+
+// CheckDependencies 检测 ffmpeg 和 RapidSpeech 是否可用，返回详细结果
+func (p *Parser) CheckDependencies() *DepsCheckResult {
+	result := &DepsCheckResult{}
+
+	// 检测 ffmpeg
+	if p.FFmpegPath == "" {
+		result.FFmpegError = "FFmpeg 路径未配置"
+	} else {
+		if info, err := os.Stat(p.FFmpegPath); err != nil {
+			result.FFmpegError = fmt.Sprintf("FFmpeg 文件不存在: %s", p.FFmpegPath)
+		} else if info.IsDir() {
+			result.FFmpegError = fmt.Sprintf("FFmpeg 路径指向目录而非文件: %s", p.FFmpegPath)
+		} else {
+			cmd := exec.Command(p.FFmpegPath, "-version")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				result.FFmpegError = fmt.Sprintf("FFmpeg 执行失败: %s", strings.TrimSpace(string(output)))
+				if result.FFmpegError == "FFmpeg 执行失败: " {
+					result.FFmpegError = fmt.Sprintf("FFmpeg 执行失败: %v", err)
+				}
+			} else {
+				result.FFmpegOK = true
 			}
 		}
 	}
-	return
+
+	// 检测 RapidSpeech
+	if p.RapidSpeechPath == "" && p.RapidSpeechModel == "" {
+		result.RapidSpeechError = "RapidSpeech 可执行文件和模型路径均未配置"
+	} else if p.RapidSpeechPath == "" {
+		result.RapidSpeechError = "RapidSpeech 可执行文件路径未配置"
+	} else if p.RapidSpeechModel == "" {
+		result.RapidSpeechError = "RapidSpeech 模型文件路径未配置"
+	} else {
+		// 检查可执行文件
+		info, err := os.Stat(p.RapidSpeechPath)
+		if err != nil {
+			result.RapidSpeechError = fmt.Sprintf("RapidSpeech 可执行文件不存在: %s", p.RapidSpeechPath)
+		} else if info.IsDir() {
+			result.RapidSpeechError = fmt.Sprintf("RapidSpeech 路径指向目录而非文件: %s", p.RapidSpeechPath)
+		} else if runtime.GOOS != "windows" && info.Mode()&0111 == 0 {
+			result.RapidSpeechError = fmt.Sprintf("RapidSpeech 可执行文件没有执行权限: %s", p.RapidSpeechPath)
+		} else {
+			// 检查模型文件
+			mInfo, mErr := os.Stat(p.RapidSpeechModel)
+			if mErr != nil {
+				result.RapidSpeechError = fmt.Sprintf("RapidSpeech 模型文件不存在: %s", p.RapidSpeechModel)
+			} else if mInfo.IsDir() {
+				result.RapidSpeechError = fmt.Sprintf("RapidSpeech 模型路径指向目录而非文件: %s", p.RapidSpeechModel)
+			} else {
+				result.RapidSpeechOK = true
+			}
+		}
+	}
+
+	return result
+}
+
+// ValidateRapidSpeechConfig 详细验证 RapidSpeech 配置，返回具体错误信息
+func (p *Parser) ValidateRapidSpeechConfig() (errors []string) {
+	if p.RapidSpeechPath == "" && p.RapidSpeechModel == "" {
+		return nil // 未配置，不需要验证
+	}
+
+	// 验证可执行文件
+	if p.RapidSpeechPath == "" {
+		errors = append(errors, "RapidSpeech 可执行文件路径未填写")
+	} else {
+		info, err := os.Stat(p.RapidSpeechPath)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("RapidSpeech 可执行文件不存在: %s", p.RapidSpeechPath))
+		} else if info.IsDir() {
+			errors = append(errors, fmt.Sprintf("RapidSpeech 路径指向目录而非文件: %s", p.RapidSpeechPath))
+		} else if runtime.GOOS != "windows" && info.Mode()&0111 == 0 {
+			// 尝试设置执行权限
+			if chmodErr := os.Chmod(p.RapidSpeechPath, info.Mode()|0755); chmodErr != nil {
+				errors = append(errors, fmt.Sprintf("RapidSpeech 可执行文件没有执行权限且无法自动设置: %v", chmodErr))
+			}
+		}
+	}
+
+	// 验证模型文件
+	if p.RapidSpeechModel == "" {
+		errors = append(errors, "RapidSpeech 模型文件路径未填写")
+	} else {
+		info, err := os.Stat(p.RapidSpeechModel)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("RapidSpeech 模型文件不存在: %s", p.RapidSpeechModel))
+		} else if info.IsDir() {
+			errors = append(errors, fmt.Sprintf("RapidSpeech 模型路径指向目录而非文件: %s", p.RapidSpeechModel))
+		} else {
+			lower := strings.ToLower(p.RapidSpeechModel)
+			if !strings.HasSuffix(lower, ".gguf") && !strings.HasSuffix(lower, ".bin") {
+				errors = append(errors, "RapidSpeech 模型文件应为 .gguf 或 .bin 格式")
+			}
+		}
+	}
+
+	return errors
 }
 
 // ExtractAudio 调用 ffmpeg 将视频的音频轨提取为 16kHz 单声道 WAV 文件

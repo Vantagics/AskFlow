@@ -315,11 +315,22 @@ func TestVideoConfig_UpdateAndPersist(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
+	// Create real temp files for rapidspeech validation
+	tmpDir := t.TempDir()
+	rapidspeechBin := filepath.Join(tmpDir, "rapidspeech")
+	if err := os.WriteFile(rapidspeechBin, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("create rapidspeech bin: %v", err)
+	}
+	modelFile := filepath.Join(tmpDir, "model.gguf")
+	if err := os.WriteFile(modelFile, []byte("fake-model"), 0644); err != nil {
+		t.Fatalf("create model file: %v", err)
+	}
+
 	updates := map[string]interface{}{
 		"video.ffmpeg_path":        "/usr/bin/ffmpeg",
-		"video.rapidspeech_path":   "/usr/bin/rapidspeech",
+		"video.rapidspeech_path":   rapidspeechBin,
 		"video.keyframe_interval":  5,
-		"video.rapidspeech_model":  "/models/model.gguf",
+		"video.rapidspeech_model":  modelFile,
 	}
 	if err := cm.Update(updates); err != nil {
 		t.Fatalf("Update: %v", err)
@@ -329,14 +340,14 @@ func TestVideoConfig_UpdateAndPersist(t *testing.T) {
 	if cfg.Video.FFmpegPath != "/usr/bin/ffmpeg" {
 		t.Errorf("Video.FFmpegPath = %q, want /usr/bin/ffmpeg", cfg.Video.FFmpegPath)
 	}
-	if cfg.Video.RapidSpeechPath != "/usr/bin/rapidspeech" {
-		t.Errorf("Video.RapidSpeechPath = %q, want /usr/bin/rapidspeech", cfg.Video.RapidSpeechPath)
+	if cfg.Video.RapidSpeechPath != rapidspeechBin {
+		t.Errorf("Video.RapidSpeechPath = %q, want %q", cfg.Video.RapidSpeechPath, rapidspeechBin)
 	}
 	if cfg.Video.KeyframeInterval != 5 {
 		t.Errorf("Video.KeyframeInterval = %d, want 5", cfg.Video.KeyframeInterval)
 	}
-	if cfg.Video.RapidSpeechModel != "/models/model.gguf" {
-		t.Errorf("Video.RapidSpeechModel = %q, want /models/model.gguf", cfg.Video.RapidSpeechModel)
+	if cfg.Video.RapidSpeechModel != modelFile {
+		t.Errorf("Video.RapidSpeechModel = %q, want %q", cfg.Video.RapidSpeechModel, modelFile)
 	}
 
 	// Verify persisted
@@ -351,13 +362,13 @@ func TestVideoConfig_UpdateAndPersist(t *testing.T) {
 	if cfg2.Video.FFmpegPath != "/usr/bin/ffmpeg" {
 		t.Errorf("persisted Video.FFmpegPath = %q", cfg2.Video.FFmpegPath)
 	}
-	if cfg2.Video.RapidSpeechPath != "/usr/bin/rapidspeech" {
+	if cfg2.Video.RapidSpeechPath != rapidspeechBin {
 		t.Errorf("persisted Video.RapidSpeechPath = %q", cfg2.Video.RapidSpeechPath)
 	}
 	if cfg2.Video.KeyframeInterval != 5 {
 		t.Errorf("persisted Video.KeyframeInterval = %d", cfg2.Video.KeyframeInterval)
 	}
-	if cfg2.Video.RapidSpeechModel != "/models/model.gguf" {
+	if cfg2.Video.RapidSpeechModel != modelFile {
 		t.Errorf("persisted Video.RapidSpeechModel = %q", cfg2.Video.RapidSpeechModel)
 	}
 }
@@ -398,9 +409,26 @@ func TestVideoConfig_ApplyDefaultsOnLoad(t *testing.T) {
 func TestProperty3_VideoConfigPersistenceRoundTrip(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		ffmpegPath := rapid.StringMatching(`[a-zA-Z0-9/._-]{0,50}`).Draw(rt, "ffmpeg_path")
-		rapidspeechPath := rapid.StringMatching(`[a-zA-Z0-9/._-]{0,50}`).Draw(rt, "rapidspeech_path")
 		keyframeInterval := rapid.IntRange(1, 120).Draw(rt, "keyframe_interval")
-		rapidspeechModel := rapid.StringMatching(`[a-zA-Z0-9/._-]{0,50}`).Draw(rt, "rapidspeech_model")
+
+		// Create real temp files for rapidspeech validation
+		tmpDir := t.TempDir()
+		rapidspeechBin := filepath.Join(tmpDir, "rapidspeech")
+		if err := os.WriteFile(rapidspeechBin, []byte("#!/bin/sh\n"), 0755); err != nil {
+			rt.Fatalf("create rapidspeech bin: %v", err)
+		}
+		modelFile := filepath.Join(tmpDir, "model.gguf")
+		if err := os.WriteFile(modelFile, []byte("fake-model"), 0644); err != nil {
+			rt.Fatalf("create model file: %v", err)
+		}
+
+		// Randomly choose between empty (skip validation) or real file paths
+		useRapidspeech := rapid.Bool().Draw(rt, "use_rapidspeech")
+		var rapidspeechPath, rapidspeechModel string
+		if useRapidspeech {
+			rapidspeechPath = rapidspeechBin
+			rapidspeechModel = modelFile
+		}
 
 		path := filepath.Join(t.TempDir(), fmt.Sprintf("config-%d.json", time.Now().UnixNano()))
 		cm, err := NewConfigManagerWithKey(path, testKey())

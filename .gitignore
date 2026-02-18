@@ -6,6 +6,7 @@ build/dist/
 build/installer/askflow-installer.exe
 frontend.zip
 askflow_release_linux.tar.gz
+helpdesk_release_linux.tar.gz
 
 # Upload data (test/runtime files)
 data/uploads/

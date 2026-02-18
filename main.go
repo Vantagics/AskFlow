@@ -800,6 +800,7 @@ func registerAPIHandlers(app *App) {
 
 	// Video dependency check
 	http.HandleFunc("/api/video/check-deps", secureAPI(handleVideoCheckDeps(app)))
+	http.HandleFunc("/api/video/validate-rapidspeech", secureAPI(handleValidateRapidSpeech(app)))
 
 	// Admin sub-accounts
 	http.HandleFunc("/api/admin/users", secureAPI(handleAdminUsers(app)))
@@ -2175,12 +2176,44 @@ func handleVideoCheckDeps(app *App) http.HandlerFunc {
 		}
 		cfg := app.configManager.Get()
 		if cfg == nil {
-			writeJSON(w, http.StatusOK, map[string]bool{"ffmpeg_ok": false, "rapidspeech_ok": false})
+			writeJSON(w, http.StatusOK, video.DepsCheckResult{})
 			return
 		}
 		vp := video.NewParser(cfg.Video)
-		ffmpegOK, rapidSpeechOK := vp.CheckDependencies()
-		writeJSON(w, http.StatusOK, map[string]bool{"ffmpeg_ok": ffmpegOK, "rapidspeech_ok": rapidSpeechOK})
+		result := vp.CheckDependencies()
+		writeJSON(w, http.StatusOK, result)
+	}
+}
+
+// handleValidateRapidSpeech 在保存前验证 RapidSpeech 配置的路径有效性
+func handleValidateRapidSpeech(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, _, err := getAdminSession(app, r)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		var req struct {
+			RapidSpeechPath  string `json:"rapidspeech_path"`
+			RapidSpeechModel string `json:"rapidspeech_model"`
+		}
+		if err := readJSONBody(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		vp := &video.Parser{
+			RapidSpeechPath:  req.RapidSpeechPath,
+			RapidSpeechModel: req.RapidSpeechModel,
+		}
+		validationErrors := vp.ValidateRapidSpeechConfig()
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"valid":  len(validationErrors) == 0,
+			"errors": validationErrors,
+		})
 	}
 }
 

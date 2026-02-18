@@ -1686,7 +1686,7 @@
         var target = document.getElementById('admin-tab-' + tab);
         if (target) target.classList.remove('hidden');
         // Auto-refresh data on tab switch
-        if (tab === 'documents') { loadAdminProductSelectors(); loadDocumentList(); }
+        if (tab === 'documents') { loadAdminProductSelectors().then(function() { loadDocumentList(); }); }
         if (tab === 'pending') loadPendingQuestions();
         if (tab === 'knowledge') loadAdminProductSelectors();
         if (tab === 'settings') loadAdminSettings();
@@ -2160,7 +2160,7 @@
     var adminProductsCache = null;
 
     function loadAdminProductSelectors() {
-        adminFetch('/api/products/my')
+        return adminFetch('/api/products/my')
             .then(function (res) { return res.json(); })
             .then(function (data) {
                 adminProductsCache = data.products || [];
@@ -2998,20 +2998,46 @@
         var ffmpegLabel = document.getElementById('dep-ffmpeg-label');
         var rapidspeechIcon = document.getElementById('dep-rapidspeech-icon');
         var rapidspeechLabel = document.getElementById('dep-rapidspeech-label');
+        var ffmpegDetail = document.getElementById('dep-ffmpeg-detail');
+        var rapidspeechDetail = document.getElementById('dep-rapidspeech-detail');
         if (ffmpegIcon) ffmpegIcon.textContent = '⏳';
         if (ffmpegLabel) ffmpegLabel.textContent = i18n.t('admin_multimodal_checking');
         if (rapidspeechIcon) rapidspeechIcon.textContent = '⏳';
         if (rapidspeechLabel) rapidspeechLabel.textContent = i18n.t('admin_multimodal_checking');
+        if (ffmpegDetail) { ffmpegDetail.textContent = ''; ffmpegDetail.style.display = 'none'; }
+        if (rapidspeechDetail) { rapidspeechDetail.textContent = ''; rapidspeechDetail.style.display = 'none'; }
 
         adminFetch('/api/video/check-deps')
             .then(function (res) { return res.json(); })
             .then(function (data) {
                 if (ffmpegIcon) ffmpegIcon.textContent = data.ffmpeg_ok ? '✅' : '❌';
-                if (ffmpegLabel) ffmpegLabel.textContent = data.ffmpeg_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
-                if (ffmpegLabel) ffmpegLabel.style.color = data.ffmpeg_ok ? '#38a169' : '#e53e3e';
+                if (ffmpegLabel) {
+                    ffmpegLabel.textContent = data.ffmpeg_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
+                    ffmpegLabel.style.color = data.ffmpeg_ok ? '#38a169' : '#e53e3e';
+                }
+                if (ffmpegDetail) {
+                    if (!data.ffmpeg_ok && data.ffmpeg_error) {
+                        ffmpegDetail.textContent = data.ffmpeg_error;
+                        ffmpegDetail.style.display = 'block';
+                    } else {
+                        ffmpegDetail.textContent = '';
+                        ffmpegDetail.style.display = 'none';
+                    }
+                }
                 if (rapidspeechIcon) rapidspeechIcon.textContent = data.rapidspeech_ok ? '✅' : '❌';
-                if (rapidspeechLabel) rapidspeechLabel.textContent = data.rapidspeech_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
-                if (rapidspeechLabel) rapidspeechLabel.style.color = data.rapidspeech_ok ? '#38a169' : '#e53e3e';
+                if (rapidspeechLabel) {
+                    rapidspeechLabel.textContent = data.rapidspeech_ok ? i18n.t('admin_multimodal_available') : i18n.t('admin_multimodal_not_found');
+                    rapidspeechLabel.style.color = data.rapidspeech_ok ? '#38a169' : '#e53e3e';
+                }
+                if (rapidspeechDetail) {
+                    if (!data.rapidspeech_ok && data.rapidspeech_error) {
+                        rapidspeechDetail.textContent = data.rapidspeech_error;
+                        rapidspeechDetail.style.display = 'block';
+                    } else {
+                        rapidspeechDetail.textContent = '';
+                        rapidspeechDetail.style.display = 'none';
+                    }
+                }
             })
             .catch(function () {
                 if (ffmpegIcon) ffmpegIcon.textContent = '❌';
@@ -3035,19 +3061,48 @@
         if (rapidspeechModel) updates['video.rapidspeech_model'] = rapidspeechModel;
         if (maxUploadSize !== '') updates['video.max_upload_size_mb'] = parseInt(maxUploadSize, 10);
 
-        adminFetch('/api/config', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates)
-        })
-        .then(function (res) {
-            if (!res.ok) throw new Error(i18n.t('admin_settings_save_failed'));
-            showAdminToast(i18n.t('admin_settings_saved'), 'success');
-            loadMultimodalSettings();
-        })
-        .catch(function (err) {
-            showAdminToast(err.message || i18n.t('admin_settings_save_failed'), 'error');
-        });
+        // Pre-save validation for RapidSpeech paths
+        var needsValidation = rapidspeechPath || rapidspeechModel;
+        var doSave = function () {
+            adminFetch('/api/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates)
+            })
+            .then(function (res) {
+                if (!res.ok) return res.json().then(function (data) { throw new Error(data.error || i18n.t('admin_settings_save_failed')); });
+                showAdminToast(i18n.t('admin_settings_saved'), 'success');
+                loadMultimodalSettings();
+            })
+            .catch(function (err) {
+                showAdminToast(err.message || i18n.t('admin_settings_save_failed'), 'error');
+            });
+        };
+
+        if (needsValidation) {
+            adminFetch('/api/video/validate-rapidspeech', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    rapidspeech_path: rapidspeechPath,
+                    rapidspeech_model: rapidspeechModel
+                })
+            })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (data.valid) {
+                    doSave();
+                } else {
+                    var errMsg = (data.errors || []).join('\n');
+                    showAdminToast(errMsg || i18n.t('admin_settings_save_failed'), 'error');
+                }
+            })
+            .catch(function () {
+                showAdminToast(i18n.t('admin_multimodal_check_failed') || 'RapidSpeech 配置验证失败', 'error');
+            });
+        } else {
+            doSave();
+        }
     };
 
     // --- OAuth Admin Settings ---
