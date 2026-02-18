@@ -3,6 +3,7 @@ package email
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/smtp"
@@ -11,6 +12,60 @@ import (
 
 	"askflow/internal/config"
 )
+
+// loginAuth implements smtp.Auth for the LOGIN mechanism.
+// Go's standard library only provides PlainAuth, but many mail servers
+// (especially Chinese providers like 189, QQ, 163) require or only support LOGIN.
+type loginAuth struct {
+	username, password string
+}
+
+func newLoginAuth(username, password string) smtp.Auth {
+	return &loginAuth{username, password}
+}
+
+func (a *loginAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	return "LOGIN", []byte(a.username), nil
+}
+
+func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		prompt := strings.TrimSpace(string(fromServer))
+		switch strings.ToLower(prompt) {
+		case "username:", "user name", "user name:":
+			return []byte(a.username), nil
+		case "password:", "password":
+			return []byte(a.password), nil
+		default:
+			return nil, fmt.Errorf("unexpected LOGIN prompt: %s", prompt)
+		}
+	}
+	return nil, nil
+}
+
+// unrestrictedPlainAuth implements smtp.Auth for PLAIN without the TLS check.
+// Go's smtp.PlainAuth refuses to send credentials over unencrypted connections
+// and sometimes fails to detect TLS on implicit-TLS (port 465) connections.
+// This implementation skips that check since we manage TLS ourselves.
+type unrestrictedPlainAuth struct {
+	identity, username, password, host string
+}
+
+func newUnrestrictedPlainAuth(identity, username, password, host string) smtp.Auth {
+	return &unrestrictedPlainAuth{identity, username, password, host}
+}
+
+func (a *unrestrictedPlainAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	resp := []byte(a.identity + "\x00" + a.username + "\x00" + a.password)
+	return "PLAIN", resp, nil
+}
+
+func (a *unrestrictedPlainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		return nil, errors.New("unexpected server challenge during PLAIN auth")
+	}
+	return nil, nil
+}
 
 // Service sends emails via SMTP.
 type Service struct {
@@ -143,9 +198,23 @@ func (s *Service) send(cfg config.SMTPConfig, from, to string, msg []byte) error
 	}
 
 	// Auth
-	auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
-	if err := client.Auth(auth); err != nil {
-		return fmt.Errorf("邮件认证失败: %w", err)
+	var auth smtp.Auth
+	method := strings.ToUpper(strings.TrimSpace(cfg.AuthMethod))
+	switch method {
+	case "LOGIN":
+		auth = newLoginAuth(cfg.Username, cfg.Password)
+	case "NONE", "NOAUTH":
+		// Skip authentication entirely (for relay servers)
+		auth = nil
+	default:
+		// Default to PLAIN with our unrestricted implementation
+		// that works correctly on implicit TLS (port 465) connections
+		auth = newUnrestrictedPlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+	}
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("邮件认证失败 (auth=%s): %w", method, err)
+		}
 	}
 	if err := client.Mail(from); err != nil {
 		return fmt.Errorf("发送邮件失败: %w", err)

@@ -2682,6 +2682,8 @@
                 setVal('cfg-smtp-from-name', smtp.from_name);
                 var tlsSelect = document.getElementById('cfg-smtp-tls');
                 if (tlsSelect) tlsSelect.value = smtp.use_tls === false ? 'false' : 'true';
+                var authMethodSelect = document.getElementById('cfg-smtp-auth-method');
+                if (authMethodSelect) authMethodSelect.value = smtp.auth_method || 'PLAIN';
 
                 // Load OAuth providers
                 renderOAuthProviderSettings(cfg.oauth || {});
@@ -2744,6 +2746,8 @@
         var fromName = getVal('cfg-smtp-from-name');
         var tlsSelect = document.getElementById('cfg-smtp-tls');
         var useTLS = tlsSelect ? tlsSelect.value !== 'false' : true;
+        var authMethodSelect = document.getElementById('cfg-smtp-auth-method');
+        var authMethod = authMethodSelect ? authMethodSelect.value : 'PLAIN';
 
         if (btn) btn.disabled = true;
         if (resultEl) { resultEl.textContent = i18n.t('admin_settings_smtp_test_sending'); resultEl.className = ''; resultEl.classList.remove('hidden'); }
@@ -2751,7 +2755,7 @@
         adminFetch('/api/email/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email, host: host, port: port, username: username, password: password, from_addr: fromAddr, from_name: fromName, use_tls: useTLS })
+            body: JSON.stringify({ email: email, host: host, port: port, username: username, password: password, from_addr: fromAddr, from_name: fromName, use_tls: useTLS, auth_method: authMethod })
         })
         .then(function (res) {
             if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('admin_settings_smtp_test_failed')); });
@@ -2917,6 +2921,7 @@
         var smtpFromAddr = getVal('cfg-smtp-from-addr');
         var smtpFromName = getVal('cfg-smtp-from-name');
         var smtpTls = getVal('cfg-smtp-tls');
+        var smtpAuthMethod = getVal('cfg-smtp-auth-method');
 
         if (smtpHost) updates['smtp.host'] = smtpHost;
         if (smtpPort !== '') updates['smtp.port'] = parseInt(smtpPort, 10);
@@ -2925,6 +2930,7 @@
         if (smtpFromAddr) updates['smtp.from_addr'] = smtpFromAddr;
         if (smtpFromName) updates['smtp.from_name'] = smtpFromName;
         updates['smtp.use_tls'] = smtpTls === 'true';
+        updates['smtp.auth_method'] = smtpAuthMethod || 'PLAIN';
 
         // Collect OAuth provider settings
         var oauthCards = document.querySelectorAll('.oauth-provider-card');

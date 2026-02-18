@@ -80,13 +80,14 @@ type VectorConfig struct {
 
 // SMTPConfig holds SMTP email server configuration.
 type SMTPConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	FromAddr string `json:"from_addr"`
-	FromName string `json:"from_name"`
-	UseTLS   bool   `json:"use_tls"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	FromAddr   string `json:"from_addr"`
+	FromName   string `json:"from_name"`
+	UseTLS     bool   `json:"use_tls"`
+	AuthMethod string `json:"auth_method"` // "PLAIN" (default), "LOGIN", or "NONE"
 }
 
 // OAuthProviderConfig holds configuration for a single OAuth provider.
@@ -561,6 +562,12 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 			return errors.New("expected boolean")
 		}
 		cm.config.SMTP.UseTLS = b
+	case "smtp.auth_method":
+		s, ok := val.(string)
+		if !ok {
+			return errors.New("expected string")
+		}
+		cm.config.SMTP.AuthMethod = s
 
 	case "product_intro":
 		s, ok := val.(string)

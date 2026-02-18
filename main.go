@@ -2105,14 +2105,15 @@ func handleEmailTest(app *App) http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Email    string `json:"email"`
-			Host     string `json:"host"`
-			Port     int    `json:"port"`
-			Username string `json:"username"`
-			Password string `json:"password"`
-			FromAddr string `json:"from_addr"`
-			FromName string `json:"from_name"`
-			UseTLS   *bool  `json:"use_tls"`
+			Email      string `json:"email"`
+			Host       string `json:"host"`
+			Port       int    `json:"port"`
+			Username   string `json:"username"`
+			Password   string `json:"password"`
+			FromAddr   string `json:"from_addr"`
+			FromName   string `json:"from_name"`
+			UseTLS     *bool  `json:"use_tls"`
+			AuthMethod string `json:"auth_method"`
 		}
 		if err := readJSONBody(r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body")
@@ -2121,12 +2122,13 @@ func handleEmailTest(app *App) http.HandlerFunc {
 		// If SMTP params provided in request, use them for testing (allows testing before save)
 		if req.Host != "" {
 			smtpCfg := config.SMTPConfig{
-				Host:     req.Host,
-				Port:     req.Port,
-				Username: req.Username,
-				Password: req.Password,
-				FromAddr: req.FromAddr,
-				FromName: req.FromName,
+				Host:       req.Host,
+				Port:       req.Port,
+				Username:   req.Username,
+				Password:   req.Password,
+				FromAddr:   req.FromAddr,
+				FromName:   req.FromName,
+				AuthMethod: req.AuthMethod,
 			}
 			if req.UseTLS != nil {
 				smtpCfg.UseTLS = *req.UseTLS
