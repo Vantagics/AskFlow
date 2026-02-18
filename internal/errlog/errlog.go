@@ -43,13 +43,14 @@ var (
 
 // errorLogger holds the state for the rotating error log writer.
 type errorLogger struct {
-	mu       sync.Mutex
-	file     *os.File
-	dir      string
-	path     string
-	size     int64
-	buf      []byte // reusable format buffer to reduce allocations
-	closed   bool
+	mu          sync.Mutex
+	file        *os.File
+	dir         string
+	path        string
+	size        int64
+	buf         []byte // reusable format buffer to reduce allocations
+	closed      bool
+	maxRotSize  int64  // configurable rotation threshold in bytes
 }
 
 // Init initializes the error logger. It is safe to call multiple times;
@@ -85,11 +86,12 @@ func Init() error {
 	}
 
 	global = &errorLogger{
-		file: f,
-		dir:  dir,
-		path: path,
-		size: info.Size(),
-		buf:  make([]byte, 0, writeBufSize),
+		file:       f,
+		dir:        dir,
+		path:       path,
+		size:       info.Size(),
+		buf:        make([]byte, 0, writeBufSize),
+		maxRotSize: maxFileSize,
 	}
 	return nil
 }
@@ -148,7 +150,7 @@ func (l *errorLogger) logf(format string, args ...interface{}) {
 	l.size += int64(n)
 
 	// Check if rotation is needed after write.
-	if l.size >= maxFileSize {
+	if l.size >= l.maxRotSize {
 		l.rotate()
 	}
 }
@@ -271,4 +273,136 @@ func compressFile(src, dst string) error {
 		return err
 	}
 	return nil
+}
+
+// --- Exported helpers for log management API ---
+
+// GetLogDir returns the log directory path.
+func GetLogDir() string {
+	if runtime.GOOS == "windows" {
+		return windowsLogDir
+	}
+	return defaultLogDir
+}
+
+// GetLogPath returns the full path to the current error log file.
+func GetLogPath() string {
+	return filepath.Join(GetLogDir(), logFileName)
+}
+
+// GetRotationSizeMB returns the current rotation threshold in megabytes.
+func GetRotationSizeMB() int {
+	mu.Lock()
+	defer mu.Unlock()
+	if global != nil {
+		return int(global.maxRotSize >> 20)
+	}
+	return int(maxFileSize >> 20)
+}
+
+// SetRotationSizeMB updates the rotation threshold. sizeMB must be >= 1.
+func SetRotationSizeMB(sizeMB int) {
+	if sizeMB < 1 {
+		sizeMB = 1
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if global != nil {
+		global.mu.Lock()
+		global.maxRotSize = int64(sizeMB) << 20
+		global.mu.Unlock()
+	}
+}
+
+// RecentLines reads the last n lines from the current error log file.
+// It returns at most n lines in chronological order (oldest first).
+func RecentLines(n int) ([]string, error) {
+	if n <= 0 {
+		n = 50
+	}
+	path := GetLogPath()
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := info.Size()
+	if size == 0 {
+		return []string{}, nil
+	}
+
+	// Cap the read to avoid scanning huge files — 50 lines × ~200 bytes ≈ 10KB typical,
+	// but allow up to 256KB to handle long lines gracefully.
+	const maxRead = 256 * 1024
+	readStart := int64(0)
+	if size > maxRead {
+		readStart = size - maxRead
+	}
+	readLen := size - readStart
+
+	buf := make([]byte, readLen)
+	_, err = f.ReadAt(buf, readStart)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	// Split from the end: walk backwards counting newlines.
+	// We need n lines, which means n newline-terminated segments from the end.
+	lines := make([]string, 0, n)
+	end := len(buf)
+	// Skip trailing newline if present
+	if end > 0 && buf[end-1] == '\n' {
+		end--
+	}
+	for i := end - 1; i >= 0 && len(lines) < n; i-- {
+		if buf[i] == '\n' {
+			line := string(buf[i+1 : end])
+			if line != "" {
+				lines = append(lines, line)
+			}
+			end = i
+		}
+	}
+	// Handle the first line (no leading newline)
+	if len(lines) < n && end > 0 {
+		line := string(buf[:end])
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	// Reverse to chronological order (oldest first)
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return lines, nil
+}
+
+// ListArchives returns the names of compressed log archives in the log directory.
+func ListArchives() ([]string, error) {
+	dir := GetLogDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	var archives []string
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, "error-") && strings.HasSuffix(name, ".log.gz") {
+			archives = append(archives, name)
+		}
+	}
+	sort.Strings(archives)
+	return archives, nil
 }

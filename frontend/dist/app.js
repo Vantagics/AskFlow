@@ -1718,6 +1718,10 @@
             target.classList.remove('hidden');
             target.classList.add('settings-panel-animated');
         }
+        // Auto-load logs when switching to logs tab
+        if (tabId === 'settings-logs') {
+            loadRecentLogs();
+        }
     };
 
     // --- SMTP Presets ---
@@ -3014,6 +3018,98 @@
         })
         .catch(function (err) {
             showAdminToast(err.message || i18n.t('admin_settings_save_failed'), 'error');
+        });
+    };
+
+    // --- Log Management ---
+
+    window.loadRecentLogs = function () {
+        var content = document.getElementById('log-viewer-content');
+        if (!content) return;
+        content.textContent = '加载中...';
+        adminFetch('/api/logs/recent?lines=50')
+            .then(function (res) {
+                if (!res.ok) throw new Error('加载失败');
+                return res.json();
+            })
+            .then(function (data) {
+                var lines = data.lines || [];
+                var rotMB = data.rotation_mb || 100;
+                var rotInput = document.getElementById('cfg-log-rotation-mb');
+                if (rotInput) rotInput.value = rotMB;
+                if (lines.length === 0) {
+                    content.innerHTML = '<span style="color:#94a3b8;">暂无日志记录</span>';
+                    return;
+                }
+                // Render lines with color coding
+                var html = '';
+                lines.forEach(function (line) {
+                    var escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    // Highlight timestamp
+                    escaped = escaped.replace(/^(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})/, '<span class="log-line-time">$1</span>');
+                    // Highlight [ERROR]
+                    escaped = escaped.replace(/\[ERROR\]/, '<span class="log-line-error">[ERROR]</span>');
+                    html += escaped + '\n';
+                });
+                content.innerHTML = html;
+                // Auto-scroll to bottom
+                var viewer = document.getElementById('log-viewer');
+                if (viewer) viewer.scrollTop = viewer.scrollHeight;
+            })
+            .catch(function (err) {
+                content.textContent = '加载日志失败: ' + (err.message || '未知错误');
+            });
+    };
+
+    window.saveLogRotation = function () {
+        var input = document.getElementById('cfg-log-rotation-mb');
+        if (!input) return;
+        var val = parseInt(input.value, 10);
+        if (isNaN(val) || val < 1 || val > 10240) {
+            showAdminToast('轮转大小必须在 1-10240 MB 之间', 'error');
+            return;
+        }
+        adminFetch('/api/logs/rotation', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rotation_mb: val })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || '保存失败'); });
+            showAdminToast('日志轮转大小已保存', 'success');
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || '保存失败', 'error');
+        });
+    };
+
+    window.downloadLogs = function () {
+        var token = localStorage.getItem('admin_session');
+        if (!token) {
+            showAdminToast('请先登录', 'error');
+            return;
+        }
+        // Use fetch to download with auth header, then trigger browser download
+        fetch('/api/logs/download', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        })
+        .then(function (res) {
+            if (!res.ok) throw new Error('下载失败');
+            return res.blob();
+        })
+        .then(function (blob) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'error_log.gz';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showAdminToast('日志下载完成', 'success');
+        })
+        .catch(function (err) {
+            showAdminToast(err.message || '下载失败', 'error');
         });
     };
 

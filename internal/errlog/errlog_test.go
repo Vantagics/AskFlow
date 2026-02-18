@@ -32,11 +32,12 @@ func TestInitAndLogf(t *testing.T) {
 	}
 	mu.Lock()
 	global = &errorLogger{
-		file: f,
-		dir:  dir,
-		path: path,
-		size: 0,
-		buf:  make([]byte, 0, writeBufSize),
+		file:       f,
+		dir:        dir,
+		path:       path,
+		size:       0,
+		buf:        make([]byte, 0, writeBufSize),
+		maxRotSize: maxFileSize,
 	}
 	mu.Unlock()
 	defer resetGlobal()
@@ -65,11 +66,12 @@ func TestRotation(t *testing.T) {
 
 	mu.Lock()
 	global = &errorLogger{
-		file: f,
-		dir:  dir,
-		path: path,
-		size: maxFileSize - 10, // just under the threshold
-		buf:  make([]byte, 0, writeBufSize),
+		file:       f,
+		dir:        dir,
+		path:       path,
+		size:       maxFileSize - 10, // just under the threshold
+		buf:        make([]byte, 0, writeBufSize),
+		maxRotSize: maxFileSize,
 	}
 	mu.Unlock()
 	defer resetGlobal()

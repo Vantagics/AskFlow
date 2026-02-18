@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -878,6 +879,11 @@ func registerAPIHandlers(app *App) {
 
 	// Batch import (SSE streaming)
 	http.HandleFunc("/api/batch-import", secureAPI(handleBatchImport(app)))
+
+	// Log management (admin only)
+	http.HandleFunc("/api/logs/recent", secureAPI(handleLogsRecent(app)))
+	http.HandleFunc("/api/logs/rotation", secureAPI(handleLogsRotation(app)))
+	http.HandleFunc("/api/logs/download", secureAPI(handleLogsDownload(app)))
 
 	// Public media streaming endpoint for video/audio playback in chat
 	http.HandleFunc("/api/media/", secureAPI(handleMediaStream(app)))
@@ -3631,5 +3637,123 @@ func handleAdminCustomerDelete(app *App) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// --- Log management handlers ---
+
+// handleLogsRecent returns the most recent log lines.
+// GET /api/logs/recent?lines=50
+func handleLogsRecent(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, role, err := getAdminSession(app, r)
+		if err != nil || role != "super_admin" {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		n := 50
+		if v := r.URL.Query().Get("lines"); v != "" {
+			if parsed, err := strconv.Atoi(v); err == nil && parsed >= 1 {
+				n = parsed
+			}
+			if n > 500 {
+				n = 500
+			}
+		}
+		lines, err := errlog.RecentLines(n)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "读取日志失败: "+err.Error())
+			return
+		}
+		if lines == nil {
+			lines = []string{}
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"lines":         lines,
+			"rotation_mb":   errlog.GetRotationSizeMB(),
+		})
+	}
+}
+
+// handleLogsRotation gets or sets the log rotation size.
+// GET  /api/logs/rotation → { "rotation_mb": 100 }
+// PUT  /api/logs/rotation { "rotation_mb": 200 }
+func handleLogsRotation(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, role, err := getAdminSession(app, r)
+		if err != nil || role != "super_admin" {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, map[string]int{"rotation_mb": errlog.GetRotationSizeMB()})
+		case http.MethodPut:
+			var req struct {
+				RotationMB int `json:"rotation_mb"`
+			}
+			if err := readJSONBody(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body")
+				return
+			}
+			if req.RotationMB < 1 || req.RotationMB > 10240 {
+				writeError(w, http.StatusBadRequest, "rotation_mb 必须在 1-10240 之间")
+				return
+			}
+			errlog.SetRotationSizeMB(req.RotationMB)
+			writeJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "rotation_mb": req.RotationMB})
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	}
+}
+
+// handleLogsDownload streams the current error.log as a gzip download.
+// GET /api/logs/download
+func handleLogsDownload(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		_, role, err := getAdminSession(app, r)
+		if err != nil || role != "super_admin" {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		logPath := errlog.GetLogPath()
+		f, err := os.Open(logPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				writeError(w, http.StatusNotFound, "日志文件不存在")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "打开日志文件失败")
+			return
+		}
+		defer f.Close()
+
+		// Limit download to 512MB to prevent abuse
+		info, err := f.Stat()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "读取日志文件信息失败")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Disposition", "attachment; filename=error_log.gz")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		gw, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "压缩初始化失败")
+			return
+		}
+		defer gw.Close()
+		io.Copy(gw, io.LimitReader(f, info.Size()))
 	}
 }

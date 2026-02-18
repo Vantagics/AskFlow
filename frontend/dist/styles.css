@@ -2582,6 +2582,37 @@ a.chat-source-download:hover {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* Log Viewer */
+.log-viewer {
+    background: #1a1a2e;
+    border-radius: var(--radius-lg);
+    border: 1px solid #2d2d44;
+    max-height: 500px;
+    overflow: auto;
+}
+.log-viewer-content {
+    margin: 0;
+    padding: 1rem;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: #e0e0e0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.log-viewer-content .log-line-error {
+    color: #f87171;
+}
+.log-viewer-content .log-line-time {
+    color: #94a3b8;
+}
+
+/* Dark mode log viewer */
+.dark .log-viewer {
+    background: #0f0f1a;
+    border-color: #1e1e30;
+}
+
 /* SMTP Presets */
 .smtp-presets-section {
     margin-bottom: 1.25rem;
