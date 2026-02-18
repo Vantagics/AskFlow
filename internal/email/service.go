@@ -2,6 +2,7 @@
 package email
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/smtp"
@@ -99,10 +100,28 @@ func buildMessage(fromName, fromAddr, to, subject, body string) []byte {
 
 func (s *Service) send(cfg config.SMTPConfig, from, to string, msg []byte) error {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	// Set a 15-second timeout for SMTP connection to prevent blocking
-	conn, err := net.DialTimeout("tcp", addr, 15*time.Second)
-	if err != nil {
-		return fmt.Errorf("连接邮件服务器失败: %w", err)
+
+	var conn net.Conn
+	var err error
+
+	// Port 465 uses implicit TLS (SMTPS), need to establish TLS connection first
+	// Port 587/25 use STARTTLS (explicit TLS) after plain connection
+	if cfg.Port == 465 {
+		// Implicit TLS: connect with TLS directly
+		dialer := &net.Dialer{Timeout: 15 * time.Second}
+		tlsConfig := &tls.Config{
+			ServerName: cfg.Host,
+		}
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("TLS连接邮件服务器失败: %w", err)
+		}
+	} else {
+		// Plain connection (for STARTTLS on port 587/25)
+		conn, err = net.DialTimeout("tcp", addr, 15*time.Second)
+		if err != nil {
+			return fmt.Errorf("连接邮件服务器失败: %w", err)
+		}
 	}
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 	defer conn.Close()
@@ -112,6 +131,16 @@ func (s *Service) send(cfg config.SMTPConfig, from, to string, msg []byte) error
 		return fmt.Errorf("创建SMTP客户端失败: %w", err)
 	}
 	defer client.Close()
+
+	// For non-465 ports, try STARTTLS if available
+	if cfg.Port != 465 {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			tlsConfig := &tls.Config{ServerName: cfg.Host}
+			if err := client.StartTLS(tlsConfig); err != nil {
+				return fmt.Errorf("STARTTLS失败: %w", err)
+			}
+		}
+	}
 
 	// Auth
 	auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
