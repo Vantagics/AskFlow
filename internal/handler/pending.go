@@ -81,15 +81,14 @@ func HandlePendingCreate(app *App) http.HandlerFunc {
 			WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		// Validate user session
-		_, err := GetUserSession(app, r)
+		// Validate user session — use the authenticated user ID, not the client-provided one
+		authenticatedUserID, err := GetUserSession(app, r)
 		if err != nil {
 			WriteError(w, http.StatusUnauthorized, err.Error())
 			return
 		}
 		var req struct {
 			Question  string `json:"question"`
-			UserID    string `json:"user_id"`
 			ImageData string `json:"image_data,omitempty"`
 			ProductID string `json:"product_id"`
 		}
@@ -111,7 +110,7 @@ func HandlePendingCreate(app *App) http.HandlerFunc {
 			WriteError(w, http.StatusBadRequest, "image data too large")
 			return
 		}
-		pq, err := app.CreatePendingQuestion(req.Question, req.UserID, req.ImageData, req.ProductID)
+		pq, err := app.CreatePendingQuestion(req.Question, authenticatedUserID, req.ImageData, req.ProductID)
 		if err != nil {
 			log.Printf("[Pending] create error: %v", err)
 			WriteError(w, http.StatusInternalServerError, "创建问题失败")

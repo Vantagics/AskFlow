@@ -151,7 +151,8 @@ func runAsConsoleApp(dataDir string) {
 
 	// Create App and register handlers
 	app := appSvc.CreateApp()
-	router.Register(app)
+	cleanupRouter := router.Register(app)
+	defer cleanupRouter()
 	http.Handle("/", handler.SpaHandler("frontend/dist"))
 
 	// Run with graceful shutdown

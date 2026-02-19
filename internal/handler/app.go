@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -269,7 +270,7 @@ func (a *App) AdminSetup(username, password string) (*AdminLoginResponse, error)
 		return nil, fmt.Errorf("用户名至少3位")
 	}
 	if msg := ValidatePassword(password); msg != "" {
-		return nil, fmt.Errorf(msg)
+		return nil, errors.New(msg)
 	}
 	if len(username) > 64 {
 		return nil, fmt.Errorf("用户名不能超过64位")
@@ -456,7 +457,7 @@ func (a *App) Register(req RegisterRequest, baseURL string) error {
 		return fmt.Errorf("邮箱格式不正确")
 	}
 	if msg := ValidatePassword(password); msg != "" {
-		return fmt.Errorf(msg)
+		return errors.New(msg)
 	}
 	if len(name) > 200 {
 		return fmt.Errorf("名称过长")
@@ -669,20 +670,22 @@ func GenerateCaptcha() *CaptchaResponse {
 	captchaMu.Lock()
 	defer captchaMu.Unlock()
 
-	// Clean expired entries
 	now := time.Now()
-	for k, v := range captchaStore {
-		if now.After(v.expiresAt) {
-			delete(captchaStore, k)
-		}
-	}
 
-	// Prevent memory exhaustion: limit captcha store size
-	if len(captchaStore) > 10000 {
-		for k := range captchaStore {
-			delete(captchaStore, k)
-			if len(captchaStore) <= 5000 {
-				break
+	// Only clean expired entries when store exceeds threshold to avoid O(n) on every call
+	if len(captchaStore) > 1000 {
+		for k, v := range captchaStore {
+			if now.After(v.expiresAt) {
+				delete(captchaStore, k)
+			}
+		}
+		// Force eviction if still too large after expiry cleanup
+		if len(captchaStore) > 10000 {
+			for k := range captchaStore {
+				delete(captchaStore, k)
+				if len(captchaStore) <= 5000 {
+					break
+				}
 			}
 		}
 	}
@@ -882,7 +885,7 @@ func (a *App) CreateAdminUser(username, password, role string, permissions []str
 		return nil, fmt.Errorf("用户名不能超过64位")
 	}
 	if msg := ValidatePassword(password); msg != "" {
-		return nil, fmt.Errorf(msg)
+		return nil, errors.New(msg)
 	}
 	if role != "editor" && role != "super_admin" {
 		role = "editor"
@@ -1187,6 +1190,12 @@ func (a *App) GetProduct(id string) (*product.Product, error) {
 // ListProducts returns all products.
 func (a *App) ListProducts() ([]product.Product, error) {
 	return a.productService.List()
+}
+
+// GetFirstProductID returns the ID of the first product, or empty string if none exist.
+// More efficient than ListProducts() when only the default product ID is needed.
+func (a *App) GetFirstProductID() (string, error) {
+	return a.productService.GetFirstID()
 }
 
 // HasProductDocumentsOrKnowledge checks whether a product has associated documents or knowledge entries.
@@ -1561,10 +1570,16 @@ func (a *App) ValidateLoginTicket(ticket string) (sessionID string, err error) {
 		return "", fmt.Errorf("ticket_expired")
 	}
 
-	// Mark ticket as used — must succeed to prevent replay attacks
-	if _, err := a.db.Exec("UPDATE login_tickets SET used = 1 WHERE ticket = ?", ticket); err != nil {
+	// Atomically mark ticket as used — WHERE used = 0 ensures only one request succeeds
+	result, err := a.db.Exec("UPDATE login_tickets SET used = 1 WHERE ticket = ? AND used = 0", ticket)
+	if err != nil {
 		log.Printf("[ValidateLoginTicket] failed to mark ticket as used: %v", err)
 		return "", fmt.Errorf("internal_error")
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Another concurrent request already consumed this ticket
+		return "", fmt.Errorf("ticket_already_used")
 	}
 
 	// Find the SN user

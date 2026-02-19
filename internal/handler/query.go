@@ -40,9 +40,9 @@ func HandleQuery(app *App) http.HandlerFunc {
 		req.Question = question
 		// Default to first product if no product_id specified
 		if req.ProductID == "" {
-			products, pErr := app.ListProducts()
-			if pErr == nil && len(products) > 0 {
-				req.ProductID = products[0].ID
+			firstID, pErr := app.GetFirstProductID()
+			if pErr == nil && firstID != "" {
+				req.ProductID = firstID
 			}
 		}
 		resp, err := app.queryEngine.Query(req)

@@ -254,6 +254,21 @@ func (s *ProductService) HasProducts() (bool, error) {
 	return exists, nil
 }
 
+// GetFirstID returns the ID of the first product (by creation order), or empty string if none exist.
+// This is more efficient than List() when only the default product ID is needed.
+func (s *ProductService) GetFirstID() (string, error) {
+	var id string
+	err := s.readDB.QueryRow("SELECT id FROM products ORDER BY created_at LIMIT 1").Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get first product: %w", err)
+	}
+	return id, nil
+}
+
+
 // AssignAdminUser assigns a set of products to an admin user.
 // It replaces all existing product assignments for the given admin user.
 // If productIDs is empty, all existing assignments are removed (admin gets access to all products).

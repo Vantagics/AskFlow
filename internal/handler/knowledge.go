@@ -128,7 +128,8 @@ func HandleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 		}
 
 		// Read with size limit
-		maxUploadSizeMB := app.configManager.Get().Video.MaxUploadSizeMB
+		cfg := app.configManager.Get()
+		maxUploadSizeMB := cfg.Video.MaxUploadSizeMB
 		maxSize := int64(maxUploadSizeMB) << 20
 		data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
 		if err != nil {

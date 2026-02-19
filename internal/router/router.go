@@ -13,7 +13,8 @@ import (
 
 // Register registers all API routes to http.DefaultServeMux.
 // It creates middleware instances internally and groups routes by business domain.
-func Register(app *handler.App) {
+// Returns a cleanup function that should be called on shutdown to stop background goroutines.
+func Register(app *handler.App) func() {
 	// Build the secure API middleware chain: SecurityHeaders + CORS + RequestID
 	secureAPI := middleware.Chain(
 		middleware.SecurityHeaders(),
@@ -162,4 +163,10 @@ func Register(app *handler.App) {
 
 	// ── Public media streaming ──
 	http.HandleFunc("/api/media/", secure(handler.HandleMediaStream(app)))
+
+	// Return cleanup function to stop rate limiter goroutines
+	return func() {
+		authRL.Stop()
+		apiRL.Stop()
+	}
 }

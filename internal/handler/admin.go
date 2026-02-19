@@ -261,6 +261,9 @@ func HandleAdminCustomers(app *App) http.HandlerFunc {
 				pageSize = v
 			}
 		}
+		if pageSize > 200 {
+			pageSize = 200
+		}
 
 		result, err := app.ListCustomersPaged(page, pageSize, search)
 		if err != nil {
@@ -291,6 +294,10 @@ func HandleAdminCustomerVerify(app *App) http.HandlerFunc {
 			WriteError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
+		if req.UserID == "" || len(req.UserID) > 128 {
+			WriteError(w, http.StatusBadRequest, "invalid user_id")
+			return
+		}
 		if err := app.VerifyCustomerEmail(req.UserID); err != nil {
 			WriteError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -318,6 +325,10 @@ func HandleAdminCustomerBan(app *App) http.HandlerFunc {
 		}
 		if err := ReadJSONBody(r, &req); err != nil {
 			WriteError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Email == "" || len(req.Email) > 254 {
+			WriteError(w, http.StatusBadRequest, "invalid email")
 			return
 		}
 		if err := app.BanCustomer(req.Email, req.Reason, req.Days); err != nil {
@@ -372,6 +383,10 @@ func HandleAdminCustomerDelete(app *App) http.HandlerFunc {
 		}
 		if err := ReadJSONBody(r, &req); err != nil {
 			WriteError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.UserID == "" || len(req.UserID) > 128 {
+			WriteError(w, http.StatusBadRequest, "invalid user_id")
 			return
 		}
 		if err := app.DeleteCustomer(req.UserID); err != nil {
