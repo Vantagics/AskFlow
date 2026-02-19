@@ -726,16 +726,14 @@
                             <div class="admin-settings-form">
                                 <fieldset class="admin-fieldset">
                                     <legend data-i18n="admin_settings_logs_rotation">日志轮转设置</legend>
-                                    <div class="admin-form-row admin-form-row-half">
-                                        <div>
-                                            <label data-i18n="admin_settings_logs_rotation_size">轮转大小 (MB)</label>
-                                            <input type="number" id="cfg-log-rotation-mb" min="1" max="10240" placeholder="100">
-                                            <span class="admin-form-hint" data-i18n="admin_settings_logs_rotation_hint">日志文件达到此大小后自动轮转压缩，默认 100MB</span>
-                                        </div>
-                                        <div style="display:flex;align-items:flex-end;gap:0.5rem;">
+                                    <div class="admin-form-row">
+                                        <label data-i18n="admin_settings_logs_rotation_size">轮转大小 (MB)</label>
+                                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                                            <input type="number" id="cfg-log-rotation-mb" min="1" max="10240" placeholder="100" style="width:120px;">
                                             <button type="button" class="btn-primary" onclick="saveLogRotation()" data-i18n="admin_settings_logs_save_rotation">保存</button>
                                             <button type="button" class="btn-secondary" onclick="downloadLogs()" data-i18n="admin_settings_logs_download">打包下载日志</button>
                                         </div>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_logs_rotation_hint">日志文件达到此大小后自动轮转压缩，默认 100MB</span>
                                     </div>
                                 </fieldset>
                                 <fieldset class="admin-fieldset" style="margin-top:1rem;">
