@@ -3084,15 +3084,7 @@
     };
 
     window.downloadLogs = function () {
-        var token = localStorage.getItem('admin_session');
-        if (!token) {
-            showAdminToast('请先登录', 'error');
-            return;
-        }
-        // Use fetch to download with auth header, then trigger browser download
-        fetch('/api/logs/download', {
-            headers: { 'Authorization': 'Bearer ' + token }
-        })
+        adminFetch('/api/logs/download')
         .then(function (res) {
             if (!res.ok) throw new Error('下载失败');
             return res.blob();
