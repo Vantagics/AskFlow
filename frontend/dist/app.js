@@ -3355,7 +3355,14 @@
                         autoSetupRunning = false;
                         autoSetupAbort = null;
                         if (closeBtn) closeBtn.disabled = false;
-                        if (startBtn) { startBtn.disabled = false; startBtn.classList.remove('hidden'); }
+                        // If stream ended without a 'done' event, show button for retry
+                        if (startBtn && !startBtn.classList.contains('hidden')) {
+                            startBtn.disabled = false;
+                        } else if (startBtn && fill && fill.style.width !== '100%') {
+                            // Stream cut off before completion — allow retry
+                            startBtn.disabled = false;
+                            startBtn.classList.remove('hidden');
+                        }
                         checkMultimodalDeps();
                         loadMultimodalSettings();
                         return;
@@ -3383,8 +3390,10 @@
                                 if (isSuccess) {
                                     appendLog('✅ ' + evt.message, 'log-success');
                                     if (status) { status.textContent = evt.message; status.className = 'auto-setup-status success'; }
+                                    if (startBtn) { startBtn.classList.add('hidden'); }
                                 } else {
                                     if (status) { status.className = 'auto-setup-status error'; }
+                                    if (startBtn) { startBtn.disabled = false; startBtn.classList.remove('hidden'); }
                                 }
                                 autoSetupRunning = false;
                                 autoSetupAbort = null;
