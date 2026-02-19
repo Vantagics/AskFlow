@@ -114,6 +114,7 @@ func (as *AppService) Initialize(dataDir string, overrideBind string, overridePo
 	)
 	as.docManager = document.NewDocumentManager(dp, tc, es, vs, writeDB)
 	as.docManager.SetVideoConfig(as.cfg.Video)
+	as.docManager.SetLLMService(ls)
 
 	// Video dependency check
 	if as.cfg.Video.FFmpegPath != "" || as.cfg.Video.RapidSpeechPath != "" {

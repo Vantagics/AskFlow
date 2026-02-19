@@ -49,6 +49,11 @@ var videoFileTypes = map[string]bool{
 	"mp4": true, "avi": true, "mkv": true, "mov": true, "webm": true,
 }
 
+// LLMService defines the subset of LLM capabilities needed by DocumentManager.
+type LLMService interface {
+	GenerateWithImage(prompt string, context []string, question string, imageDataURL string) (string, error)
+}
+
 // DocumentManager orchestrates document upload, processing, and lifecycle management.
 type DocumentManager struct {
 	parser           *parser.DocumentParser
@@ -59,6 +64,7 @@ type DocumentManager struct {
 	db               *sql.DB
 	httpClient       *http.Client
 	videoConfig      config.VideoConfig
+	llmService       LLMService
 	// validateURL is a hook for URL validation (SSRF protection).
 	// Defaults to validateExternalURL. Tests can override to allow localhost.
 	validateURL func(string) error
@@ -244,6 +250,53 @@ func (dm *DocumentManager) SetVideoConfig(cfg config.VideoConfig) {
 	dm.mu.Lock()
 	defer dm.mu.Unlock()
 	dm.videoConfig = cfg
+}
+
+// SetLLMService sets the LLM service for OCR on scanned PDFs.
+func (dm *DocumentManager) SetLLMService(ls LLMService) {
+	dm.mu.Lock()
+	defer dm.mu.Unlock()
+	dm.llmService = ls
+}
+
+// ocrImageViaLLM uses the LLM vision API to extract text from an image.
+func (dm *DocumentManager) ocrImageViaLLM(imgData []byte) (string, error) {
+	dm.mu.RLock()
+	ls := dm.llmService
+	dm.mu.RUnlock()
+	if ls == nil {
+		return "", fmt.Errorf("LLM service not configured")
+	}
+
+	dataURL := imageToBase64DataURL(imgData)
+	prompt := "你是一个OCR文字识别助手。请仔细识别图片中的所有文字内容，按原始排版顺序输出纯文本。只输出识别到的文字，不要添加任何解释或描述。如果图片中没有文字，输出空字符串。"
+	text, err := ls.GenerateWithImage(prompt, nil, "请识别图片中的所有文字", dataURL)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(text), nil
+}
+
+// detectImageMIME returns the MIME type based on image magic bytes.
+func detectImageMIME(data []byte) string {
+	if len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return "image/jpeg"
+	}
+	if len(data) >= 4 && string(data[:4]) == "\x89PNG" {
+		return "image/png"
+	}
+	if len(data) >= 4 && string(data[:4]) == "RIFF" {
+		return "image/webp"
+	}
+	if len(data) >= 3 && string(data[:3]) == "GIF" {
+		return "image/gif"
+	}
+	return "image/png" // default fallback
+}
+
+// imageToBase64DataURL converts raw image data to a base64 data URL.
+func imageToBase64DataURL(imgData []byte) string {
+	return fmt.Sprintf("data:%s;base64,%s", detectImageMIME(imgData), base64.StdEncoding.EncodeToString(imgData))
 }
 
 // generateID creates a random UUID-like hex string.
@@ -445,6 +498,7 @@ func (dm *DocumentManager) ListDocuments(productID string) ([]DocumentInfo, erro
 // processFile parses a file, chunks the text, embeds, and stores vectors.
 // It performs content-level deduplication: if a document with the same content
 // hash already exists, the upload is skipped to save API calls.
+// For scanned PDFs (no text but images present), it uses LLM vision OCR to extract text.
 func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, fileType string, productID string) (*ImportStats, error) {
 	result, err := dm.parser.Parse(fileData, fileType)
 	if err != nil {
@@ -453,6 +507,38 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	}
 	if result.Text == "" && len(result.Images) == 0 {
 		return nil, fmt.Errorf("文档内容为空")
+	}
+
+	// OCR fallback: for scanned PDFs (no text but images present), use LLM vision to extract text
+	if result.Text == "" && len(result.Images) > 0 && fileType == "pdf" {
+		dm.mu.RLock()
+		hasLLM := dm.llmService != nil
+		dm.mu.RUnlock()
+		if hasLLM {
+			log.Printf("扫描型PDF检测: doc=%s, 尝试OCR识别 %d 页图片", docID, len(result.Images))
+			var sb strings.Builder
+			for i, img := range result.Images {
+				if len(img.Data) == 0 {
+					continue
+				}
+				ocrText, ocrErr := dm.ocrImageViaLLM(img.Data)
+				if ocrErr != nil {
+					log.Printf("Warning: OCR第%d页失败: %v", i+1, ocrErr)
+					errlog.Logf("[OCR] page %d failed for doc=%s: %v", i+1, docID, ocrErr)
+					continue
+				}
+				if ocrText != "" {
+					if sb.Len() > 0 {
+						sb.WriteString("\n\n")
+					}
+					sb.WriteString(ocrText)
+				}
+			}
+			if sb.Len() > 0 {
+				result.Text = sb.String()
+				log.Printf("OCR识别完成: doc=%s, 提取 %d 字符", docID, len(result.Text))
+			}
+		}
 	}
 
 	stats := &ImportStats{
@@ -480,31 +566,47 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	imageCount := 0
 	for i, img := range result.Images {
 		imgURL := img.URL
-		// For embedded images (e.g. from PDF), save to disk and generate URL
+
+		// For embedded images (e.g. from PDF), save to disk for UI display
+		var savedLocalURL string
 		if imgURL == "" && len(img.Data) > 0 {
 			savedURL, saveErr := dm.saveExtractedImage(img.Data)
 			if saveErr != nil {
 				log.Printf("Warning: failed to save extracted image %d: %v", i, saveErr)
-				continue
+				// Continue — we can still embed the image even if disk save fails
+			} else {
+				savedLocalURL = savedURL
 			}
-			imgURL = savedURL
 		}
-		if imgURL == "" {
+
+		// For embedding API: use base64 data URL for embedded images (external API can't access local paths)
+		embedURL := imgURL
+		if embedURL == "" && len(img.Data) > 0 {
+			embedURL = imageToBase64DataURL(img.Data)
+		}
+		if embedURL == "" {
 			continue
 		}
-		vec, err := dm.embeddingService.EmbedImageURL(imgURL)
+
+		vec, err := dm.embeddingService.EmbedImageURL(embedURL)
 		if err != nil {
-			// Non-fatal: skip images that fail to embed
 			log.Printf("Warning: failed to embed image %d (%s): %v", i, img.Alt, err)
 			continue
 		}
+
+		// For storage, prefer external URL > local serving URL
+		storeURL := imgURL
+		if storeURL == "" {
+			storeURL = savedLocalURL
+		}
+
 		imgChunk := []vectorstore.VectorChunk{{
 			ChunkText:    fmt.Sprintf("[图片: %s]", img.Alt),
-			ChunkIndex:   1000 + i, // offset to avoid collision with text chunks
+			ChunkIndex:   1000 + i,
 			DocumentID:   docID,
 			DocumentName: docName,
 			Vector:       vec,
-			ImageURL:     imgURL,
+			ImageURL:     storeURL,
 			ProductID:    productID,
 		}}
 		if err := dm.vectorStore.Store(docID, imgChunk); err != nil {
@@ -1117,15 +1219,15 @@ func (dm *DocumentManager) saveOriginalFile(docID, filename string, data []byte)
 // saveExtractedImage saves embedded image data (e.g. from PDF) to data/images/
 // and returns the URL path for accessing it.
 func (dm *DocumentManager) saveExtractedImage(data []byte) (string, error) {
-	// Detect image format from magic bytes
+	// Map MIME type to file extension
+	mime := detectImageMIME(data)
 	ext := ".png"
-	if len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+	switch mime {
+	case "image/jpeg":
 		ext = ".jpg"
-	} else if len(data) >= 4 && string(data[:4]) == "\x89PNG" {
-		ext = ".png"
-	} else if len(data) >= 4 && string(data[:4]) == "RIFF" {
+	case "image/webp":
 		ext = ".webp"
-	} else if len(data) >= 3 && string(data[:3]) == "GIF" {
+	case "image/gif":
 		ext = ".gif"
 	}
 
