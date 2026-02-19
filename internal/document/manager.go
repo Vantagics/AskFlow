@@ -1,8 +1,9 @@
-// Package document provides the Document Manager for handling document upload,
+﻿// Package document provides the Document Manager for handling document upload,
 // processing, deletion, and listing in the askflow system.
 package document
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,12 +11,16 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +32,8 @@ import (
 	"askflow/internal/parser"
 	"askflow/internal/vectorstore"
 	"askflow/internal/video"
+
+	"golang.org/x/image/draw"
 )
 
 // supportedFileTypes lists the file types accepted for upload.
@@ -141,17 +148,19 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 		errlog.Logf("[Upload] failed to save original file %q (doc=%s): %v", req.FileName, docID, err)
 	}
 
-	// For video files, process asynchronously to avoid HTTP timeout
-	if videoFileTypes[fileType] {
+	// For video files and PDF files, process asynchronously to avoid HTTP timeout.
+	// PDF files (especially scanned PDFs) may require per-page OCR via LLM vision API,
+	// which can take a very long time for multi-page documents.
+	if videoFileTypes[fileType] || fileType == "pdf" {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
 					dm.updateDocumentStatus(docID, "failed", fmt.Sprintf("panic: %v", r))
-					log.Printf("Video processing panic for %s: %v", docID, r)
+					log.Printf("Async processing panic for %s: %v", docID, r)
 				}
 			}()
 
-			// Set a 30-minute timeout for video processing
+			// Set a 30-minute timeout for async processing
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()
 
@@ -159,32 +168,37 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
-						done <- fmt.Errorf("panic in processVideo: %v", r)
+						done <- fmt.Errorf("panic in async processing: %v", r)
 					}
 				}()
-				done <- dm.processVideo(docID, req.FileName, req.FileData, req.ProductID)
+				if videoFileTypes[fileType] {
+					done <- dm.processVideo(docID, req.FileName, req.FileData, req.ProductID)
+				} else {
+					_, processErr := dm.processFile(docID, req.FileName, req.FileData, fileType, req.ProductID)
+					done <- processErr
+				}
 			}()
 
 			select {
 			case processErr := <-done:
 				if processErr != nil {
 					dm.updateDocumentStatus(docID, "failed", processErr.Error())
-					log.Printf("Video processing failed for %s: %v", docID, processErr)
-					errlog.Logf("[Video] processing failed for doc=%s file=%q: %v", docID, req.FileName, processErr)
+					log.Printf("Async processing failed for %s: %v", docID, processErr)
+					errlog.Logf("[Async] processing failed for doc=%s file=%q: %v", docID, req.FileName, processErr)
 				} else {
 					dm.updateDocumentStatus(docID, "success", "")
-					log.Printf("Video processing completed for %s", docID)
+					log.Printf("Async processing completed for %s", docID)
 				}
 			case <-ctx.Done():
-				dm.updateDocumentStatus(docID, "failed", "视频处理超时")
-				log.Printf("Video processing timed out for %s", docID)
-				errlog.Logf("[Video] processing timed out for doc=%s file=%q", docID, req.FileName)
+				dm.updateDocumentStatus(docID, "failed", "文档处理超时（30分钟）")
+				log.Printf("Async processing timed out for %s", docID)
+				errlog.Logf("[Async] processing timed out for doc=%s file=%q", docID, req.FileName)
 			}
 		}()
 		return doc, nil
 	}
 
-	// Non-video files: process synchronously
+	// Non-video, non-PDF files: process synchronously
 	stats, processErr := dm.processFile(docID, req.FileName, req.FileData, fileType, req.ProductID)
 	if processErr != nil {
 		dm.updateDocumentStatus(docID, "failed", processErr.Error())
@@ -260,6 +274,7 @@ func (dm *DocumentManager) SetLLMService(ls LLMService) {
 }
 
 // ocrImageViaLLM uses the LLM vision API to extract text from an image.
+// The image is resized before sending to reduce payload and improve throughput.
 func (dm *DocumentManager) ocrImageViaLLM(imgData []byte) (string, error) {
 	dm.mu.RLock()
 	ls := dm.llmService
@@ -268,13 +283,89 @@ func (dm *DocumentManager) ocrImageViaLLM(imgData []byte) (string, error) {
 		return "", fmt.Errorf("LLM service not configured")
 	}
 
-	dataURL := imageToBase64DataURL(imgData)
+	resized := resizeImageForOCR(imgData)
+	dataURL := imageToBase64DataURL(resized)
 	prompt := "你是一个OCR文字识别助手。请仔细识别图片中的所有文字内容，按原始排版顺序输出纯文本。只输出识别到的文字，不要添加任何解释或描述。如果图片中没有文字，输出空字符串。"
 	text, err := ls.GenerateWithImage(prompt, nil, "请识别图片中的所有文字", dataURL)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(text), nil
+}
+
+// describeKeyframeViaLLM uses the LLM vision API to both extract text (OCR) and
+// generate a scene description for a video keyframe image. The combined result
+// provides richer searchable content than OCR alone.
+// The image is resized before sending to reduce payload and improve throughput.
+func (dm *DocumentManager) describeKeyframeViaLLM(imgData []byte) (string, error) {
+	dm.mu.RLock()
+	ls := dm.llmService
+	dm.mu.RUnlock()
+	if ls == nil {
+		return "", fmt.Errorf("LLM service not configured")
+	}
+
+	resized := resizeImageForOCR(imgData)
+	dataURL := imageToBase64DataURL(resized)
+	prompt := "你是一个视频内容分析助手。请分析这张视频关键帧图片，完成以下两个任务：\n" +
+		"1. 文字识别：识别图片中出现的所有文字内容（如标题、字幕、界面文字、标签等），按原始排版顺序输出。\n" +
+		"2. 场景描述：用简洁的语言描述画面中的主要内容、场景、人物动作、展示的产品或界面等关键信息。\n\n" +
+		"请按以下格式输出：\n" +
+		"[文字内容]\n（识别到的文字，如果没有文字则写\"无\"）\n\n" +
+		"[场景描述]\n（对画面内容的简要描述）"
+
+	text, err := ls.GenerateWithImage(prompt, nil, "请识别图片中的文字并描述画面内容", dataURL)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(text), nil
+}
+
+// resizeImageForOCR resizes an image so its longest edge is at most maxEdge pixels.
+// This reduces base64 payload size and improves LLM vision API throughput without
+// sacrificing OCR quality (most vision models internally resize to ~1536px anyway).
+// Returns the original data unchanged if the image is already within bounds or
+// if decoding fails (graceful fallback).
+const ocrImageMaxEdge = 1536
+
+func resizeImageForOCR(imgData []byte) []byte {
+	src, _, err := image.Decode(bytes.NewReader(imgData))
+	if err != nil {
+		return imgData // can't decode → send as-is
+	}
+
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	// Already within target size
+	if w <= ocrImageMaxEdge && h <= ocrImageMaxEdge {
+		return imgData
+	}
+
+	// Calculate new dimensions preserving aspect ratio
+	var newW, newH int
+	if w >= h {
+		newW = ocrImageMaxEdge
+		newH = h * ocrImageMaxEdge / w
+	} else {
+		newH = ocrImageMaxEdge
+		newW = w * ocrImageMaxEdge / h
+	}
+	if newW < 1 {
+		newW = 1
+	}
+	if newH < 1 {
+		newH = 1
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	draw.BiLinear.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+		return imgData // encode failed → send original
+	}
+	return buf.Bytes()
 }
 
 // detectImageMIME returns the MIME type based on image magic bytes.
@@ -371,6 +462,9 @@ func (dm *DocumentManager) getExistingChunkEmbeddings(texts []string) map[string
 			}
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: chunk embedding query iteration error: %v", err)
+		}
 	}
 	return result
 }
@@ -516,27 +610,73 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 		dm.mu.RUnlock()
 		if hasLLM {
 			log.Printf("扫描型PDF检测: doc=%s, 尝试OCR识别 %d 页图片", docID, len(result.Images))
-			var sb strings.Builder
-			for i, img := range result.Images {
-				if len(img.Data) == 0 {
-					continue
-				}
-				ocrText, ocrErr := dm.ocrImageViaLLM(img.Data)
-				if ocrErr != nil {
-					log.Printf("Warning: OCR第%d页失败: %v", i+1, ocrErr)
-					errlog.Logf("[OCR] page %d failed for doc=%s: %v", i+1, docID, ocrErr)
-					continue
-				}
-				if ocrText != "" {
-					if sb.Len() > 0 {
-						sb.WriteString("\n\n")
+
+			// Concurrent OCR with worker pool (up to 3 concurrent LLM calls)
+			type ocrPageResult struct {
+				index int
+				text  string
+			}
+			const maxOCRWorkers = 3
+			pageCh := make(chan int, len(result.Images))
+			ocrResultCh := make(chan ocrPageResult, len(result.Images))
+
+			workerCount := maxOCRWorkers
+			if len(result.Images) < workerCount {
+				workerCount = len(result.Images)
+			}
+
+			var ocrWg sync.WaitGroup
+			for w := 0; w < workerCount; w++ {
+				ocrWg.Add(1)
+				go func() {
+					defer ocrWg.Done()
+					for i := range pageCh {
+						img := result.Images[i]
+						if len(img.Data) == 0 {
+							continue
+						}
+						ocrText, ocrErr := dm.ocrImageViaLLM(img.Data)
+						if ocrErr != nil {
+							log.Printf("Warning: OCR第%d页失败: %v", i+1, ocrErr)
+							errlog.Logf("[OCR] page %d failed for doc=%s: %v", i+1, docID, ocrErr)
+							continue
+						}
+						if ocrText != "" {
+							ocrResultCh <- ocrPageResult{index: i, text: ocrText}
+						}
 					}
-					sb.WriteString(ocrText)
+				}()
+			}
+
+			for i := range result.Images {
+				pageCh <- i
+			}
+			close(pageCh)
+
+			go func() {
+				ocrWg.Wait()
+				close(ocrResultCh)
+			}()
+
+			// Collect results and sort by page order
+			var pageResults []ocrPageResult
+			for r := range ocrResultCh {
+				pageResults = append(pageResults, r)
+			}
+			sort.Slice(pageResults, func(i, j int) bool {
+				return pageResults[i].index < pageResults[j].index
+			})
+
+			var sb strings.Builder
+			for _, pr := range pageResults {
+				if sb.Len() > 0 {
+					sb.WriteString("\n\n")
 				}
+				sb.WriteString(pr.text)
 			}
 			if sb.Len() > 0 {
 				result.Text = sb.String()
-				log.Printf("OCR识别完成: doc=%s, 提取 %d 字符", docID, len(result.Text))
+				log.Printf("OCR识别完成: doc=%s, 提取 %d 字符 (%d/%d 页成功)", docID, len(result.Text), len(pageResults), len(result.Images))
 			}
 		}
 	}
@@ -695,193 +835,6 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 
 	return stats, nil
 }
-
-// processVideo handles video file processing: extract transcript and keyframes,
-// embed them, store vectors, and create video_segments records.
-func (dm *DocumentManager) processVideo(docID, docName string, fileData []byte, productID string) error {
-	dm.mu.RLock()
-	cfg := dm.videoConfig
-	dm.mu.RUnlock()
-
-	// Locate the video file already saved by saveOriginalFile.
-	// Fall back to writing it if not found (e.g. saveOriginalFile failed earlier).
-	uploadDir := filepath.Join(".", "data", "uploads", docID)
-	videoPath := dm.findSavedFile(uploadDir)
-	if videoPath == "" {
-		if err := os.MkdirAll(uploadDir, 0755); err != nil {
-			return fmt.Errorf("创建上传目录失败: %w", err)
-		}
-		safeName := sanitizeFilename(docName, docID)
-		videoPath = filepath.Join(uploadDir, safeName)
-		if err := os.WriteFile(videoPath, fileData, 0644); err != nil {
-			return fmt.Errorf("保存视频文件失败: %w", err)
-		}
-	}
-
-	// If video tools are not configured, store the filename as a minimal
-	// searchable text chunk so the video can still be found by name.
-	if cfg.FFmpegPath == "" && cfg.RapidSpeechPath == "" {
-		log.Printf("视频检索工具未配置，仅存储文件名作为可搜索文本: %s", docName)
-		fallbackText := fmt.Sprintf("视频文件: %s", docName)
-		if err := dm.chunkEmbedStore(docID, docName, fallbackText, productID); err != nil {
-			return fmt.Errorf("存储视频文件名向量失败: %w", err)
-		}
-		return nil
-	}
-
-	// Create video parser and parse
-	vp := video.NewParser(cfg)
-	parseResult, err := vp.Parse(videoPath)
-	if err != nil {
-		return fmt.Errorf("视频解析失败: %w", err)
-	}
-
-	chunkIndex := 0
-
-	// Process transcript: join all segment texts → chunk → embed → store → create video_segments
-	if len(parseResult.Transcript) > 0 {
-		// Join all transcript text
-		var fullText strings.Builder
-		for _, seg := range parseResult.Transcript {
-			if fullText.Len() > 0 {
-				fullText.WriteString(" ")
-			}
-			fullText.WriteString(strings.TrimSpace(seg.Text))
-		}
-
-		if fullText.Len() > 0 {
-			// Chunk the transcript text
-			chunks := dm.chunker.Split(fullText.String(), docID)
-			if len(chunks) > 0 {
-				// Collect chunk texts for embedding
-				texts := make([]string, len(chunks))
-				for i, c := range chunks {
-					texts[i] = c.Text
-				}
-
-				// Embed
-				embeddings, err := dm.embeddingService.EmbedBatch(texts)
-				if err != nil {
-					return fmt.Errorf("转录文本嵌入失败: %w", err)
-				}
-
-				// Store vectors
-				vectorChunks := make([]vectorstore.VectorChunk, len(chunks))
-				for i, c := range chunks {
-					vectorChunks[i] = vectorstore.VectorChunk{
-						ChunkText:    c.Text,
-						ChunkIndex:   chunkIndex + i,
-						DocumentID:   docID,
-						DocumentName: docName,
-						Vector:       embeddings[i],
-						ProductID:    productID,
-					}
-				}
-				if err := dm.vectorStore.Store(docID, vectorChunks); err != nil {
-					return fmt.Errorf("转录向量存储失败: %w", err)
-				}
-
-				// Create video_segments records for each transcript chunk using batch insert
-				if len(chunks) > 0 {
-					segTx, txErr := dm.db.Begin()
-					if txErr != nil {
-						return fmt.Errorf("开始 video_segments 事务失败: %w", txErr)
-					}
-					defer segTx.Rollback()
-
-					stmt, stmtErr := segTx.Prepare(
-						`INSERT INTO video_segments (id, document_id, segment_type, start_time, end_time, content, chunk_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-					)
-					if stmtErr != nil {
-						return fmt.Errorf("准备 video_segments 语句失败: %w", stmtErr)
-					}
-					defer stmt.Close()
-
-					for i, c := range chunks {
-						startTime, endTime := dm.mapChunkToTimeRange(c.Text, parseResult.Transcript)
-						segID, err := generateID()
-						if err != nil {
-							return fmt.Errorf("生成 segment ID 失败: %w", err)
-						}
-						chunkID := fmt.Sprintf("%s-%d", docID, chunkIndex+i)
-						if _, err := stmt.Exec(segID, docID, "transcript", startTime, endTime, c.Text, chunkID); err != nil {
-							return fmt.Errorf("插入 video_segments 记录失败: %w", err)
-						}
-					}
-
-					if err := segTx.Commit(); err != nil {
-						return fmt.Errorf("提交 video_segments 事务失败: %w", err)
-					}
-				}
-
-				chunkIndex += len(chunks)
-			}
-		}
-	}
-
-	// Process keyframes: base64 → EmbedImageURL → store → create video_segments
-	for i, kf := range parseResult.Keyframes {
-		if len(kf.Data) == 0 {
-			log.Printf("Warning: keyframe %d has no data", i)
-			continue
-		}
-
-		// Base64 encode as data URL for EmbedImageURL
-		b64 := base64.StdEncoding.EncodeToString(kf.Data)
-		dataURL := "data:image/jpeg;base64," + b64
-
-		vec, err := dm.embeddingService.EmbedImageURL(dataURL)
-		if err != nil {
-			// Non-fatal: skip frames that fail to embed (Requirement 4.5)
-			log.Printf("Warning: failed to embed keyframe %d (%.1fs): %v", i, kf.Timestamp, err)
-			continue
-		}
-
-		frameChunkIndex := chunkIndex + i
-		frameChunk := []vectorstore.VectorChunk{{
-			ChunkText:    fmt.Sprintf("[视频关键帧: %.1fs]", kf.Timestamp),
-			ChunkIndex:   frameChunkIndex,
-			DocumentID:   docID,
-			DocumentName: docName,
-			Vector:       vec,
-			ImageURL:     dataURL,
-			ProductID:    productID,
-		}}
-		if err := dm.vectorStore.Store(docID, frameChunk); err != nil {
-			log.Printf("Warning: failed to store keyframe vector %d: %v", i, err)
-			continue
-		}
-
-		// Create video_segments record for keyframe
-		segID, err := generateID()
-		if err != nil {
-			log.Printf("Warning: failed to generate segment ID for keyframe %d: %v", i, err)
-			continue
-		}
-		chunkID := fmt.Sprintf("%s-%d", docID, frameChunkIndex)
-		_, err = dm.db.Exec(
-			`INSERT INTO video_segments (id, document_id, segment_type, start_time, end_time, content, chunk_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			segID, docID, "keyframe", kf.Timestamp, kf.Timestamp, kf.FilePath, chunkID,
-		)
-		if err != nil {
-			log.Printf("Warning: failed to insert keyframe video_segment: %v", err)
-		}
-	}
-
-	// Fallback: if no transcript and no keyframes were successfully stored,
-	// store the filename as a minimal searchable text chunk so the video
-	// can still be found by name.
-	if chunkIndex == 0 && len(parseResult.Keyframes) == 0 {
-		log.Printf("视频 %s 未提取到转录或关键帧，存储文件名作为可搜索文本", docID)
-		fallbackText := fmt.Sprintf("视频文件: %s", docName)
-		if err := dm.chunkEmbedStore(docID, docName, fallbackText, productID); err != nil {
-			return fmt.Errorf("存储视频文件名向量失败: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // findSavedFile returns the path to the first regular file in dir, or "" if none found.
 func (dm *DocumentManager) findSavedFile(dir string) string {
 	entries, err := os.ReadDir(dir)
@@ -1177,12 +1130,6 @@ func looksLikeHTML(content string) bool {
 		strings.Contains(lower, "<body")
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // chunkEmbedStore splits text into chunks, embeds them in batch, and stores vectors.
 // It performs chunk-level deduplication: if a chunk with identical text already exists

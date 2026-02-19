@@ -155,7 +155,7 @@ If port 8080 is already in use:
 ### Cannot Install Service
 
 Ensure you're running as Administrator:
-- Right-click `cmd.exe` â†?"Run as administrator"
+- Right-click `cmd.exe` â†’"Run as administrator"
 - Then run the install command
 
 ## Automatic Startup
@@ -165,7 +165,7 @@ When installed as a service, Askflow starts automatically on system boot.
 To disable automatic startup:
 1. Open `services.msc`
 2. Find "Askflow Support Service"
-3. Right-click â†?Properties
+3. Right-click â†’Properties
 4. Change "Startup type" to "Manual" or "Disabled"
 
 ## Uninstalling

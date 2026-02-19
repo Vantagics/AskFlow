@@ -2,7 +2,7 @@
 
 ## ⚠️ Windows 平台编译问题
 
-**当前状��**: RapidSpeech.cpp 在 Windows 平台使用 MSVC 编译时存在 DLL 导出宏问题，导致编译失败。
+**当前状态**: RapidSpeech.cpp 在 Windows 平台使用 MSVC 编译时存在 DLL 导出宏问题，导致编译失败。
 
 错误信息：
 ```
@@ -128,7 +128,7 @@ ffmpeg -i input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 test.wav
 **检查**:
 1. 模型文件是否为 `.gguf` 格式（不是 `.bin`）
 2. 模型文件路径是否正确
-3. 文件权��是否可读
+3. 文件权限是否可读
 
 ### FFmpeg 未找到
 

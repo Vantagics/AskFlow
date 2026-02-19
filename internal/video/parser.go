@@ -380,6 +380,43 @@ func (p *Parser) ExtractKeyframes(videoPath, outputDir string) ([]Keyframe, erro
 	return keyframes, nil
 }
 
+// ProbeDuration 调用 ffmpeg 获取视频时长（秒）。
+// 通过 -show_entries format=duration 解析 stderr 中的 Duration 行。
+func (p *Parser) ProbeDuration(videoPath string) float64 {
+	if p.FFmpegPath == "" {
+		return 0
+	}
+	// 使用 ffmpeg -i 读取时长，ffmpeg 会在 stderr 输出 Duration: HH:MM:SS.xx
+	cmd := exec.Command(p.FFmpegPath, "-i", videoPath, "-f", "null", "-")
+	output, _ := cmd.CombinedOutput()
+	// 解析 "Duration: 00:12:34.56" 格式
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		idx := strings.Index(line, "Duration:")
+		if idx < 0 {
+			continue
+		}
+		durStr := strings.TrimSpace(line[idx+len("Duration:"):])
+		if commaIdx := strings.Index(durStr, ","); commaIdx > 0 {
+			durStr = durStr[:commaIdx]
+		}
+		durStr = strings.TrimSpace(durStr)
+		if durStr == "N/A" {
+			return 0
+		}
+		// 解析 HH:MM:SS.xx
+		parts := strings.Split(durStr, ":")
+		if len(parts) == 3 {
+			var h, m, s float64
+			fmt.Sscanf(parts[0], "%f", &h)
+			fmt.Sscanf(parts[1], "%f", &m)
+			fmt.Sscanf(parts[2], "%f", &s)
+			return h*3600 + m*60 + s
+		}
+	}
+	return 0
+}
+
 // Parse 编排完整的视频解析流程：提取音频转录 + 抽取关键帧
 func (p *Parser) Parse(videoPath string) (*ParseResult, error) {
 	tempDir, err := os.MkdirTemp("", "video-parse-*")
@@ -389,6 +426,9 @@ func (p *Parser) Parse(videoPath string) (*ParseResult, error) {
 	defer os.RemoveAll(tempDir)
 
 	result := &ParseResult{}
+
+	// 探测视频时长
+	result.Duration = p.ProbeDuration(videoPath)
 
 	// 音频转录（仅�� RapidSpeech 已配置时执行）
 	if p.RapidSpeechPath != "" && p.RapidSpeechModel != "" {

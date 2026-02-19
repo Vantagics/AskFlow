@@ -2602,7 +2602,7 @@
             html += '<div class="admin-pending-card">';
             html += '<div class="admin-pending-card-header">';
             html += '<div class="admin-pending-meta">';
-            html += '<span>' + i18n.t('admin_pending_user') + ': ' + escapeHtml(q.user_id || '-') + '</span>';
+            html += '<span>' + i18n.t('admin_pending_user') + ': ' + escapeHtml(q.user_name || q.user_id || '-') + '</span>';
             html += '<span>' + escapeHtml(timeStr) + '</span>';
             if (q.product_name) {
                 html += '<span style="background:#EEF2FF;color:#4F46E5;padding:2px 8px;border-radius:4px;font-size:0.8rem;">' + escapeHtml(q.product_name) + '</span>';

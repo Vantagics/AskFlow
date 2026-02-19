@@ -22,6 +22,7 @@ type PendingQuestion struct {
 	ID          string    `json:"id"`
 	Question    string    `json:"question"`
 	UserID      string    `json:"user_id"`
+	UserName    string    `json:"user_name,omitempty"`
 	Status      string    `json:"status"` // "pending", "answered"
 	Answer      string    `json:"answer,omitempty"`
 	ImageData   string    `json:"image_data,omitempty"` // base64 data URL of attached image
@@ -160,9 +161,10 @@ func (pm *PendingQuestionManager) ListPending(status string, productID string) (
 	var rows *sql.Rows
 	var err error
 
-	baseSelect := `SELECT pq.id, pq.question, pq.user_id, pq.status, pq.answer, pq.image_data, pq.product_id, COALESCE(p.name, '') AS product_name, pq.created_at
+	baseSelect := `SELECT pq.id, pq.question, pq.user_id, COALESCE(u.name, '') AS user_name, pq.status, pq.answer, pq.image_data, pq.product_id, COALESCE(p.name, '') AS product_name, pq.created_at
 		FROM pending_questions pq
-		LEFT JOIN products p ON pq.product_id = p.id`
+		LEFT JOIN products p ON pq.product_id = p.id
+		LEFT JOIN users u ON pq.user_id = u.id`
 
 	var conditions []string
 	var args []interface{}
@@ -196,9 +198,10 @@ func (pm *PendingQuestionManager) ListPending(status string, productID string) (
 		var q PendingQuestion
 		var answer sql.NullString
 		var imageData sql.NullString
+		var userName sql.NullString
 		var productName sql.NullString
 		var createdAt sql.NullTime
-		if err := rows.Scan(&q.ID, &q.Question, &q.UserID, &q.Status, &answer, &imageData, &q.ProductID, &productName, &createdAt); err != nil {
+		if err := rows.Scan(&q.ID, &q.Question, &q.UserID, &userName, &q.Status, &answer, &imageData, &q.ProductID, &productName, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan pending question row: %w", err)
 		}
 		if answer.Valid {
@@ -206,6 +209,9 @@ func (pm *PendingQuestionManager) ListPending(status string, productID string) (
 		}
 		if imageData.Valid {
 			q.ImageData = imageData.String
+		}
+		if userName.Valid && userName.String != "" {
+			q.UserName = userName.String
 		}
 		if createdAt.Valid {
 			q.CreatedAt = createdAt.Time
