@@ -554,14 +554,81 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 		dm.db.Exec(`UPDATE documents SET content_hash = ? WHERE id = ?`, hash, docID)
 	}
 
-	// Store text chunks
+	// For PPT: store each slide as a text chunk with its rendered image.
+	// This links slide text directly to the slide image so queries show the right slide.
+	if fileType == "ppt" && len(result.Images) > 0 {
+		// Phase 1: Save all slide images and collect texts
+		type slideInfo struct {
+			text     string
+			imageURL string
+			index    int
+		}
+		var slides []slideInfo
+		for i, img := range result.Images {
+			var savedLocalURL string
+			if len(img.Data) > 0 {
+				savedURL, saveErr := dm.saveExtractedImage(img.Data)
+				if saveErr != nil {
+					log.Printf("Warning: failed to save PPT slide image %d: %v", i, saveErr)
+				} else {
+					savedLocalURL = savedURL
+				}
+			}
+
+			chunkText := img.SlideText
+			if chunkText == "" {
+				chunkText = img.Alt
+			}
+			if chunkText == "" {
+				continue
+			}
+			slides = append(slides, slideInfo{text: chunkText, imageURL: savedLocalURL, index: i})
+		}
+
+		if len(slides) == 0 {
+			return stats, nil
+		}
+
+		// Phase 2: Batch embed all slide texts
+		texts := make([]string, len(slides))
+		for i, s := range slides {
+			texts[i] = s.text
+		}
+		vectors, embErr := dm.embeddingService.EmbedBatch(texts)
+		if embErr != nil {
+			return nil, fmt.Errorf("PPT slide embedding error: %w", embErr)
+		}
+
+		// Phase 3: Store each slide chunk with its image URL
+		imageCount := 0
+		for i, s := range slides {
+			slideChunk := []vectorstore.VectorChunk{{
+				ChunkText:    s.text,
+				ChunkIndex:   s.index,
+				DocumentID:   docID,
+				DocumentName: docName,
+				Vector:       vectors[i],
+				ImageURL:     s.imageURL,
+				ProductID:    productID,
+			}}
+			if err := dm.vectorStore.Store(docID, slideChunk); err != nil {
+				log.Printf("Warning: failed to store PPT slide %d: %v", s.index+1, err)
+			} else {
+				imageCount++
+			}
+		}
+		stats.ImageCount = imageCount
+		return stats, nil
+	}
+
+	// Store text chunks (for non-PPT documents)
 	if result.Text != "" {
 		if err := dm.chunkEmbedStore(docID, docName, result.Text, productID); err != nil {
 			return nil, err
 		}
 	}
 
-	// Store image embeddings
+	// Store image embeddings (for non-PPT documents)
 	imageCount := 0
 	for i, img := range result.Images {
 		imgURL := img.URL

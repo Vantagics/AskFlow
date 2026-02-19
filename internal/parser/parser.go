@@ -30,9 +30,10 @@ type ParseResult struct {
 
 // ImageRef represents an image extracted from a document.
 type ImageRef struct {
-	Alt  string `json:"alt"`
-	URL  string `json:"url"`  // external URL or relative path
-	Data []byte `json:"-"`    // raw image data (for embedded images)
+	Alt       string `json:"alt"`
+	URL       string `json:"url"`       // external URL or relative path
+	Data      []byte `json:"-"`         // raw image data (for embedded images)
+	SlideText string `json:"slide_text,omitempty"` // per-slide text (for PPT: the text content of this slide)
 }
 
 // Parse dispatches to the correct parser based on fileType.
@@ -269,8 +270,9 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 		}
 
 		images = append(images, ImageRef{
-			Alt:  alt,
-			Data: buf.Bytes(),
+			Alt:       alt,
+			Data:      buf.Bytes(),
+			SlideText: strings.TrimSpace(text),
 		})
 	}
 
