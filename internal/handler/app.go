@@ -569,6 +569,104 @@ func (a *App) VerifyEmail(token string) error {
 	return nil
 }
 
+// RequestPasswordReset generates a password reset token and sends a reset email.
+// The token expires in 10 minutes. To prevent user enumeration, always returns nil.
+func (a *App) RequestPasswordReset(emailAddr, baseURL string) error {
+	emailAddr = strings.TrimSpace(emailAddr)
+	if emailAddr == "" {
+		return fmt.Errorf("请输入邮箱地址")
+	}
+
+	var userID, name string
+	err := a.readDB.QueryRow(
+		`SELECT id, COALESCE(name,'') FROM users WHERE email = ? AND provider = 'local'`,
+		emailAddr,
+	).Scan(&userID, &name)
+	if err != nil {
+		// Don't reveal whether the email exists
+		return nil
+	}
+
+	// Delete any existing password reset tokens for this user
+	a.db.Exec(`DELETE FROM email_tokens WHERE user_id = ? AND type = 'password_reset'`, userID)
+
+	// Generate reset token
+	token, err := generateToken()
+	if err != nil {
+		return fmt.Errorf("生成重置令牌失败: %w", err)
+	}
+	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	_, err = a.db.Exec(
+		`INSERT INTO email_tokens (id, user_id, token, type, expires_at) VALUES (?, ?, ?, 'password_reset', ?)`,
+		token, userID, token, expiresAt.Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("创建重置令牌失败: %w", err)
+	}
+
+	resetURL := strings.TrimRight(baseURL, "/") + "/reset-password?token=" + token
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PasswordReset] panic sending reset email to %s: %v", emailAddr, r)
+			}
+		}()
+		if err := a.emailService.SendPasswordReset(emailAddr, name, resetURL); err != nil {
+			log.Printf("[PasswordReset] failed to send reset email to %s: %v", emailAddr, err)
+			errlog.Logf("[Email] failed to send password reset email to %s: %v", emailAddr, err)
+		}
+	}()
+
+	return nil
+}
+
+// ResetPassword validates the reset token and updates the user's password.
+func (a *App) ResetPassword(token, newPassword string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return fmt.Errorf("无效的重置链接")
+	}
+	if msg := ValidatePassword(newPassword); msg != "" {
+		return errors.New(msg)
+	}
+
+	var userID, expiresAtStr string
+	err := a.db.QueryRow(
+		`SELECT user_id, expires_at FROM email_tokens WHERE token = ? AND type = 'password_reset'`, token,
+	).Scan(&userID, &expiresAtStr)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("重置链接无效或已过期")
+	}
+	if err != nil {
+		return fmt.Errorf("查询重置令牌失败: %w", err)
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, expiresAtStr)
+	if err != nil {
+		expiresAt, _ = time.Parse("2006-01-02T15:04:05Z", expiresAtStr)
+	}
+	if time.Now().UTC().After(expiresAt) {
+		a.db.Exec(`DELETE FROM email_tokens WHERE token = ?`, token)
+		return fmt.Errorf("重置链接已过期，请重新申请")
+	}
+
+	hash, err := auth.HashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("密码加密失败: %w", err)
+	}
+
+	_, err = a.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, hash, userID)
+	if err != nil {
+		return fmt.Errorf("更新密码失败: %w", err)
+	}
+
+	// Delete used token and invalidate all sessions
+	a.db.Exec(`DELETE FROM email_tokens WHERE token = ?`, token)
+	_ = a.sessionManager.DeleteSessionsByUserID(userID)
+
+	return nil
+}
+
 // UserLoginResponse contains the session and user info after login.
 type UserLoginResponse struct {
 	Session *auth.Session `json:"session"`

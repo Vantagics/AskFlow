@@ -306,6 +306,62 @@ func HandleVerifyEmail(app *App) http.HandlerFunc {
 	}
 }
 
+// HandleForgotPassword handles POST /api/auth/forgot-password — sends a password reset email.
+func HandleForgotPassword(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var req struct {
+			Email string `json:"email"`
+		}
+		if err := ReadJSONBody(r, &req); err != nil {
+			WriteError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		baseURL := "http://" + r.Host
+		if r.TLS != nil {
+			baseURL = "https://" + r.Host
+		}
+		if fwd := r.Header.Get("X-Forwarded-Proto"); fwd == "https" || fwd == "http" {
+			baseURL = fwd + "://" + r.Host
+		}
+		if err := app.RequestPasswordReset(req.Email, baseURL); err != nil {
+			WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "如果该邮箱已注册，重置链接将发送到您的邮箱"})
+	}
+}
+
+// HandleResetPassword handles POST /api/auth/reset-password — resets the password using a token.
+func HandleResetPassword(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var req struct {
+			Token    string `json:"token"`
+			Password string `json:"password"`
+		}
+		if err := ReadJSONBody(r, &req); err != nil {
+			WriteError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if len(req.Token) != 32 || !IsValidHexID(req.Token) {
+			WriteError(w, http.StatusBadRequest, "无效的重置链接")
+			return
+		}
+		if err := app.ResetPassword(req.Token, req.Password); err != nil {
+			WriteError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "密码重置成功，请登录"})
+	}
+}
+
 // HandleSNLogin handles POST /api/auth/sn-login — verifies a license server token
 // and returns a one-time login ticket.
 func HandleSNLogin(app *App) http.HandlerFunc {

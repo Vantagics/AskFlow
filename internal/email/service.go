@@ -106,6 +106,36 @@ func (s *Service) SendVerification(toEmail, userName, verifyURL string) error {
 	msg := buildMessage(fromName, fromAddr, toEmail, subject, body)
 	return s.send(cfg, fromAddr, toEmail, msg)
 }
+// SendPasswordReset sends a password reset link to the user.
+func (s *Service) SendPasswordReset(toEmail, userName, resetURL string) error {
+	cfg := s.cfg()
+	if cfg.Host == "" {
+		return fmt.Errorf("SMTP 服务器未配置")
+	}
+
+	fromName := cfg.FromName
+	if fromName == "" {
+		fromName = "软件自助服务平台"
+	}
+	fromAddr := cfg.FromAddr
+	if fromAddr == "" {
+		fromAddr = cfg.Username
+	}
+
+	subject := "重置您的密码"
+	body := fmt.Sprintf(
+		"您好 %s，\r\n\r\n"+
+			"我们收到了您的密码重置请求。\r\n\r\n"+
+			"请点击以下链接重置密码：\r\n%s\r\n\r\n"+
+			"该链接10分钟内有效。\r\n\r\n"+
+			"如果您没有请求重置密码，请忽略此邮件。",
+		userName, resetURL,
+	)
+
+	msg := buildMessage(fromName, fromAddr, toEmail, subject, body)
+	return s.send(cfg, fromAddr, toEmail, msg)
+}
+
 // SendTest sends a test email to verify SMTP configuration.
 func (s *Service) SendTest(toEmail string) error {
 	cfg := s.cfg()

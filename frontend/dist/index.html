@@ -63,6 +63,20 @@
                         </div>
                         <p id="user-login-error" class="error-text hidden"></p>
                         <p class="auth-switch"><span data-i18n="login_no_account">还没有账号？</span><a href="javascript:void(0)" onclick="showRegisterForm()" data-i18n="login_register_link">注册</a></p>
+                        <p class="auth-switch"><a href="javascript:void(0)" onclick="showForgotPasswordForm()" data-i18n="login_forgot_password">忘记密码？</a></p>
+                    </div>
+
+                    <!-- Forgot Password Form -->
+                    <div id="user-forgot-password-form" class="admin-login-form hidden">
+                        <p class="login-subtitle" style="text-align:center;margin-bottom:1rem;" data-i18n="forgot_subtitle">重置密码</p>
+                        <p style="text-align:center;color:#6b7280;font-size:0.9rem;margin-bottom:1rem;" data-i18n="forgot_hint">请输入您的注册邮箱，我们将发送重置链接</p>
+                        <div class="input-group">
+                            <input type="email" id="forgot-email" data-i18n-placeholder="forgot_email" placeholder="邮箱" autocomplete="email">
+                            <button class="admin-submit-btn" onclick="handleForgotPassword()" data-i18n="forgot_btn">发送重置链接</button>
+                        </div>
+                        <p id="forgot-password-error" class="error-text hidden"></p>
+                        <p id="forgot-password-success" class="success-text hidden"></p>
+                        <p class="auth-switch"><a href="javascript:void(0)" onclick="showLoginForm()" data-i18n="forgot_back_login">返回登录</a></p>
                     </div>
 
                     <!-- Register Form -->
@@ -104,6 +118,32 @@
                     </div>
                     <div id="verify-status" style="text-align:center;padding:1rem;">
                         <p data-i18n="verify_loading">正在验证...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reset Password Page -->
+        <div id="page-reset-password" class="page hidden">
+            <div class="login-container">
+                <div class="login-card">
+                    <div class="login-header">
+                        <div class="login-logo">
+                            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                                <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+                                <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <h1 data-i18n="reset_title">设置新密码</h1>
+                    </div>
+                    <div id="reset-password-form" class="admin-login-form">
+                        <div class="input-group">
+                            <input type="password" id="reset-new-password" data-i18n-placeholder="reset_new_password" placeholder="新密码（至少8位，需含字母和数字）" autocomplete="new-password">
+                            <input type="password" id="reset-confirm-password" data-i18n-placeholder="reset_confirm_password" placeholder="确认新密码" autocomplete="new-password">
+                            <button class="admin-submit-btn" onclick="handleResetPassword()" data-i18n="reset_btn">重置密码</button>
+                        </div>
+                        <p id="reset-password-error" class="error-text hidden"></p>
+                        <p id="reset-password-success" class="success-text hidden"></p>
                     </div>
                 </div>
             </div>

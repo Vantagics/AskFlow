@@ -130,6 +130,9 @@
         } else if (route === '/verify') {
             showPage('verify');
             handleEmailVerify();
+        } else if (route === '/reset-password') {
+            showPage('reset-password');
+            handleResetPasswordPage();
         } else if (route === '/chat' || route === '/') {
             if (!session) {
                 showPage('login');
@@ -286,20 +289,140 @@
 
     // --- User Login & Register ---
 
-    window.showLoginForm = function () {
-        var loginForm = document.getElementById('user-login-form');
-        var registerForm = document.getElementById('user-register-form');
-        if (loginForm) loginForm.classList.remove('hidden');
-        if (registerForm) registerForm.classList.add('hidden');
-        loadLoginCaptcha();
-    };
-
     window.showRegisterForm = function () {
         var loginForm = document.getElementById('user-login-form');
         var registerForm = document.getElementById('user-register-form');
+        var forgotForm = document.getElementById('user-forgot-password-form');
         if (loginForm) loginForm.classList.add('hidden');
         if (registerForm) registerForm.classList.remove('hidden');
+        if (forgotForm) forgotForm.classList.add('hidden');
         loadRegisterCaptcha();
+    };
+
+    window.showLoginForm = function () {
+        var loginForm = document.getElementById('user-login-form');
+        var registerForm = document.getElementById('user-register-form');
+        var forgotForm = document.getElementById('user-forgot-password-form');
+        if (loginForm) loginForm.classList.remove('hidden');
+        if (registerForm) registerForm.classList.add('hidden');
+        if (forgotForm) forgotForm.classList.add('hidden');
+        loadLoginCaptcha();
+    };
+
+    window.showForgotPasswordForm = function () {
+        var loginForm = document.getElementById('user-login-form');
+        var registerForm = document.getElementById('user-register-form');
+        var forgotForm = document.getElementById('user-forgot-password-form');
+        if (loginForm) loginForm.classList.add('hidden');
+        if (registerForm) registerForm.classList.add('hidden');
+        if (forgotForm) forgotForm.classList.remove('hidden');
+        var errorEl = document.getElementById('forgot-password-error');
+        var successEl = document.getElementById('forgot-password-success');
+        if (errorEl) errorEl.classList.add('hidden');
+        if (successEl) successEl.classList.add('hidden');
+    };
+
+    window.handleForgotPassword = function () {
+        var emailInput = document.getElementById('forgot-email');
+        var errorEl = document.getElementById('forgot-password-error');
+        var successEl = document.getElementById('forgot-password-success');
+        var submitBtn = document.querySelector('#user-forgot-password-form .admin-submit-btn');
+
+        if (!emailInput) return;
+        var email = emailInput.value.trim();
+        if (!email) {
+            if (errorEl) { errorEl.textContent = i18n.t('forgot_error_email'); errorEl.classList.remove('hidden'); }
+            return;
+        }
+        if (errorEl) errorEl.classList.add('hidden');
+        if (successEl) successEl.classList.add('hidden');
+        if (submitBtn) submitBtn.disabled = true;
+
+        fetch('/api/auth/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('forgot_failed')); });
+            return res.json();
+        })
+        .then(function (data) {
+            if (successEl) { successEl.textContent = data.message || i18n.t('forgot_success'); successEl.classList.remove('hidden'); }
+            if (errorEl) errorEl.classList.add('hidden');
+        })
+        .catch(function (err) {
+            if (errorEl) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
+        })
+        .finally(function () {
+            if (submitBtn) submitBtn.disabled = false;
+        });
+    };
+
+    window.handleResetPasswordPage = function () {
+        // This is called when the /reset-password page loads
+        var params = new URLSearchParams(window.location.search);
+        var token = params.get('token');
+        if (!token) {
+            var errorEl = document.getElementById('reset-password-error');
+            if (errorEl) { errorEl.textContent = i18n.t('reset_invalid_link'); errorEl.classList.remove('hidden'); }
+            var form = document.getElementById('reset-password-form');
+            if (form) {
+                var inputs = form.querySelectorAll('input, button');
+                inputs.forEach(function(el) { el.disabled = true; });
+            }
+        }
+    };
+    // Also expose as a plain function for handleRoute
+    function handleResetPasswordPage() { window.handleResetPasswordPage(); }
+
+    window.handleResetPassword = function () {
+        var params = new URLSearchParams(window.location.search);
+        var token = params.get('token');
+        var passwordInput = document.getElementById('reset-new-password');
+        var confirmInput = document.getElementById('reset-confirm-password');
+        var errorEl = document.getElementById('reset-password-error');
+        var successEl = document.getElementById('reset-password-success');
+        var submitBtn = document.querySelector('#reset-password-form .admin-submit-btn');
+
+        if (!passwordInput || !confirmInput) return;
+        var password = passwordInput.value;
+        var confirm = confirmInput.value;
+
+        if (!password) { if (errorEl) { errorEl.textContent = i18n.t('reset_error_password'); errorEl.classList.remove('hidden'); } return; }
+        if (password.length < 8) { if (errorEl) { errorEl.textContent = i18n.t('reset_error_password_length'); errorEl.classList.remove('hidden'); } return; }
+        if (password !== confirm) { if (errorEl) { errorEl.textContent = i18n.t('reset_error_password_mismatch'); errorEl.classList.remove('hidden'); } return; }
+
+        if (errorEl) errorEl.classList.add('hidden');
+        if (successEl) successEl.classList.add('hidden');
+        if (submitBtn) submitBtn.disabled = true;
+
+        fetch('/api/auth/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token, password: password })
+        })
+        .then(function (res) {
+            if (!res.ok) return res.json().then(function (d) { throw new Error(d.error || i18n.t('reset_failed')); });
+            return res.json();
+        })
+        .then(function (data) {
+            if (successEl) {
+                successEl.innerHTML = (data.message || i18n.t('reset_success')) + ' <a href="/login">' + i18n.t('reset_go_login') + '</a>';
+                successEl.classList.remove('hidden');
+            }
+            if (errorEl) errorEl.classList.add('hidden');
+            // Disable form after success
+            if (passwordInput) passwordInput.disabled = true;
+            if (confirmInput) confirmInput.disabled = true;
+            if (submitBtn) submitBtn.disabled = true;
+        })
+        .catch(function (err) {
+            if (errorEl) { errorEl.textContent = err.message; errorEl.classList.remove('hidden'); }
+        })
+        .finally(function () {
+            if (submitBtn && !passwordInput.disabled) submitBtn.disabled = false;
+        });
     };
 
     window.handleUserLogin = function () {

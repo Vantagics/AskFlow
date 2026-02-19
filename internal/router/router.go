@@ -59,6 +59,8 @@ func Register(app *handler.App) func() {
 	http.HandleFunc("/api/auth/register", secureRL(handler.HandleRegister(app)))
 	http.HandleFunc("/api/auth/login", secureRL(handler.HandleUserLogin(app)))
 	http.HandleFunc("/api/auth/verify", secure(handler.HandleVerifyEmail(app)))
+	http.HandleFunc("/api/auth/forgot-password", secureRL(handler.HandleForgotPassword(app)))
+	http.HandleFunc("/api/auth/reset-password", secureRL(handler.HandleResetPassword(app)))
 	http.HandleFunc("/api/auth/sn-login", secureRL(handler.HandleSNLogin(app)))
 	http.HandleFunc("/api/auth/ticket-exchange", secureRL(handler.HandleTicketExchange(app)))
 	http.HandleFunc("/auth/ticket-login", handler.HandleTicketLogin(app))

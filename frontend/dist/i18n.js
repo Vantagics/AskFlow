@@ -52,6 +52,30 @@
             'register_failed': '注册失败',
             'register_success': '注册成功，请查收验证邮件',
 
+            // Forgot password
+            'login_forgot_password': '忘记密码？',
+            'forgot_subtitle': '重置密码',
+            'forgot_hint': '请输入您的注册邮箱，我们将发送重置链接',
+            'forgot_email': '邮箱',
+            'forgot_btn': '发送重置链接',
+            'forgot_error_email': '请输入邮箱',
+            'forgot_failed': '发送失败',
+            'forgot_success': '如果该邮箱已注册，重置链接将发送到您的邮箱',
+            'forgot_back_login': '返回登录',
+
+            // Reset password page
+            'reset_title': '设置新密码',
+            'reset_new_password': '新密码（至少8位，需含字母和数字）',
+            'reset_confirm_password': '确认新密码',
+            'reset_btn': '重置密码',
+            'reset_error_password': '请输入新密码',
+            'reset_error_password_length': '密码至少8位',
+            'reset_error_password_mismatch': '两次密码不一致',
+            'reset_invalid_link': '无效的重置链接',
+            'reset_failed': '重置失败',
+            'reset_success': '密码重置成功，请登录',
+            'reset_go_login': '前往登录',
+
             // Verify page
             'verify_title': '邮箱验证',
             'verify_loading': '正在验证...',
@@ -612,6 +636,30 @@
             'register_error_captcha': 'Please enter captcha',
             'register_failed': 'Registration failed',
             'register_success': 'Registration successful, please check your email for verification',
+
+            // Forgot password
+            'login_forgot_password': 'Forgot password?',
+            'forgot_subtitle': 'Reset Password',
+            'forgot_hint': 'Enter your registered email and we will send you a reset link',
+            'forgot_email': 'Email',
+            'forgot_btn': 'Send Reset Link',
+            'forgot_error_email': 'Please enter your email',
+            'forgot_failed': 'Failed to send',
+            'forgot_success': 'If this email is registered, a reset link will be sent to your inbox',
+            'forgot_back_login': 'Back to Login',
+
+            // Reset password page
+            'reset_title': 'Set New Password',
+            'reset_new_password': 'New password (min 8 chars, letters and numbers)',
+            'reset_confirm_password': 'Confirm new password',
+            'reset_btn': 'Reset Password',
+            'reset_error_password': 'Please enter a new password',
+            'reset_error_password_length': 'Password must be at least 8 characters',
+            'reset_error_password_mismatch': 'Passwords do not match',
+            'reset_invalid_link': 'Invalid reset link',
+            'reset_failed': 'Reset failed',
+            'reset_success': 'Password reset successful, please log in',
+            'reset_go_login': 'Go to Login',
 
             // Verify page
             'verify_title': 'Email Verification',
