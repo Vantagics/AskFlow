@@ -276,7 +276,6 @@ func (dm *DocumentManager) ocrImageViaLLM(imgData []byte) (string, error) {
 	}
 	return strings.TrimSpace(text), nil
 }
-
 // detectImageMIME returns the MIME type based on image magic bytes.
 func detectImageMIME(data []byte) string {
 	if len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {

@@ -44,7 +44,7 @@ func NewAPILLMService(endpoint, apiKey, modelName string, temperature float64, m
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
 		client: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 	}
 }
@@ -263,8 +263,8 @@ func (s *APILLMService) GenerateWithImage(prompt string, context []string, quest
 	if err == nil {
 		return answer, nil
 	}
-	log.Printf("LLM vision API retry failed, falling back to text-only: %v", err)
+	log.Printf("LLM vision API retry also failed: %v", err)
+	errlog.Logf("[LLM] vision API failed after retries: %v", err)
 
-	// Fall back to text-only if vision fails
-	return s.Generate(prompt, context, question)
+	return "", fmt.Errorf("LLM vision API failed: %w", err)
 }
