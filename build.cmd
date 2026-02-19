@@ -19,7 +19,7 @@ echo.
 REM --- Step 1: Package ---
 echo [1/4] Packaging project files...
 if exist deploy.tar.gz del /f deploy.tar.gz
-tar -czf deploy.tar.gz --exclude=deploy.tar.gz --exclude=build.cmd --exclude=start.sh --exclude=.git --exclude=.kiro --exclude=.vscode --exclude=*.exe *.go go.mod go.sum internal frontend
+tar -czf deploy.tar.gz --exclude=deploy.tar.gz --exclude=build.cmd --exclude=start.sh --exclude=.git --exclude=.kiro --exclude=.vscode --exclude=*.exe *.go go.mod go.sum internal frontend sqlite-vec
 if %errorlevel% neq 0 (
     echo [ERROR] Packaging failed!
     exit /b 1
