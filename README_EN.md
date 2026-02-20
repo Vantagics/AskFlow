@@ -47,6 +47,11 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 - **Hot Reload**: Modify LLM / Embedding / SMTP settings via web UI without restart
 - **Encrypted Storage**: API keys stored with AES-256-GCM encryption in config file
 - **Email Service**: SMTP email verification and test email sending
+- **Photo Gallery**: Multiple images in responses displayed as a carousel with prev/next navigation, dot indicators, and fullscreen viewing on click
+- **Media Modal Playback**: Video/audio shown as compact play buttons; clicking opens a modal player with time segment navigation
+- **Streaming Video**: HTTP Range request support for progressive video playback without waiting for full download, with automatic media caching
+- **Source Reference Playback**: Play buttons next to video/audio entries in source citations for instant modal playback
+- **Mobile Responsive**: Gallery and media modal adapt to small screen devices
 
 ---
 
@@ -102,7 +107,7 @@ Single Go binary deployment, SQLite storage, ready out of the box.
 | Embedding | OpenAI-compatible Embedding API (multimodal: text + image) |
 | Document Parsing | GoPDF2, GoWord, GoExcel, GoPPT |
 | Video Processing | ffmpeg (audio extraction + keyframe sampling) + whisper (speech transcription) |
-| Frontend | SPA (compiled assets in frontend/dist) |
+| Frontend | SPA (photo gallery, media modal, streaming video; compiled assets in frontend/dist) |
 | Authentication | OAuth 2.0 + bcrypt + Session |
 | Encryption | AES-256-GCM |
 | Email | SMTP (TLS) |
