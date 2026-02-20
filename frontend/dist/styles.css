@@ -1992,6 +1992,115 @@ a.chat-source-download:hover {
 
 .admin-dialog-wide { max-width: 560px; }
 
+/* Review Dialog */
+.admin-dialog-review {
+    max-width: 800px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.admin-review-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.admin-review-header h3 {
+    margin-bottom: 0;
+}
+
+.admin-review-close-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    padding: 0 0.25rem;
+    line-height: 1;
+}
+
+.admin-review-close-btn:hover {
+    color: var(--color-text);
+}
+
+.admin-review-content {
+    overflow-y: auto;
+    flex: 1;
+    min-height: 200px;
+    max-height: 60vh;
+    padding-right: 0.5rem;
+}
+
+.review-segment {
+    border: 1px solid #E5E7EB;
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.review-segment-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.review-segment-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #fff;
+}
+
+.review-badge-transcript { background: #3B82F6; }
+.review-badge-keyframe { background: #8B5CF6; }
+.review-badge-ocr { background: #F59E0B; color: #1F2937; }
+
+.review-segment-time {
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+}
+
+.review-segment-text {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.review-keyframe-img {
+    max-width: 320px;
+    max-height: 200px;
+    border-radius: var(--radius);
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.review-keyframe-img:hover {
+    transform: scale(1.02);
+}
+
+.review-empty {
+    text-align: center;
+    color: var(--color-text-secondary);
+    padding: 2rem 0;
+}
+
+@media (max-width: 768px) {
+    .admin-dialog-review {
+        max-width: 95vw;
+        max-height: 90vh;
+    }
+    .review-keyframe-img {
+        max-width: 100%;
+    }
+}
+
 @keyframes dialogIn {
     from { opacity: 0; transform: scale(0.95); }
     to { opacity: 1; transform: scale(1); }

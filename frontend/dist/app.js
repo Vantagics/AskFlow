@@ -2515,7 +2515,16 @@
                 '<td>' + escapeHtml(doc.type || '-') + '</td>' +
                 '<td><span class="admin-badge ' + statusClass + '">' + escapeHtml(statusText) + '</span></td>' +
                 '<td>' + escapeHtml(timeStr) + '</td>' +
-                '<td><button class="btn-danger btn-sm" onclick="showDeleteDialog(\'' + escapeHtml(doc.id) + '\', \'' + escapeHtml(doc.name || '') + '\')">' + i18n.t('admin_doc_delete_btn') + '</button></td>' +
+                '<td>';
+
+            // Show review button for video/audio types with success status
+            var videoTypes = ['mp4', 'avi', 'mkv', 'mov', 'webm'];
+            if (videoTypes.indexOf(doc.type) !== -1 && doc.status === 'success') {
+                html += '<button class="btn-primary btn-sm" style="margin-right:0.25rem" data-doc-id="' + escapeHtml(doc.id) + '" data-doc-name="' + escapeHtml(doc.name || '') + '" onclick="showReviewDialog(this.dataset.docId, this.dataset.docName)">' + i18n.t('admin_doc_review_btn') + '</button>';
+            }
+
+            html += '<button class="btn-danger btn-sm" onclick="showDeleteDialog(\'' + escapeHtml(doc.id) + '\', \'' + escapeHtml(doc.name || '') + '\')">' + i18n.t('admin_doc_delete_btn') + '</button>' +
+                '</td>' +
             '</tr>';
         }
         tbody.innerHTML = html;
@@ -2554,6 +2563,123 @@
             showAdminToast(err.message || i18n.t('admin_delete_failed'), 'error');
         });
     };
+
+    // --- Document Review ---
+
+    window.showReviewDialog = function (docId, docName) {
+        var dialog = document.getElementById('admin-review-dialog');
+        var content = document.getElementById('admin-review-content');
+        var title = document.getElementById('admin-review-title');
+        if (!dialog || !content) return;
+
+        title.textContent = i18n.t('admin_doc_review_title') + ' - ' + docName;
+        content.innerHTML = '<p>' + i18n.t('admin_doc_review_loading') + '</p>';
+        dialog.classList.remove('hidden');
+
+        // Close on overlay click
+        dialog.onclick = function (e) {
+            if (e.target === dialog) closeReviewDialog();
+        };
+
+        adminFetch('/api/documents/' + encodeURIComponent(docId) + '/review')
+            .then(function (res) {
+                if (!res.ok) throw new Error(i18n.t('admin_doc_review_load_failed'));
+                return res.json();
+            })
+            .then(function (data) {
+                renderReviewContent(content, data);
+            })
+            .catch(function (err) {
+                content.innerHTML = '<p class="review-empty">' + escapeHtml(err.message) + '</p>';
+            });
+    };
+
+    window.closeReviewDialog = function () {
+        var dialog = document.getElementById('admin-review-dialog');
+        if (dialog) dialog.classList.add('hidden');
+    };
+
+    function formatReviewTime(seconds) {
+        if (seconds === undefined || seconds === null) return '';
+        var m = Math.floor(seconds / 60);
+        var s = Math.floor(seconds % 60);
+        return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    function cleanTranscriptNoise(text) {
+        if (!text) return text;
+        // Remove lines that are rs-cli log noise (for old data that wasn't cleaned server-side)
+        var lines = text.split('\n');
+        var cleaned = [];
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i].trim();
+            if (!line) continue;
+            // Skip log lines: [rs-cli], [INFO], timestamps, inference logs
+            if (/^\[?\d{4}-\d{2}-\d{2}/.test(line)) continue;
+            if (/\[rs-cli\]/i.test(line)) continue;
+            if (/\[info\s*\]/i.test(line)) continue;
+            if (/^\[rs-cli\]/i.test(line)) continue;
+            if (/^(starting inference|finished\.?$)/i.test(line)) continue;
+            if (/\b(encoder|decoder|compute features)\s+takes:/i.test(line)) continue;
+            if (/samples\s+@\s+\d+\s+Hz/i.test(line)) continue;
+            // Remove SenseVoice tags: <|zh|>, <|NEUTRAL|>, etc.
+            line = line.replace(/<\|[^|]*\|>/g, '');
+            line = line.trim();
+            if (line) cleaned.push(line);
+        }
+        return cleaned.join('\n');
+    }
+
+    function renderReviewContent(container, data) {
+        if (!data.segments || data.segments.length === 0) {
+            container.innerHTML = '<p class="review-empty">' + i18n.t('admin_doc_review_empty') + '</p>';
+            return;
+        }
+
+        var html = '';
+        for (var i = 0; i < data.segments.length; i++) {
+            var seg = data.segments[i];
+            var badgeClass = 'review-badge-transcript';
+            var badgeText = i18n.t('admin_doc_review_transcript');
+
+            if (seg.type === 'keyframe') {
+                badgeClass = 'review-badge-keyframe';
+                badgeText = i18n.t('admin_doc_review_keyframe');
+            } else if (seg.type === 'ocr_description') {
+                badgeClass = 'review-badge-ocr';
+                badgeText = i18n.t('admin_doc_review_ocr');
+            }
+
+            html += '<div class="review-segment">';
+            html += '<div class="review-segment-header">';
+            html += '<span class="review-segment-badge ' + badgeClass + '">' + escapeHtml(badgeText) + '</span>';
+
+            if (seg.type !== 'ocr_description') {
+                var timeStr = formatReviewTime(seg.start_time);
+                if (seg.type === 'transcript' && seg.end_time > seg.start_time) {
+                    timeStr += ' - ' + formatReviewTime(seg.end_time);
+                }
+                html += '<span class="review-segment-time">' + escapeHtml(timeStr) + '</span>';
+            }
+
+            html += '</div>';
+
+            if (seg.type === 'keyframe' && seg.image_url) {
+                html += '<img class="review-keyframe-img" src="' + escapeHtml(seg.image_url) + '" alt="' + escapeHtml(badgeText) + '" loading="lazy" onclick="window.open(this.src, \'_blank\')">';
+            }
+
+            if (seg.content) {
+                var displayContent = seg.type === 'transcript' ? cleanTranscriptNoise(seg.content) : seg.content;
+                if (displayContent) {
+                    html += '<div class="review-segment-text">' + escapeHtml(displayContent) + '</div>';
+                }
+            }
+
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+    }
 
     // --- Pending Questions ---
 

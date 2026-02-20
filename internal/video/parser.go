@@ -65,6 +65,20 @@ func isRapidSpeechLogLine(line string) bool {
 		"线程",
 		"回退",
 		"fallback",
+		// rs-cli log patterns
+		"[rs-cli]",
+		"[info",
+		"[warn",
+		"[error",
+		"[debug",
+		"starting inference",
+		"finished",
+		"loading audio",
+		"loaded ",
+		"compute features",
+		"encoder takes",
+		"decoder takes",
+		"samples @",
 	}
 	lower := strings.ToLower(line)
 	for _, p := range logPatterns {
@@ -72,8 +86,15 @@ func isRapidSpeechLogLine(line string) bool {
 			return true
 		}
 	}
-	// 以数字+点开头且包含冒号的行通常是日志（如 "1. Encoder processing time: 0.648946"）
+	// Lines starting with timestamp pattern like "[2026-02-20 00:27:09]"
 	trimmed := strings.TrimSpace(line)
+	if len(trimmed) > 1 && trimmed[0] == '[' {
+		// Check for timestamp-like pattern: [YYYY-MM-DD or [digit
+		if len(trimmed) > 5 && trimmed[1] >= '0' && trimmed[1] <= '9' {
+			return true
+		}
+	}
+	// 以数字+点开头且包含冒号的行通常是日志（如 "1. Encoder processing time: 0.648946"）
 	if len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' && trimmed[1] == '.' && strings.Contains(trimmed, ":") {
 		// 检查冒号后面是否跟着数字（日志格式），而非普通文本
 		idx := strings.Index(trimmed, ":")
@@ -97,12 +118,47 @@ func filterRapidSpeechOutput(raw string) string {
 		if trimmed == "" {
 			continue
 		}
+		// Special handling for "[rs-cli] Result: ..." lines — extract the transcript text
+		lowerTrimmed := strings.ToLower(trimmed)
+		if strings.Contains(lowerTrimmed, "[rs-cli]") && strings.Contains(trimmed, "Result:") {
+			idx := strings.Index(trimmed, "Result:")
+			after := strings.TrimSpace(trimmed[idx+7:])
+			cleaned := cleanSenseVoiceTags(after)
+			cleaned = strings.TrimSpace(cleaned)
+			if cleaned != "" {
+				transcriptLines = append(transcriptLines, cleaned)
+			}
+			continue
+		}
 		if isRapidSpeechLogLine(trimmed) {
 			continue
 		}
-		transcriptLines = append(transcriptLines, trimmed)
+		// Clean SenseVoice special tokens from any remaining lines
+		cleaned := cleanSenseVoiceTags(trimmed)
+		cleaned = strings.TrimSpace(cleaned)
+		if cleaned == "" {
+			continue
+		}
+		transcriptLines = append(transcriptLines, cleaned)
 	}
 	return strings.Join(transcriptLines, "\n")
+}
+
+// cleanSenseVoiceTags removes SenseVoice/FunASR special tokens like <|zh|>, <|NEUTRAL|>, etc.
+func cleanSenseVoiceTags(text string) string {
+	result := text
+	for {
+		start := strings.Index(result, "<|")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result[start:], "|>")
+		if end == -1 {
+			break
+		}
+		result = result[:start] + result[start+end+2:]
+	}
+	return result
 }
 
 // ParseRapidSpeechOutput 解析 RapidSpeech 文本输出为 TranscriptSegment 列表
@@ -367,6 +423,30 @@ func (p *Parser) ExtractKeyframes(videoPath, outputDir string) ([]Keyframe, erro
 			frameFiles = append(frameFiles, entry.Name())
 		}
 	}
+
+	// If no frames extracted (video shorter than keyframe interval), extract one frame from the middle
+	if len(frameFiles) == 0 {
+		duration := p.ProbeDuration(videoPath)
+		seekTime := duration / 2
+		if seekTime < 0 {
+			seekTime = 0
+		}
+		singleFrame := filepath.Join(outputDir, "frame_0001.jpg")
+		fallbackCmd := exec.Command(p.FFmpegPath,
+			"-ss", fmt.Sprintf("%.2f", seekTime),
+			"-i", videoPath,
+			"-frames:v", "1",
+			"-q:v", "2",
+			singleFrame,
+		)
+		if fbOut, fbErr := fallbackCmd.CombinedOutput(); fbErr == nil {
+			frameFiles = append(frameFiles, "frame_0001.jpg")
+		} else {
+			// Log but don't fail — video may have no video stream
+			_ = fbOut
+		}
+	}
+
 	sort.Strings(frameFiles)
 
 	keyframes := make([]Keyframe, 0, len(frameFiles))

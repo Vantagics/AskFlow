@@ -122,6 +122,11 @@ func (a *App) GetDocumentInfo(docID string) (*document.DocumentInfo, error) {
 	return a.docManager.GetDocumentInfo(docID)
 }
 
+// GetDocumentReview returns extracted segments for reviewing document analysis results.
+func (a *App) GetDocumentReview(docID string) (*document.ReviewData, error) {
+	return a.docManager.GetDocumentReview(docID)
+}
+
 // --- Pending Questions Interface ---
 
 // ListPendingQuestions returns pending questions filtered by status and productID.

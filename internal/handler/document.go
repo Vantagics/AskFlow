@@ -324,6 +324,31 @@ func HandleDocumentByID(app *App) http.HandlerFunc {
 			return
 		}
 
+		// Handle /api/documents/{id}/review
+		if strings.HasSuffix(path, "/review") {
+			docID := strings.TrimSuffix(path, "/review")
+			if !IsValidHexID(docID) {
+				WriteError(w, http.StatusBadRequest, "invalid document ID")
+				return
+			}
+			if r.Method != http.MethodGet {
+				WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+				return
+			}
+			_, _, err := GetAdminSession(app, r)
+			if err != nil {
+				WriteError(w, http.StatusUnauthorized, err.Error())
+				return
+			}
+			review, err := app.GetDocumentReview(docID)
+			if err != nil {
+				WriteError(w, http.StatusNotFound, "文档未找到")
+				return
+			}
+			WriteJSON(w, http.StatusOK, review)
+			return
+		}
+
 		// Handle DELETE /api/documents/{id}
 		docID := path
 		if !IsValidHexID(docID) {

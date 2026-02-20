@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"askflow/internal/captcha"
@@ -112,7 +113,15 @@ func HandleAdminLogin(app *App) http.HandlerFunc {
 			WriteError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
-		if !captcha.Validate(req.CaptchaID, req.CaptchaAnswer) {
+		// Try image captcha store first (captcha package), then text captcha store (app)
+		captchaValid := captcha.Validate(req.CaptchaID, req.CaptchaAnswer)
+		if !captchaValid {
+			// Fallback: try text captcha store (answer is numeric string)
+			if ans, err := strconv.Atoi(req.CaptchaAnswer); err == nil {
+				captchaValid = ValidateCaptcha(req.CaptchaID, ans)
+			}
+		}
+		if !captchaValid {
 			WriteError(w, http.StatusBadRequest, "验证码错误")
 			return
 		}

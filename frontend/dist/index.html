@@ -1347,6 +1347,22 @@
                 </div>
             </div>
 
+            <!-- Document Review Dialog -->
+            <div id="admin-review-dialog" class="admin-dialog-overlay hidden">
+                <div class="admin-dialog admin-dialog-review">
+                    <div class="admin-review-header">
+                        <h3 id="admin-review-title" data-i18n="admin_doc_review_title">文档分析审看</h3>
+                        <button type="button" class="admin-review-close-btn" onclick="closeReviewDialog()" aria-label="Close">&times;</button>
+                    </div>
+                    <div id="admin-review-content" class="admin-review-content">
+                        <p data-i18n="admin_doc_review_loading">正在加载分析结果...</p>
+                    </div>
+                    <div class="admin-dialog-actions">
+                        <button type="button" class="btn-secondary" onclick="closeReviewDialog()" data-i18n="admin_doc_review_close">关闭</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Answer Dialog -->
             <div id="admin-answer-dialog" class="admin-dialog-overlay hidden">
                 <div class="admin-dialog admin-dialog-wide">

@@ -1,4 +1,4 @@
-﻿// Package document provides the Document Manager for handling document upload,
+// Package document provides the Document Manager for handling document upload,
 // processing, deletion, and listing in the askflow system.
 package document
 
@@ -1289,6 +1289,122 @@ func (dm *DocumentManager) GetDocumentInfo(docID string) (*DocumentInfo, error) 
 		d.CreatedAt = createdAt.Time
 	}
 	return &d, nil
+}
+// ReviewSegment represents a video/audio segment for review display.
+type ReviewSegment struct {
+	Type      string  `json:"type"`       // "transcript" or "keyframe"
+	StartTime float64 `json:"start_time"` // seconds
+	EndTime   float64 `json:"end_time"`   // seconds
+	Content   string  `json:"content"`    // text or image path
+	ImageURL  string  `json:"image_url,omitempty"`
+}
+
+// ReviewData holds all extracted data for a document review.
+type ReviewData struct {
+	DocID    string          `json:"doc_id"`
+	DocName  string          `json:"doc_name"`
+	DocType  string          `json:"doc_type"`
+	Segments []ReviewSegment `json:"segments"`
+}
+
+// GetDocumentReview returns the extracted segments (transcript + keyframes) for review.
+func (dm *DocumentManager) GetDocumentReview(docID string) (*ReviewData, error) {
+	docInfo, err := dm.GetDocumentInfo(docID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &ReviewData{
+		DocID:   docID,
+		DocName: docInfo.Name,
+		DocType: docInfo.Type,
+	}
+
+	// Query video_segments for transcript and keyframe records
+	rows, err := dm.db.Query(
+		`SELECT segment_type, start_time, end_time, content, chunk_id FROM video_segments WHERE document_id = ? ORDER BY start_time ASC`,
+		docID,
+	)
+	if err != nil {
+		return result, nil // return empty segments on query error
+	}
+	defer rows.Close()
+
+	type segWithChunk struct {
+		seg     ReviewSegment
+		chunkID string
+	}
+	var segments []segWithChunk
+	var keyframeChunkIDs []string
+
+	for rows.Next() {
+		var sc segWithChunk
+		if err := rows.Scan(&sc.seg.Type, &sc.seg.StartTime, &sc.seg.EndTime, &sc.seg.Content, &sc.chunkID); err != nil {
+			continue
+		}
+		if sc.seg.Type == "keyframe" {
+			keyframeChunkIDs = append(keyframeChunkIDs, sc.chunkID)
+		}
+		segments = append(segments, sc)
+	}
+
+	// Batch-fetch image URLs for all keyframe chunks to avoid N+1 queries
+	imageURLMap := make(map[string]string)
+	if len(keyframeChunkIDs) > 0 {
+		placeholders := make([]string, len(keyframeChunkIDs))
+		args := make([]interface{}, len(keyframeChunkIDs))
+		for i, id := range keyframeChunkIDs {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		imgRows, imgErr := dm.db.Query(
+			`SELECT id, image_url FROM chunks WHERE id IN (`+strings.Join(placeholders, ",")+`) AND image_url != '' AND image_url IS NOT NULL`,
+			args...,
+		)
+		if imgErr == nil {
+			defer imgRows.Close()
+			for imgRows.Next() {
+				var cid, url string
+				if imgRows.Scan(&cid, &url) == nil {
+					imageURLMap[cid] = url
+				}
+			}
+		}
+	}
+
+	for _, sc := range segments {
+		seg := sc.seg
+		if seg.Type == "keyframe" {
+			if url, ok := imageURLMap[sc.chunkID]; ok {
+				seg.ImageURL = url
+			}
+			// Clear the temp file path from content — not useful for display
+			seg.Content = ""
+		}
+		result.Segments = append(result.Segments, seg)
+	}
+
+	// Also query OCR description chunks (chunk_index >= 20000)
+	ocrRows, err := dm.db.Query(
+		`SELECT chunk_text, chunk_index FROM chunks WHERE document_id = ? AND chunk_index >= 20000 ORDER BY chunk_index ASC`,
+		docID,
+	)
+	if err == nil {
+		defer ocrRows.Close()
+		for ocrRows.Next() {
+			var text string
+			var idx int
+			if err := ocrRows.Scan(&text, &idx); err != nil {
+				continue
+			}
+			result.Segments = append(result.Segments, ReviewSegment{
+				Type:    "ocr_description",
+				Content: text,
+			})
+		}
+	}
+
+	return result, nil
 }
 
 // GetFilePath returns the path to the original uploaded file for a document.
