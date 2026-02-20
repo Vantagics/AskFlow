@@ -160,8 +160,14 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 				}
 			}()
 
-			// Set a 30-minute timeout for async processing
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			// Use configurable timeout for async processing
+			dm.mu.RLock()
+			timeoutMin := dm.videoConfig.ProcessingTimeoutMin
+			dm.mu.RUnlock()
+			if timeoutMin <= 0 {
+				timeoutMin = 120
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMin)*time.Minute)
 			defer cancel()
 
 			done := make(chan error, 1)
@@ -190,9 +196,9 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 					log.Printf("Async processing completed for %s", docID)
 				}
 			case <-ctx.Done():
-				dm.updateDocumentStatus(docID, "failed", "文档处理超时（30分钟）")
-				log.Printf("Async processing timed out for %s", docID)
-				errlog.Logf("[Async] processing timed out for doc=%s file=%q", docID, req.FileName)
+				dm.updateDocumentStatus(docID, "failed", fmt.Sprintf("文档处理超时（%d分钟）", timeoutMin))
+				log.Printf("Async processing timed out for %s (%d min)", docID, timeoutMin)
+				errlog.Logf("[Async] processing timed out for doc=%s file=%q (%d min)", docID, req.FileName, timeoutMin)
 			}
 		}()
 		return doc, nil
