@@ -1294,13 +1294,6 @@
                 } else {
                     html += '<span class="chat-source-name">' + docName + '</span>';
                 }
-                if (src.start_time > 0 || src.end_time > 0) {
-                    var timeLabel = formatMediaTime(src.start_time || 0);
-                    if (src.end_time > 0 && src.end_time !== src.start_time) {
-                        timeLabel += ' - ' + formatMediaTime(src.end_time);
-                    }
-                    html += '<span class="chat-source-time">🕐 ' + timeLabel + '</span>';
-                }
                 var srcType = (src.document_type || '').toLowerCase();
                 if (_mediaTypes[srcType] && src.document_id) {
                     var srcMediaUrl = '/api/media/' + encodeURIComponent(src.document_id);
@@ -1314,6 +1307,13 @@
                     var srcMediaIdx = window._mediaRegistry.length;
                     window._mediaRegistry.push({ url: srcMediaUrl, isAudio: srcIsAudio, startTime: srcStart, name: src.document_name || 'media', segments: srcSegs });
                     html += '<button class="chat-source-play-btn" onclick="event.stopPropagation();window.openMediaModal(' + srcMediaIdx + ')" title="' + (srcIsAudio ? '播放音频' : '播放视频') + '">' + (srcIsAudio ? '🎵' : '▶️') + '</button>';
+                }
+                if (src.start_time > 0 || src.end_time > 0) {
+                    var timeLabel = formatMediaTime(src.start_time || 0);
+                    if (src.end_time > 0 && src.end_time !== src.start_time) {
+                        timeLabel += ' - ' + formatMediaTime(src.end_time);
+                    }
+                    html += '<span class="chat-source-time">🕐 ' + timeLabel + '</span>';
                 }
                 if (src.snippet) {
                     html += '<span class="chat-source-snippet">' + escapeHtml(src.snippet) + '</span>';
