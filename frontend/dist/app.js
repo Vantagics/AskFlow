@@ -1150,6 +1150,9 @@
         var container = document.getElementById('chat-messages');
         if (!container) return;
 
+        // Clear media registry on re-render
+        window._mediaRegistry = [];
+
         if (chatMessages.length === 0 && !chatLoading) {
             container.innerHTML =
                 '<div class="chat-welcome">' +
@@ -1203,13 +1206,14 @@
         }
         html += renderMarkdown(msg.content);
 
-        // Display images and video/audio from sources inline
+        // Display images as photo wall gallery, video/audio as play buttons
         if (msg.sources && msg.sources.length > 0) {
+            var images = [];
             var videoSegments = {};
             for (var k = 0; k < msg.sources.length; k++) {
                 var s = msg.sources[k];
                 if (s.image_url) {
-                    html += '<div class="chat-msg-image"><img src="' + escapeHtml(s.image_url) + '" alt="' + escapeHtml(s.document_name || 'image') + '" loading="lazy" style="max-width:100%;border-radius:8px;margin-top:8px;cursor:pointer;" onclick="window.open(this.src,\'_blank\')" /></div>';
+                    images.push({ url: s.image_url, name: s.document_name || 'image' });
                 }
                 if (s.document_type === 'video' && s.document_id) {
                     if (!videoSegments[s.document_id]) {
@@ -1220,32 +1224,48 @@
                     }
                 }
             }
+            // Photo wall gallery
+            if (images.length > 0) {
+                var galleryId = 'gallery-' + msg.timestamp;
+                html += '<div class="chat-gallery" id="' + galleryId + '" data-index="0">';
+                html += '<div class="chat-gallery-viewport">';
+                for (var gi = 0; gi < images.length; gi++) {
+                    html += '<div class="chat-gallery-slide' + (gi === 0 ? ' active' : '') + '">';
+                    html += '<img src="' + escapeHtml(images[gi].url) + '" alt="' + escapeHtml(images[gi].name) + '" loading="lazy" onclick="window.openGalleryFull(this.src)" />';
+                    html += '</div>';
+                }
+                html += '</div>';
+                if (images.length > 1) {
+                    html += '<button class="chat-gallery-prev" onclick="window.galleryNav(\'' + galleryId + '\',-1)" aria-label="Previous image">&#10094;</button>';
+                    html += '<button class="chat-gallery-next" onclick="window.galleryNav(\'' + galleryId + '\',1)" aria-label="Next image">&#10095;</button>';
+                    html += '<div class="chat-gallery-dots">';
+                    for (var di = 0; di < images.length; di++) {
+                        html += '<span class="chat-gallery-dot' + (di === 0 ? ' active' : '') + '" onclick="window.galleryGo(\'' + galleryId + '\',' + di + ')"></span>';
+                    }
+                    html += '</div>';
+                    html += '<div class="chat-gallery-counter">1 / ' + images.length + '</div>';
+                }
+                html += '</div>';
+            }
+            // Video/audio: compact play buttons that open modal
             var docIds = Object.keys(videoSegments);
             for (var vi = 0; vi < docIds.length; vi++) {
                 var vDocId = docIds[vi];
                 var seg = videoSegments[vDocId];
                 var mediaUrl = '/api/media/' + encodeURIComponent(vDocId);
                 var firstStart = seg.times.length > 0 ? seg.times[0].start : 0;
-                var playerId = 'media-' + msg.timestamp + '-' + seg.idx;
                 var vExt = (seg.name || '').split('.').pop().toLowerCase();
                 var isAudio = (vExt === 'mp3' || vExt === 'wav' || vExt === 'ogg' || vExt === 'flac');
-                html += '<div class="chat-media-player">';
-                html += '<div class="chat-media-label">' + (isAudio ? '🎵' : '🎬') + ' ' + escapeHtml(seg.name || 'video') + '</div>';
-                if (isAudio) {
-                    html += '<audio id="' + playerId + '" controls preload="metadata" class="chat-audio-element"' + (firstStart > 0 ? ' onloadedmetadata="this.currentTime=' + firstStart + '"' : '') + '><source src="' + mediaUrl + '"></audio>';
-                } else {
-                    html += '<video id="' + playerId + '" controls preload="metadata" class="chat-video-element"' + (firstStart > 0 ? ' onloadedmetadata="this.currentTime=' + firstStart + '"' : '') + '><source src="' + mediaUrl + '"></video>';
-                }
+                var mediaIdx = window._mediaRegistry.length;
+                window._mediaRegistry.push({ url: mediaUrl, isAudio: isAudio, startTime: firstStart, name: seg.name || 'media', segments: seg.times });
+                html += '<div class="chat-media-compact">';
+                html += '<button class="chat-media-play-btn" onclick="window.openMediaModal(' + mediaIdx + ')">';
+                html += '<span class="chat-media-play-icon">' + (isAudio ? '🎵' : '▶') + '</span>';
+                html += '<span class="chat-media-play-name">' + escapeHtml(seg.name || 'video') + '</span>';
                 if (seg.times.length > 0) {
-                    html += '<div class="chat-media-segments">';
-                    for (var ti = 0; ti < seg.times.length; ti++) {
-                        var tm = seg.times[ti];
-                        var tmLabel = formatMediaTime(tm.start);
-                        if (tm.end > 0 && tm.end !== tm.start) tmLabel += ' - ' + formatMediaTime(tm.end);
-                        html += '<button class="chat-media-seg-btn" onclick="seekMedia(\'' + playerId + '\',' + tm.start + ')">' + tmLabel + '</button>';
-                    }
-                    html += '</div>';
+                    html += '<span class="chat-media-play-time">' + formatMediaTime(firstStart) + '</span>';
                 }
+                html += '</button>';
                 html += '</div>';
             }
         }
@@ -1278,6 +1298,19 @@
                         timeLabel += ' - ' + formatMediaTime(src.end_time);
                     }
                     html += '<span class="chat-source-time">🕐 ' + timeLabel + '</span>';
+                }
+                if (src.document_type === 'video' && src.document_id) {
+                    var srcMediaUrl = '/api/media/' + encodeURIComponent(src.document_id);
+                    var srcExt = (src.document_name || '').split('.').pop().toLowerCase();
+                    var srcIsAudio = (srcExt === 'mp3' || srcExt === 'wav' || srcExt === 'ogg' || srcExt === 'flac');
+                    var srcStart = src.start_time || 0;
+                    var srcSegs = [];
+                    if (src.start_time > 0 || src.end_time > 0) {
+                        srcSegs.push({ start: src.start_time || 0, end: src.end_time || 0 });
+                    }
+                    var srcMediaIdx = window._mediaRegistry.length;
+                    window._mediaRegistry.push({ url: srcMediaUrl, isAudio: srcIsAudio, startTime: srcStart, name: src.document_name || 'media', segments: srcSegs });
+                    html += '<button class="chat-source-play-btn" onclick="event.stopPropagation();window.openMediaModal(' + srcMediaIdx + ')" title="' + (srcIsAudio ? '播放音频' : '播放视频') + '">' + (srcIsAudio ? '🎵' : '▶️') + '</button>';
                 }
                 if (src.snippet) {
                     html += '<span class="chat-source-snippet">' + escapeHtml(src.snippet) + '</span>';
@@ -1392,6 +1425,112 @@
             el.play();
         }
     };
+
+    // Gallery navigation
+    window.galleryNav = function(galleryId, dir) {
+        var gallery = document.getElementById(galleryId);
+        if (!gallery) return;
+        var slides = gallery.querySelectorAll('.chat-gallery-slide');
+        var dots = gallery.querySelectorAll('.chat-gallery-dot');
+        var counter = gallery.querySelector('.chat-gallery-counter');
+        var idx = parseInt(gallery.getAttribute('data-index') || '0', 10);
+        idx = (idx + dir + slides.length) % slides.length;
+        gallery.setAttribute('data-index', idx);
+        for (var i = 0; i < slides.length; i++) {
+            slides[i].classList.toggle('active', i === idx);
+            if (dots[i]) dots[i].classList.toggle('active', i === idx);
+        }
+        if (counter) counter.textContent = (idx + 1) + ' / ' + slides.length;
+    };
+
+    window.galleryGo = function(galleryId, idx) {
+        var gallery = document.getElementById(galleryId);
+        if (!gallery) return;
+        var slides = gallery.querySelectorAll('.chat-gallery-slide');
+        var dots = gallery.querySelectorAll('.chat-gallery-dot');
+        var counter = gallery.querySelector('.chat-gallery-counter');
+        if (idx < 0 || idx >= slides.length) return;
+        gallery.setAttribute('data-index', idx);
+        for (var i = 0; i < slides.length; i++) {
+            slides[i].classList.toggle('active', i === idx);
+            if (dots[i]) dots[i].classList.toggle('active', i === idx);
+        }
+        if (counter) counter.textContent = (idx + 1) + ' / ' + slides.length;
+    };
+
+    window.openGalleryFull = function(src) {
+        var overlay = document.createElement('div');
+        overlay.className = 'gallery-fullscreen-overlay';
+        var img = document.createElement('img');
+        img.src = src;
+        overlay.appendChild(img);
+        overlay.onclick = function() { document.body.removeChild(overlay); };
+        document.body.appendChild(overlay);
+    };
+
+    // Media registry for safe parameter passing (avoids inline escaping issues)
+    window._mediaRegistry = [];
+
+    // Media modal for video/audio playback
+    window.openMediaModal = function(idx) {
+        var info = window._mediaRegistry[idx];
+        if (!info) return;
+        var url = info.url;
+        var isAudio = info.isAudio;
+        var startTime = info.startTime;
+        var name = info.name;
+        var segments = info.segments || [];
+        var overlay = document.createElement('div');
+        overlay.className = 'media-modal-overlay';
+        var content = '<div class="media-modal">';
+        content += '<div class="media-modal-header"><span>' + (isAudio ? '🎵' : '🎬') + ' ' + escapeHtml(name) + '</span><button class="media-modal-close" onclick="window.closeMediaModal()">&times;</button></div>';
+        content += '<div class="media-modal-body">';
+        var modalPlayerId = 'modal-player-' + Date.now();
+        if (isAudio) {
+            content += '<audio id="' + modalPlayerId + '" controls autoplay preload="metadata" class="media-modal-audio"' + (startTime > 0 ? ' onloadedmetadata="this.currentTime=' + startTime + '"' : '') + '><source src="' + escapeHtml(url) + '"></audio>';
+        } else {
+            content += '<video id="' + modalPlayerId + '" controls autoplay preload="metadata" class="media-modal-video"' + (startTime > 0 ? ' onloadedmetadata="this.currentTime=' + startTime + '"' : '') + '><source src="' + escapeHtml(url) + '"></video>';
+        }
+        if (segments.length > 0) {
+            content += '<div class="media-modal-segments">';
+            for (var i = 0; i < segments.length; i++) {
+                var tm = segments[i];
+                var label = formatMediaTime(tm.start);
+                if (tm.end > 0 && tm.end !== tm.start) label += ' - ' + formatMediaTime(tm.end);
+                content += '<button class="chat-media-seg-btn" onclick="window.seekMedia(\'' + modalPlayerId + '\',' + tm.start + ')">' + label + '</button>';
+            }
+            content += '</div>';
+        }
+        content += '</div></div>';
+        overlay.innerHTML = content;
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) window.closeMediaModal();
+        });
+        document.body.appendChild(overlay);
+        window._mediaModalOverlay = overlay;
+    };
+
+    window.closeMediaModal = function() {
+        if (window._mediaModalOverlay) {
+            var player = window._mediaModalOverlay.querySelector('video, audio');
+            if (player) { player.pause(); player.src = ''; }
+            document.body.removeChild(window._mediaModalOverlay);
+            window._mediaModalOverlay = null;
+        }
+    };
+
+    // Close modals on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            if (window._mediaModalOverlay) {
+                window.closeMediaModal();
+            }
+            var fullscreen = document.querySelector('.gallery-fullscreen-overlay');
+            if (fullscreen) {
+                document.body.removeChild(fullscreen);
+            }
+        }
+    });
 
     function escapeHtml(str) {
         if (!str) return '';
