@@ -1052,8 +1052,8 @@ body {
 .chat-source-name {
     font-weight: 500;
     color: var(--color-text);
-    display: block;
-    margin-bottom: 0.125rem;
+    display: inline;
+    margin-right: 0.25rem;
 }
 
 a.chat-source-download {
