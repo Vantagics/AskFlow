@@ -757,7 +757,7 @@
     };
 
     window.handleAnonymousLogin = function () {
-        if (!confirm('此为参观模式，一切更改都不会生效。是否继续？')) return;
+        if (!confirm(i18n.t('anonymous_confirm'))) return;
         var errorEl = document.getElementById('admin-login-error');
         var anonBtn = document.getElementById('anonymous-login-btn');
         if (anonBtn) anonBtn.disabled = true;
@@ -770,22 +770,22 @@
         })
             .then(function (res) {
                 if (!res.ok) {
-                    return res.json().then(function (d) { throw new Error(d.error || '匿名登录失败'); });
+                    return res.json().then(function (d) { throw new Error(d.error || i18n.t('anonymous_login_failed')); });
                 }
                 return res.json();
             })
             .then(function (data) {
                 if (data.session) {
-                    saveAdminSession(data.session, { username: '匿名访客', provider: 'anonymous' });
+                    saveAdminSession(data.session, { username: i18n.t('anonymous_viewer_name'), provider: 'anonymous' });
                     if (data.role) localStorage.setItem('admin_role', data.role);
                     navigate('/admin-panel');
                 } else {
-                    throw new Error('匿名登录失败');
+                    throw new Error(i18n.t('anonymous_login_failed'));
                 }
             })
             .catch(function (err) {
                 if (errorEl) {
-                    errorEl.textContent = err.message || '匿名登录失败';
+                    errorEl.textContent = err.message || i18n.t('anonymous_login_failed');
                     errorEl.classList.remove('hidden');
                 }
             })
@@ -808,7 +808,7 @@
         })
             .then(function (res) {
                 if (!res.ok) {
-                    return res.json().then(function (d) { throw new Error(d.error || '匿名登录失败'); });
+                    return res.json().then(function (d) { throw new Error(d.error || i18n.t('anonymous_login_failed')); });
                 }
                 return res.json();
             })
@@ -817,12 +817,12 @@
                     saveSession(data.session, data.user);
                     navigate('/chat');
                 } else {
-                    throw new Error('匿名登录失败');
+                    throw new Error(i18n.t('anonymous_login_failed'));
                 }
             })
             .catch(function (err) {
                 if (errorEl) {
-                    errorEl.textContent = err.message || '匿名登录失败';
+                    errorEl.textContent = err.message || i18n.t('anonymous_login_failed');
                     errorEl.classList.remove('hidden');
                 }
             })
@@ -2075,7 +2075,7 @@
                 setTimeout(function () { navigate(adminLoginRoute || '/admin'); }, 1500);
             }
             if (res.status === 403 && adminRole === 'anonymous_viewer') {
-                showAdminToast('此为参观模式，一切更改都不会生效', 'info');
+                showAdminToast(i18n.t('anonymous_readonly_banner'), 'info');
             }
             return res;
         });
@@ -2476,7 +2476,7 @@
         var banner = document.createElement('div');
         banner.id = 'anonymous-banner';
         banner.style.cssText = 'background:#fef3c7;color:#92400e;padding:8px 16px;text-align:center;font-size:14px;border-bottom:1px solid #fcd34d;';
-        banner.textContent = '此为参观模式，一切更改都不会生效';
+        banner.textContent = i18n.t('anonymous_readonly_banner');
         var adminContent = adminPage.querySelector('.admin-content') || adminPage.firstElementChild;
         if (adminContent) {
             adminContent.insertBefore(banner, adminContent.firstChild);
