@@ -17,14 +17,14 @@ func HandleAdminUsers(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 
 		switch r.Method {
 		case http.MethodGet:
 			if role != "super_admin" {
-				WriteError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+				WriteError(w, http.StatusForbidden, "仅超级管理员可管理用�?)
 				return
 			}
 			users, err := app.ListAdminUsers()
@@ -40,7 +40,7 @@ func HandleAdminUsers(app *App) http.HandlerFunc {
 
 		case http.MethodPost:
 			if role != "super_admin" {
-				WriteError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+				WriteError(w, http.StatusForbidden, "仅超级管理员可管理用�?)
 				return
 			}
 			var req struct {
@@ -79,11 +79,11 @@ func HandleAdminUserByID(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
-			WriteError(w, http.StatusForbidden, "仅超级管理员可管理用户")
+			WriteError(w, http.StatusForbidden, "仅超级管理员可管理用�?)
 			return
 		}
 
@@ -144,11 +144,11 @@ func HandleAdminBans(app *App) http.HandlerFunc {
 		}
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
-			WriteError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			WriteError(w, http.StatusForbidden, "仅超级管理员可管理登录限�?)
 			return
 		}
 		bans := app.loginLimiter.ListBans()
@@ -168,11 +168,11 @@ func HandleAdminUnban(app *App) http.HandlerFunc {
 		}
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
-			WriteError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			WriteError(w, http.StatusForbidden, "仅超级管理员可管理登录限�?)
 			return
 		}
 		var req struct {
@@ -197,11 +197,11 @@ func HandleAdminAddBan(app *App) http.HandlerFunc {
 		}
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
-			WriteError(w, http.StatusForbidden, "仅超级管理员可管理登录限制")
+			WriteError(w, http.StatusForbidden, "仅超级管理员可管理登录限�?)
 			return
 		}
 		var req struct {
@@ -222,7 +222,7 @@ func HandleAdminAddBan(app *App) http.HandlerFunc {
 			req.Days = 1
 		}
 		if req.Reason == "" {
-			req.Reason = "管理员手动封禁"
+			req.Reason = "管理员手动封�?
 		}
 		app.loginLimiter.AddManualBan(req.Username, req.IP, req.Reason, time.Duration(req.Days)*24*time.Hour)
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -240,7 +240,7 @@ func HandleAdminCustomers(app *App) http.HandlerFunc {
 		}
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
@@ -284,8 +284,12 @@ func HandleAdminCustomerVerify(app *App) http.HandlerFunc {
 			return
 		}
 		_, role, err := GetAdminSession(app, r)
-		if err != nil || role != "super_admin" {
-			WriteError(w, http.StatusUnauthorized, "unauthorized")
+		if err != nil {
+			WriteAdminSessionError(w, err)
+			return
+		}
+		if role != "super_admin" {
+			WriteError(w, http.StatusForbidden, "无权限")
 			return
 		}
 		var req struct {
@@ -315,8 +319,12 @@ func HandleAdminCustomerBan(app *App) http.HandlerFunc {
 			return
 		}
 		_, role, err := GetAdminSession(app, r)
-		if err != nil || role != "super_admin" {
-			WriteError(w, http.StatusUnauthorized, "unauthorized")
+		if err != nil {
+			WriteAdminSessionError(w, err)
+			return
+		}
+		if role != "super_admin" {
+			WriteError(w, http.StatusForbidden, "无权限")
 			return
 		}
 		var req struct {
@@ -348,8 +356,12 @@ func HandleAdminCustomerUnban(app *App) http.HandlerFunc {
 			return
 		}
 		_, role, err := GetAdminSession(app, r)
-		if err != nil || role != "super_admin" {
-			WriteError(w, http.StatusUnauthorized, "unauthorized")
+		if err != nil {
+			WriteAdminSessionError(w, err)
+			return
+		}
+		if role != "super_admin" {
+			WriteError(w, http.StatusForbidden, "无权限")
 			return
 		}
 		var req struct {

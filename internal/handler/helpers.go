@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+// ForbiddenError represents a 403 Forbidden error, distinct from 401 Unauthorized.
+type ForbiddenError struct {
+	Message string
+}
+
+func (e *ForbiddenError) Error() string {
+	return e.Message
+}
+
 // GetBaseURL derives the public base URL from the request, respecting
 // X-Forwarded-Proto for reverse-proxy setups.
 func GetBaseURL(r *http.Request) string {
@@ -75,7 +84,8 @@ func GetUserSession(app *App, r *http.Request) (string, error) {
 }
 
 // GetAdminSession validates the session and checks if it's an admin session.
-// Returns (userID, role, error). role is "super_admin" or "editor".
+// Returns (userID, role, error). role is "super_admin", "editor", or "anonymous_viewer".
+// Anonymous viewers are restricted to GET requests only.
 func GetAdminSession(app *App, r *http.Request) (string, string, error) {
 	authHeader := r.Header.Get("Authorization")
 	token := strings.TrimPrefix(authHeader, "Bearer ")
@@ -93,7 +103,21 @@ func GetAdminSession(app *App, r *http.Request) (string, string, error) {
 	if role == "" {
 		return "", "", fmt.Errorf("无权限")
 	}
+	// Anonymous viewers can only perform read operations
+	if role == "anonymous_viewer" && r.Method != http.MethodGet {
+		return "", "", &ForbiddenError{Message: "此为参观模式，一切更改都不会生效"}
+	}
 	return session.UserID, role, nil
+}
+
+// WriteAdminSessionError writes the appropriate HTTP error for a GetAdminSession failure.
+// Returns 403 for ForbiddenError (anonymous write rejection), 401 for all other errors.
+func WriteAdminSessionError(w http.ResponseWriter, err error) {
+	if _, ok := err.(*ForbiddenError); ok {
+		WriteError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	WriteError(w, http.StatusUnauthorized, err.Error())
 }
 
 // IsValidHexID checks if the given string is a valid 32-character lowercase hex ID.

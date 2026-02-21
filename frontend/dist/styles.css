@@ -254,6 +254,12 @@ body {
 .admin-submit-btn:hover { background: var(--color-primary-hover); }
 .admin-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+.anonymous-login-btn {
+    background: #6b7280;
+    margin-top: 0.5rem;
+}
+.anonymous-login-btn:hover { background: #4b5563; }
+
 .error-text {
     color: var(--color-error);
     font-size: 0.8125rem;

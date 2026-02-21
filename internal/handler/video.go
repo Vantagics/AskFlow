@@ -50,7 +50,7 @@ func HandleVideoCheckDeps(app *App) http.HandlerFunc {
 		// Require admin session
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		cfg := app.configManager.Get()
@@ -73,7 +73,7 @@ func HandleValidateRapidSpeech(app *App) http.HandlerFunc {
 		}
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req struct {
@@ -106,11 +106,11 @@ func HandleVideoAutoSetupCheck(app *App) http.HandlerFunc {
 		}
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
-			WriteError(w, http.StatusForbidden, "仅超级管理员可执行自动配置")
+			WriteError(w, http.StatusForbidden, "仅超级管理员可执行自动配�?)
 			return
 		}
 		if runtime.GOOS != "linux" {
@@ -130,7 +130,7 @@ func HandleVideoAutoSetupCheck(app *App) http.HandlerFunc {
 
 // HandleVideoAutoSetup performs automatic installation of FFmpeg and RapidSpeech.
 // It streams progress via Server-Sent Events (SSE).
-// Steps: install system deps (git/gcc/cmake) → install ffmpeg → clone & build RapidSpeech → download model → configure paths.
+// Steps: install system deps (git/gcc/cmake) �?install ffmpeg �?clone & build RapidSpeech �?download model �?configure paths.
 //
 // When the service is NOT running as root, the request body may include a
 // "root_password" field. The handler will use "sudo -S" to inject the password
@@ -149,11 +149,11 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 		}
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
-			WriteError(w, http.StatusForbidden, "仅超级管理员可执行自动配置")
+			WriteError(w, http.StatusForbidden, "仅超级管理员可执行自动配�?)
 			return
 		}
 
@@ -178,7 +178,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 		// If not root, verify the sudo password before starting the long setup
 		if !isRoot && sudoPassword != "" {
 			if err := verifySudoPassword(sudoPassword); err != nil {
-				WriteError(w, http.StatusForbidden, "管理员密码验证失败，请检查密码是否正确")
+				WriteError(w, http.StatusForbidden, "管理员密码验证失败，请检查密码是否正�?)
 				return
 			}
 		}
@@ -314,7 +314,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 			sendSSE("done", "安装失败", -1)
 			return
 		}
-		sendSSE("step", "系统依赖安装完成 ✓", 15)
+		sendSSE("step", "系统依赖安装完成 �?, 15)
 
 		// ── Step 2: Install FFmpeg ──
 		sendSSE("step", "正在安装 FFmpeg...", 20)
@@ -329,13 +329,13 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 			// Try which
 			out, err2 := exec.Command("which", "ffmpeg").Output()
 			if err2 != nil {
-				sendSSE("error", "FFmpeg 安装后未找到可执行文件", -1)
+				sendSSE("error", "FFmpeg 安装后未找到可执行文�?, -1)
 				sendSSE("done", "安装失败", -1)
 				return
 			}
 			ffmpegPath = strings.TrimSpace(string(out))
 		}
-		sendSSE("step", fmt.Sprintf("FFmpeg 安装完成 ✓ (%s)", ffmpegPath), 30)
+		sendSSE("step", fmt.Sprintf("FFmpeg 安装完成 �?(%s)", ffmpegPath), 30)
 
 		// ── Step 3: Clone and build RapidSpeech.cpp ──
 		sendSSE("step", "正在克隆 RapidSpeech.cpp 仓库...", 35)
@@ -349,7 +349,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 		if isChinaRegion {
 			// Use gitee mirror if available, fallback to github
 			repoURL = "https://gitee.com/RapidAI/RapidSpeech.cpp"
-			sendSSE("log", "检测到中国区域，使用 Gitee 镜像", -1)
+			sendSSE("log", "检测到中国区域，使�?Gitee 镜像", -1)
 		}
 
 		if info, err := os.Stat(repoDir); err == nil && info.IsDir() {
@@ -367,7 +367,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 			if err := runCmd(ctx, false, "git", "clone", "--depth=1", repoURL, repoDir); err != nil {
 				// If gitee failed, try github
 				if isChinaRegion {
-					sendSSE("log", "Gitee 克隆失败，尝试 GitHub...", -1)
+					sendSSE("log", "Gitee 克隆失败，尝�?GitHub...", -1)
 					repoURL = "https://github.com/RapidAI/RapidSpeech.cpp"
 					if err := runCmd(ctx, false, "git", "clone", "--depth=1", repoURL, repoDir); err != nil {
 						sendSSE("error", fmt.Sprintf("克隆仓库失败: %v", err), -1)
@@ -381,7 +381,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 				}
 			}
 		}
-		sendSSE("step", "仓库克隆完成 ✓", 45)
+		sendSSE("step", "仓库克隆完成 �?, 45)
 
 		// Init submodules
 		sendSSE("step", "正在初始化子模块...", 48)
@@ -391,7 +391,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 			sendSSE("done", "安装失败", -1)
 			return
 		}
-		sendSSE("step", "子模块初始化完成 ✓", 52)
+		sendSSE("step", "子模块初始化完成 �?, 52)
 
 		// Build
 		sendSSE("step", "正在编译 RapidSpeech.cpp (cmake)...", 55)
@@ -406,7 +406,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 			sendSSE("done", "安装失败", -1)
 			return
 		}
-		sendSSE("step", "cmake 配置完成，开始编译...", 60)
+		sendSSE("step", "cmake 配置完成，开始编�?..", 60)
 		numCPU := runtime.NumCPU()
 		if numCPU < 1 {
 			numCPU = 1
@@ -422,13 +422,13 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 		if _, err := os.Stat(rsPath); err != nil {
 			rsPath = filepath.Join(buildDir, "examples", "rs-asr-offline")
 			if _, err := os.Stat(rsPath); err != nil {
-				sendSSE("error", "编译完成但未找到 rs-asr-offline 可执行文件", -1)
+				sendSSE("error", "编译完成但未找到 rs-asr-offline 可执行文�?, -1)
 				sendSSE("done", "安装失败", -1)
 				return
 			}
 		}
 		os.Chmod(rsPath, 0755)
-		sendSSE("step", fmt.Sprintf("RapidSpeech.cpp 编译完成 ✓ (%s)", rsPath), 70)
+		sendSSE("step", fmt.Sprintf("RapidSpeech.cpp 编译完成 �?(%s)", rsPath), 70)
 
 		// ── Step 4: Download model ──
 		sendSSE("step", "正在下载 RapidSpeech 模型文件...", 75)
@@ -454,10 +454,10 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 			if err := runCmd(ctx, false, "wget", "--progress=dot:mega", "-O", modelFile, modelURL); err != nil {
 				// Fallback to the other source
 				if isChinaRegion {
-					sendSSE("log", "ModelScope 下载失败，尝试 Hugging Face...", -1)
+					sendSSE("log", "ModelScope 下载失败，尝�?Hugging Face...", -1)
 					modelURL = "https://huggingface.co/RapidAI/RapidSpeech/resolve/main/ASR/SenseVoice/sense-voice-small-q5_k.gguf"
 				} else {
-					sendSSE("log", "Hugging Face 下载失败，尝试 ModelScope...", -1)
+					sendSSE("log", "Hugging Face 下载失败，尝�?ModelScope...", -1)
 					modelURL = "https://www.modelscope.cn/models/RapidAI/RapidSpeech/resolve/master/ASR/SenseVoice/sense-voice-small-q5_k.gguf"
 				}
 				os.Remove(modelFile) // remove partial download
@@ -468,7 +468,7 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 				}
 			}
 		}
-		sendSSE("step", fmt.Sprintf("模型下载完成 ✓ (%s)", modelFile), 88)
+		sendSSE("step", fmt.Sprintf("模型下载完成 �?(%s)", modelFile), 88)
 
 		// ── Step 5: Update config ──
 		sendSSE("step", "正在更新系统配置...", 92)
@@ -482,9 +482,9 @@ func HandleVideoAutoSetup(app *App) http.HandlerFunc {
 			sendSSE("done", "安装失败", -1)
 			return
 		}
-		sendSSE("step", "配置更新完成 ✓", 98)
+		sendSSE("step", "配置更新完成 �?, 98)
 
 		// ── Done ──
-		sendSSE("done", "自动配置完成！FFmpeg 和 RapidSpeech 已安装并配置。", 100)
+		sendSSE("done", "自动配置完成！FFmpeg �?RapidSpeech 已安装并配置�?, 100)
 	}
 }

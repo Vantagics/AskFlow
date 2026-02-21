@@ -602,15 +602,24 @@
             .then(function (data) {
                 var loginForm = document.getElementById('admin-login-form');
                 var setupForm = document.getElementById('admin-setup-form');
+                var anonBtn = document.getElementById('anonymous-login-btn');
                 if (data.configured) {
                     if (loginForm) loginForm.classList.remove('hidden');
                     if (setupForm) setupForm.classList.add('hidden');
+                    if (anonBtn) {
+                        if (data.anonymous_mode) {
+                            anonBtn.classList.remove('hidden');
+                        } else {
+                            anonBtn.classList.add('hidden');
+                        }
+                    }
                     var input = document.getElementById('admin-username');
                     if (input) input.focus();
                     loadAdminCaptcha();
                 } else {
                     if (loginForm) loginForm.classList.add('hidden');
                     if (setupForm) setupForm.classList.remove('hidden');
+                    if (anonBtn) anonBtn.classList.add('hidden');
                     var input = document.getElementById('admin-setup-username');
                     if (input) input.focus();
                 }
@@ -744,6 +753,44 @@
             })
             .finally(function () {
                 if (submitBtn) submitBtn.disabled = false;
+            });
+    };
+
+    window.handleAnonymousLogin = function () {
+        if (!confirm('此为参观模式，一切更改都不会生效。是否继续？')) return;
+        var errorEl = document.getElementById('admin-login-error');
+        var anonBtn = document.getElementById('anonymous-login-btn');
+        if (anonBtn) anonBtn.disabled = true;
+        if (errorEl) errorEl.classList.add('hidden');
+
+        fetch('/api/admin/anonymous-login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        })
+            .then(function (res) {
+                if (!res.ok) {
+                    return res.json().then(function (d) { throw new Error(d.error || '匿名登录失败'); });
+                }
+                return res.json();
+            })
+            .then(function (data) {
+                if (data.session) {
+                    saveAdminSession(data.session, { username: '匿名访客', provider: 'anonymous' });
+                    if (data.role) localStorage.setItem('admin_role', data.role);
+                    navigate('/admin-panel');
+                } else {
+                    throw new Error('匿名登录失败');
+                }
+            })
+            .catch(function (err) {
+                if (errorEl) {
+                    errorEl.textContent = err.message || '匿名登录失败';
+                    errorEl.classList.remove('hidden');
+                }
+            })
+            .finally(function () {
+                if (anonBtn) anonBtn.disabled = false;
             });
     };
 
@@ -1990,6 +2037,9 @@
                 showAdminToast(i18n.t('admin_session_expired') || '会话已过期，请重新登录', 'error');
                 setTimeout(function () { navigate(adminLoginRoute || '/admin'); }, 1500);
             }
+            if (res.status === 403 && adminRole === 'anonymous_viewer') {
+                showAdminToast('此为参观模式，一切更改都不会生效', 'info');
+            }
             return res;
         });
     }
@@ -2350,6 +2400,20 @@
         var bansNav = document.querySelector('.admin-nav-item[data-tab="bans"]');
         var customersNav = document.querySelector('.admin-nav-item[data-tab="customers"]');
         var batchimportNav = document.querySelector('.admin-nav-item[data-tab="batchimport"]');
+
+        // Anonymous viewer: show all tabs (like super_admin) for demo purposes,
+        // but show read-only banner. Backend rejects all write operations.
+        if (adminRole === 'anonymous_viewer') {
+            if (settingsNav) settingsNav.style.display = '';
+            if (usersNav) usersNav.style.display = '';
+            if (productsNav) productsNav.style.display = '';
+            if (bansNav) bansNav.style.display = '';
+            if (customersNav) customersNav.style.display = '';
+            if (batchimportNav) batchimportNav.style.display = '';
+            showAnonymousBanner();
+            return;
+        }
+
         if (adminRole !== 'super_admin') {
             if (settingsNav) settingsNav.style.display = 'none';
             if (usersNav) usersNav.style.display = 'none';
@@ -2369,11 +2433,27 @@
         }
     }
 
+    function showAnonymousBanner() {
+        var adminPage = document.getElementById('page-admin');
+        if (!adminPage || document.getElementById('anonymous-banner')) return;
+        var banner = document.createElement('div');
+        banner.id = 'anonymous-banner';
+        banner.style.cssText = 'background:#fef3c7;color:#92400e;padding:8px 16px;text-align:center;font-size:14px;border-bottom:1px solid #fcd34d;';
+        banner.textContent = '此为参观模式，一切更改都不会生效';
+        var adminContent = adminPage.querySelector('.admin-content') || adminPage.firstElementChild;
+        if (adminContent) {
+            adminContent.insertBefore(banner, adminContent.firstChild);
+        }
+    }
+
     // --- Document Management ---
 
     function setupDropZone() {
         var zone = document.getElementById('admin-drop-zone');
         if (!zone) return;
+        // Prevent duplicate event listeners when initAdmin() is called multiple times
+        if (zone._dropZoneInitialized) return;
+        zone._dropZoneInitialized = true;
 
         zone.addEventListener('dragover', function (e) {
             e.preventDefault();
@@ -3200,6 +3280,9 @@
 
                 setVal('cfg-admin-login-route', admin.login_route || '/admin');
 
+                var anonSelect = document.getElementById('cfg-admin-anonymous-mode');
+                if (anonSelect) anonSelect.value = admin.anonymous_mode ? 'true' : 'false';
+
                 setVal('cfg-product-name', cfg.product_name || '');
                 setVal('cfg-product-intro', cfg.product_intro || '');
 
@@ -3437,6 +3520,9 @@
         if (adminLoginRouteVal) {
             updates['admin.login_route'] = adminLoginRouteVal;
         }
+
+        var adminAnonMode = getVal('cfg-admin-anonymous-mode');
+        updates['admin.anonymous_mode'] = adminAnonMode === 'true';
 
         var productName = getVal('cfg-product-name');
         updates['product_name'] = productName;
@@ -4177,6 +4263,8 @@
         var area = document.getElementById('knowledge-image-upload-area');
         var input = document.getElementById('knowledge-image-input');
         if (!area || !input) return;
+        if (area._knowledgeImageZoneInitialized) return;
+        area._knowledgeImageZoneInitialized = true;
 
         // Click to select files
         area.addEventListener('click', function () {
@@ -4304,6 +4392,8 @@
         var area = document.getElementById('knowledge-video-upload-area');
         var input = document.getElementById('knowledge-video-input');
         if (!area || !input) return;
+        if (area._knowledgeVideoZoneInitialized) return;
+        area._knowledgeVideoZoneInitialized = true;
 
         // Click to select files
         area.addEventListener('click', function () {
@@ -5123,7 +5213,8 @@
         reportSection.classList.add('hidden');
         document.getElementById('batch-progress-log').innerHTML = '';
         document.getElementById('batch-progress-fill').style.width = '0%';
-        document.getElementById('batch-progress-text').textContent = '准备中...';        document.getElementById('batch-progress-percent').textContent = '0%';
+        document.getElementById('batch-progress-text').textContent = '准备中...';
+        document.getElementById('batch-progress-percent').textContent = '0%';
 
         var token = getAdminToken();
 
@@ -5185,8 +5276,9 @@
         var percentEl = document.getElementById('batch-progress-percent');
 
         if (event === 'start') {
-            textEl.textContent = '共 ' + data.total + ' 个文件，开始导入...';        } else if (event === 'progress') {
-            var pct = Math.round((data.index / data.total) * 100);
+            textEl.textContent = '共 ' + data.total + ' 个文件，开始导入...';
+        } else if (event === 'progress') {
+            var pct = data.percent != null ? data.percent : (data.total > 0 ? Math.round((data.index / data.total) * 100) : 0);
             fillEl.style.width = pct + '%';
             percentEl.textContent = pct + '%';
             textEl.textContent = '[' + data.index + '/' + data.total + '] ' + data.file;

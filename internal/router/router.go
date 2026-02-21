@@ -52,6 +52,7 @@ func Register(app *handler.App) func() {
 
 	// ── Admin login ──
 	http.HandleFunc("/api/admin/login", secureRL(handler.HandleAdminLogin(app)))
+	http.HandleFunc("/api/admin/anonymous-login", secureRL(handler.HandleAnonymousLogin(app)))
 	http.HandleFunc("/api/admin/setup", secureRL(handler.HandleAdminSetup(app)))
 	http.HandleFunc("/api/admin/status", secure(handler.HandleAdminStatus(app)))
 

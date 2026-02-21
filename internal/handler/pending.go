@@ -20,7 +20,7 @@ func HandlePending(app *App) http.HandlerFunc {
 		// Require admin session for pending questions listing
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		status := r.URL.Query().Get("status")
@@ -57,7 +57,7 @@ func HandlePendingAnswer(app *App) http.HandlerFunc {
 		// Require admin session
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req pending.AdminAnswerRequest
@@ -81,7 +81,7 @@ func HandlePendingCreate(app *App) http.HandlerFunc {
 			WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		// Validate user session — use the authenticated user ID, not the client-provided one
+		// Validate user session �?use the authenticated user ID, not the client-provided one
 		authenticatedUserID, err := GetUserSession(app, r)
 		if err != nil {
 			WriteError(w, http.StatusUnauthorized, err.Error())
@@ -140,7 +140,7 @@ func HandlePendingByID(app *App) http.HandlerFunc {
 		// Require admin session
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if err := app.DeletePendingQuestion(id); err != nil {

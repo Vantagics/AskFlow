@@ -328,6 +328,9 @@ func (a *App) GetAdminRole(userID string) string {
 	if userID == "admin" {
 		return "super_admin"
 	}
+	if userID == "anonymous_viewer" {
+		return "anonymous_viewer"
+	}
 	if strings.HasPrefix(userID, "admin_") {
 		subID := strings.TrimPrefix(userID, "admin_")
 		var role string
@@ -365,7 +368,7 @@ func (a *App) GetAdminPermissions(userID string) []string {
 
 // IsAdminSession checks if a user ID belongs to any admin (super or sub).
 func (a *App) IsAdminSession(userID string) bool {
-	return userID == "admin" || strings.HasPrefix(userID, "admin_")
+	return userID == "admin" || strings.HasPrefix(userID, "admin_") || userID == "anonymous_viewer"
 }
 
 // AdminLogin verifies the admin username and password and creates a session.
@@ -434,6 +437,33 @@ func (a *App) AdminLogin(username, password, ip string) (*AdminLoginResponse, er
 		return nil, err
 	}
 	return &AdminLoginResponse{Session: session, Role: role}, nil
+}
+
+// AnonymousLogin creates a read-only admin session when anonymous mode is enabled.
+func (a *App) AnonymousLogin() (*AdminLoginResponse, error) {
+	cfg := a.configManager.Get()
+	if cfg == nil {
+		return nil, fmt.Errorf("系统配置未加载")
+	}
+	if !cfg.Admin.AnonymousMode {
+		return nil, fmt.Errorf("匿名模式未开启")
+	}
+
+	// Ensure anonymous_viewer user record exists
+	a.db.Exec(
+		`INSERT OR IGNORE INTO users (id, email, name, provider, provider_id) VALUES (?, ?, ?, ?, ?)`,
+		"anonymous_viewer", "anonymous@internal", "匿名访客", "anonymous", "anonymous_viewer",
+	)
+
+	// Session rotation: clean up old anonymous sessions to prevent accumulation
+	_ = a.sessionManager.DeleteSessionsByUserID("anonymous_viewer")
+
+	session, err := a.sessionManager.CreateSession("anonymous_viewer")
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[Auth] anonymous viewer login")
+	return &AdminLoginResponse{Session: session, Role: "anonymous_viewer"}, nil
 }
 
 // ensureAdminUser inserts the admin user record into the users table if it doesn't exist.

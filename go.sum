@@ -6,6 +6,8 @@ github.com/VantageDataChat/GoPPT v0.0.0-20260212151250-d085dbf0c4cf h1:VdkffDirW
 github.com/VantageDataChat/GoPPT v0.0.0-20260212151250-d085dbf0c4cf/go.mod h1:zFYHj7hDOLK6KARPcBxlov3typhNsSiUyW/jzI0/f5g=
 github.com/VantageDataChat/GoPPT v0.0.0-20260219072801-ef865bf84cbf h1:0HGbLMtBPagF5VJeDB7429U3a9XkfpL+8v0WX5OO2Ys=
 github.com/VantageDataChat/GoPPT v0.0.0-20260219072801-ef865bf84cbf/go.mod h1:zFYHj7hDOLK6KARPcBxlov3typhNsSiUyW/jzI0/f5g=
+github.com/VantageDataChat/GoPPT v0.0.0-20260221001042-6a7491cbae71 h1:Edql5EaYdU+aYGf2gJ/xtGng8XpXA5ECZAnACnGPpWE=
+github.com/VantageDataChat/GoPPT v0.0.0-20260221001042-6a7491cbae71/go.mod h1:clmfETR4bGOcP22SXTZ9wqwIalTGqnea4rmTiVmkppk=
 github.com/VantageDataChat/GoWord v0.0.0-20260210220908-40c2b82002d1 h1:PX+mfxYdOpURSlWukyOir8jNhlvpkycCOSmy9+xOpOo=
 github.com/VantageDataChat/GoWord v0.0.0-20260210220908-40c2b82002d1/go.mod h1:jLTMrwq72u951bUzqySqbFSKdBsE9K2ueGtpognaIlE=
 github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 h1:QwWKgMY28TAXaDl+ExRDqGQltzXqN/xypdKP86niVn8=

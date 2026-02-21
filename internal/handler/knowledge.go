@@ -21,7 +21,7 @@ func HandleImageUpload(app *App) http.HandlerFunc {
 		}
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 
@@ -40,7 +40,7 @@ func HandleImageUpload(app *App) http.HandlerFunc {
 
 		// Limit file size to 10MB
 		if header.Size > 10<<20 {
-			WriteError(w, http.StatusBadRequest, "图片文件过大（最大10MB）")
+			WriteError(w, http.StatusBadRequest, "图片文件过大（最�?0MB�?)
 			return
 		}
 
@@ -48,7 +48,7 @@ func HandleImageUpload(app *App) http.HandlerFunc {
 		ext := strings.ToLower(filepath.Ext(header.Filename))
 		allowedExts := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true, ".bmp": true}
 		if !allowedExts[ext] {
-			WriteError(w, http.StatusBadRequest, "不支持的图片格式，支持 jpg/png/gif/webp/bmp")
+			WriteError(w, http.StatusBadRequest, "不支持的图片格式，支�?jpg/png/gif/webp/bmp")
 			return
 		}
 
@@ -58,14 +58,14 @@ func HandleImageUpload(app *App) http.HandlerFunc {
 			return
 		}
 		if len(data) > 10<<20 {
-			WriteError(w, http.StatusBadRequest, "图片文件过大（最大10MB）")
+			WriteError(w, http.StatusBadRequest, "图片文件过大（最�?0MB�?)
 			return
 		}
 
 		// Validate image content by checking magic bytes
 		contentType := http.DetectContentType(data)
 		if !strings.HasPrefix(contentType, "image/") {
-			WriteError(w, http.StatusBadRequest, "文件内容不是有效的图片")
+			WriteError(w, http.StatusBadRequest, "文件内容不是有效的图�?)
 			return
 		}
 
@@ -102,7 +102,7 @@ func HandleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 		}
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 
@@ -147,7 +147,7 @@ func HandleKnowledgeVideoUpload(app *App) http.HandlerFunc {
 
 		// Validate video content by checking magic bytes
 		if !IsValidVideoMagicBytes(data) {
-			WriteError(w, http.StatusBadRequest, "文件内容不是有效的视频格式")
+			WriteError(w, http.StatusBadRequest, "文件内容不是有效的视频格�?)
 			return
 		}
 
@@ -184,7 +184,7 @@ func HandleKnowledgeEntry(app *App) http.HandlerFunc {
 		}
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req KnowledgeEntryRequest

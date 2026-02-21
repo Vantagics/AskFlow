@@ -51,7 +51,7 @@ func HandleTestLLM(app *App) http.HandlerFunc {
 		}
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req struct {
@@ -86,7 +86,7 @@ func HandleTestLLM(app *App) http.HandlerFunc {
 		answer, err := svc.Generate("", nil, "请回复：OK")
 		if err != nil {
 			log.Printf("[TestLLM] error: %v", err)
-			WriteError(w, http.StatusBadRequest, "LLM 连接测试失败，请检查配置")
+			WriteError(w, http.StatusBadRequest, "LLM 连接测试失败，请检查配�?)
 			return
 		}
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "reply": answer})
@@ -104,7 +104,7 @@ func HandleTestEmbedding(app *App) http.HandlerFunc {
 		}
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req struct {
@@ -132,7 +132,7 @@ func HandleTestEmbedding(app *App) http.HandlerFunc {
 		vec, err := svc.Embed("hello")
 		if err != nil {
 			log.Printf("[TestEmbedding] error: %v", err)
-			WriteError(w, http.StatusBadRequest, "Embedding 连接测试失败，请检查配置")
+			WriteError(w, http.StatusBadRequest, "Embedding 连接测试失败，请检查配�?)
 			return
 		}
 		WriteJSON(w, http.StatusOK, map[string]interface{}{"status": "ok", "dimensions": len(vec)})
@@ -146,7 +146,7 @@ func HandleConfigWithRole(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 
@@ -160,7 +160,7 @@ func HandleConfigWithRole(app *App) http.HandlerFunc {
 			WriteJSON(w, http.StatusOK, cfg)
 		case http.MethodPut:
 			if role != "super_admin" {
-				WriteError(w, http.StatusForbidden, "仅超级管理员可修改系统设置")
+				WriteError(w, http.StatusForbidden, "仅超级管理员可修改系统设�?)
 				return
 			}
 			var updates map[string]interface{}
@@ -193,7 +193,7 @@ func HandleEmailTest(app *App) http.HandlerFunc {
 		// Require admin session for email testing
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req struct {
@@ -249,7 +249,7 @@ func HandleEmailTest(app *App) http.HandlerFunc {
 				return
 			}
 		}
-		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "测试邮件已发送"})
+		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "测试邮件已发�?})
 	}
 }
 
@@ -264,8 +264,12 @@ func HandleLogsRecent(app *App) http.HandlerFunc {
 			return
 		}
 		_, role, err := GetAdminSession(app, r)
-		if err != nil || role != "super_admin" {
-			WriteError(w, http.StatusUnauthorized, "unauthorized")
+		if err != nil {
+			WriteAdminSessionError(w, err)
+			return
+		}
+		if role != "super_admin" {
+			WriteError(w, http.StatusForbidden, "无权限")
 			return
 		}
 		n := 50
@@ -293,13 +297,17 @@ func HandleLogsRecent(app *App) http.HandlerFunc {
 }
 
 // HandleLogsRotation gets or sets the log rotation size.
-// GET  /api/logs/rotation → { "rotation_mb": 100 }
+// GET  /api/logs/rotation �?{ "rotation_mb": 100 }
 // PUT  /api/logs/rotation { "rotation_mb": 200 }
 func HandleLogsRotation(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, role, err := GetAdminSession(app, r)
-		if err != nil || role != "super_admin" {
-			WriteError(w, http.StatusUnauthorized, "unauthorized")
+		if err != nil {
+			WriteAdminSessionError(w, err)
+			return
+		}
+		if role != "super_admin" {
+			WriteError(w, http.StatusForbidden, "无权限")
 			return
 		}
 		switch r.Method {
@@ -314,7 +322,7 @@ func HandleLogsRotation(app *App) http.HandlerFunc {
 				return
 			}
 			if req.RotationMB < 1 || req.RotationMB > 10240 {
-				WriteError(w, http.StatusBadRequest, "rotation_mb 必须在 1-10240 之间")
+				WriteError(w, http.StatusBadRequest, "rotation_mb 必须�?1-10240 之间")
 				return
 			}
 			errlog.SetRotationSizeMB(req.RotationMB)
@@ -334,15 +342,19 @@ func HandleLogsDownload(app *App) http.HandlerFunc {
 			return
 		}
 		_, role, err := GetAdminSession(app, r)
-		if err != nil || role != "super_admin" {
-			WriteError(w, http.StatusUnauthorized, "unauthorized")
+		if err != nil {
+			WriteAdminSessionError(w, err)
+			return
+		}
+		if role != "super_admin" {
+			WriteError(w, http.StatusForbidden, "无权限")
 			return
 		}
 		logPath := errlog.GetLogPath()
 		f, err := os.Open(logPath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				WriteError(w, http.StatusNotFound, "日志文件不存在")
+				WriteError(w, http.StatusNotFound, "日志文件不存�?)
 				return
 			}
 			WriteError(w, http.StatusInternalServerError, "打开日志文件失败")
@@ -368,7 +380,7 @@ func HandleLogsDownload(app *App) http.HandlerFunc {
 
 		gw, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 		if err != nil {
-			WriteError(w, http.StatusInternalServerError, "压缩初始化失败")
+			WriteError(w, http.StatusInternalServerError, "压缩初始化失�?)
 			return
 		}
 		defer gw.Close()

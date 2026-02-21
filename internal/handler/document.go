@@ -39,7 +39,7 @@ func HandleDocuments(app *App) http.HandlerFunc {
 		// Require admin session for document listing
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		productID := r.URL.Query().Get("product_id")
@@ -71,7 +71,7 @@ func HandleDocumentUpload(app *App) http.HandlerFunc {
 		// Require admin session
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 
@@ -138,7 +138,7 @@ func HandleDocumentURLPreview(app *App) http.HandlerFunc {
 		}
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req struct {
@@ -167,7 +167,7 @@ func HandleDocumentURL(app *App) http.HandlerFunc {
 		// Require admin session
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		var req document.UploadURLRequest
@@ -207,12 +207,12 @@ func HandlePublicDocumentDownload(app *App) http.HandlerFunc {
 			token = r.URL.Query().Get("token")
 		}
 		if token == "" {
-			WriteError(w, http.StatusUnauthorized, "未登录")
+			WriteError(w, http.StatusUnauthorized, "未登�?)
 			return
 		}
 		session, sErr := app.sessionManager.ValidateSession(token)
 		if sErr != nil {
-			WriteError(w, http.StatusUnauthorized, "会话已过期")
+			WriteError(w, http.StatusUnauthorized, "会话已过�?)
 			return
 		}
 		_ = session
@@ -229,13 +229,13 @@ func HandlePublicDocumentDownload(app *App) http.HandlerFunc {
 		// Check product allows download
 		p, pErr := app.GetProduct(productID)
 		if pErr != nil || p == nil || !p.AllowDownload {
-			WriteError(w, http.StatusForbidden, "该产品不允许下载参考文档")
+			WriteError(w, http.StatusForbidden, "该产品不允许下载参考文�?)
 			return
 		}
 		// Check document type is downloadable
 		docInfo, dErr := app.GetDocumentInfo(docID)
 		if dErr != nil {
-			WriteError(w, http.StatusNotFound, "文档未找到")
+			WriteError(w, http.StatusNotFound, "文档未找�?)
 			return
 		}
 		docType := strings.ToLower(docInfo.Type)
@@ -250,7 +250,7 @@ func HandlePublicDocumentDownload(app *App) http.HandlerFunc {
 		}
 		filePath, fileName, fErr := app.docManager.GetFilePath(docID)
 		if fErr != nil {
-			WriteError(w, http.StatusNotFound, "文件未找到")
+			WriteError(w, http.StatusNotFound, "文件未找�?)
 			return
 		}
 		// Verify file path stays within expected data directory
@@ -296,12 +296,12 @@ func HandleDocumentByID(app *App) http.HandlerFunc {
 			// Require admin session for downloads
 			_, _, err := GetAdminSession(app, r)
 			if err != nil {
-				WriteError(w, http.StatusUnauthorized, err.Error())
+				WriteAdminSessionError(w, err)
 				return
 			}
 			filePath, fileName, err := app.docManager.GetFilePath(docID)
 			if err != nil {
-				WriteError(w, http.StatusNotFound, "文件未找到")
+				WriteError(w, http.StatusNotFound, "文件未找�?)
 				return
 			}
 			// Verify file path stays within expected data directory
@@ -337,12 +337,12 @@ func HandleDocumentByID(app *App) http.HandlerFunc {
 			}
 			_, _, err := GetAdminSession(app, r)
 			if err != nil {
-				WriteError(w, http.StatusUnauthorized, err.Error())
+				WriteAdminSessionError(w, err)
 				return
 			}
 			review, err := app.GetDocumentReview(docID)
 			if err != nil {
-				WriteError(w, http.StatusNotFound, "文档未找到")
+				WriteError(w, http.StatusNotFound, "文档未找�?)
 				return
 			}
 			WriteJSON(w, http.StatusOK, review)
@@ -363,7 +363,7 @@ func HandleDocumentByID(app *App) http.HandlerFunc {
 		// Require admin session for deletion
 		_, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 
@@ -388,7 +388,7 @@ func HandleBatchImport(app *App) http.HandlerFunc {
 		// Require admin session with batch_import permission
 		userID, role, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		if role != "super_admin" {
@@ -401,7 +401,7 @@ func HandleBatchImport(app *App) http.HandlerFunc {
 				}
 			}
 			if !hasPerm {
-				WriteError(w, http.StatusForbidden, "无批量导入权限")
+				WriteError(w, http.StatusForbidden, "无批量导入权�?)
 				return
 			}
 		}
@@ -423,7 +423,7 @@ func HandleBatchImport(app *App) http.HandlerFunc {
 		if req.ProductID != "" {
 			p, err := app.productService.GetByID(req.ProductID)
 			if err != nil || p == nil {
-				WriteError(w, http.StatusBadRequest, fmt.Sprintf("产品不存在 (ID: %s)", req.ProductID))
+				WriteError(w, http.StatusBadRequest, fmt.Sprintf("产品不存�?(ID: %s)", req.ProductID))
 				return
 			}
 		}
@@ -520,6 +520,7 @@ func HandleBatchImport(app *App) http.HandlerFunc {
 				failedFiles = append(failedFiles, failedItem{Path: absPath, Reason: reason})
 				sendSSE("progress", map[string]interface{}{
 					"index": i + 1, "total": len(files), "file": absPath,
+					"percent": (i + 1) * 100 / len(files),
 					"status": "failed", "reason": reason,
 				})
 				continue
@@ -538,6 +539,7 @@ func HandleBatchImport(app *App) http.HandlerFunc {
 				failedFiles = append(failedFiles, failedItem{Path: absPath, Reason: reason})
 				sendSSE("progress", map[string]interface{}{
 					"index": i + 1, "total": len(files), "file": absPath,
+					"percent": (i + 1) * 100 / len(files),
 					"status": "failed", "reason": reason,
 				})
 				continue
@@ -548,6 +550,7 @@ func HandleBatchImport(app *App) http.HandlerFunc {
 				failedFiles = append(failedFiles, failedItem{Path: absPath, Reason: reason})
 				sendSSE("progress", map[string]interface{}{
 					"index": i + 1, "total": len(files), "file": absPath,
+					"percent": (i + 1) * 100 / len(files),
 					"status": "failed", "reason": reason,
 				})
 				continue
@@ -556,6 +559,7 @@ func HandleBatchImport(app *App) http.HandlerFunc {
 			success++
 			sendSSE("progress", map[string]interface{}{
 				"index": i + 1, "total": len(files), "file": absPath,
+				"percent": (i + 1) * 100 / len(files),
 				"status": "success", "doc_id": doc.ID,
 			})
 		}

@@ -30,11 +30,11 @@ func HandleProducts(app *App) http.HandlerFunc {
 		case http.MethodPost:
 			_, role, err := GetAdminSession(app, r)
 			if err != nil {
-				WriteError(w, http.StatusUnauthorized, err.Error())
+				WriteAdminSessionError(w, err)
 				return
 			}
 			if role != "super_admin" {
-				WriteError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				WriteError(w, http.StatusForbidden, "仅超级管理员可管理产�?)
 				return
 			}
 			var req struct {
@@ -78,11 +78,11 @@ func HandleProductByID(app *App) http.HandlerFunc {
 		case http.MethodPut:
 			_, role, err := GetAdminSession(app, r)
 			if err != nil {
-				WriteError(w, http.StatusUnauthorized, err.Error())
+				WriteAdminSessionError(w, err)
 				return
 			}
 			if role != "super_admin" {
-				WriteError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				WriteError(w, http.StatusForbidden, "仅超级管理员可管理产�?)
 				return
 			}
 			var req struct {
@@ -106,11 +106,11 @@ func HandleProductByID(app *App) http.HandlerFunc {
 		case http.MethodDelete:
 			_, role, err := GetAdminSession(app, r)
 			if err != nil {
-				WriteError(w, http.StatusUnauthorized, err.Error())
+				WriteAdminSessionError(w, err)
 				return
 			}
 			if role != "super_admin" {
-				WriteError(w, http.StatusForbidden, "仅超级管理员可管理产品")
+				WriteError(w, http.StatusForbidden, "仅超级管理员可管理产�?)
 				return
 			}
 			confirm := r.URL.Query().Get("confirm")
@@ -118,7 +118,7 @@ func HandleProductByID(app *App) http.HandlerFunc {
 				hasData, err := app.HasProductDocumentsOrKnowledge(id)
 				if err != nil {
 					log.Printf("[Products] check data error for %s: %v", id, err)
-					WriteError(w, http.StatusInternalServerError, "检查产品数据失败")
+					WriteError(w, http.StatusInternalServerError, "检查产品数据失�?)
 					return
 				}
 				if hasData {
@@ -151,7 +151,7 @@ func HandleMyProducts(app *App) http.HandlerFunc {
 		}
 		userID, _, err := GetAdminSession(app, r)
 		if err != nil {
-			WriteError(w, http.StatusUnauthorized, err.Error())
+			WriteAdminSessionError(w, err)
 			return
 		}
 		products, err := app.GetProductsByAdminUserID(userID)
