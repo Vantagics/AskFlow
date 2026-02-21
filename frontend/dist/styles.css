@@ -2017,6 +2017,7 @@ a.chat-source-download:hover {
 .review-badge-transcript { background: #3B82F6; }
 .review-badge-keyframe { background: #8B5CF6; }
 .review-badge-ocr { background: #F59E0B; color: #1F2937; }
+.review-badge-chunk { background: #10B981; }
 
 .review-segment-time {
     font-size: 0.75rem;

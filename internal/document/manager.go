@@ -1570,6 +1570,35 @@ func (dm *DocumentManager) GetDocumentReview(docID string) (*ReviewData, error) 
 		}
 	}
 
+	// For all other document types (PDF, Word, Excel, Markdown, HTML, URL, legacy):
+	// query text chunks and image chunks from the chunks table.
+	if !videoFileTypes[docInfo.Type] && docInfo.Type != "ppt" {
+		chunkRows, err := dm.db.Query(
+			`SELECT chunk_text, chunk_index, COALESCE(image_url, '') FROM chunks WHERE document_id = ? ORDER BY chunk_index ASC`,
+			docID,
+		)
+		if err == nil {
+			defer chunkRows.Close()
+			for chunkRows.Next() {
+				var text string
+				var idx int
+				var imgURL string
+				if err := chunkRows.Scan(&text, &idx, &imgURL); err != nil {
+					continue
+				}
+				segType := "chunk"
+				if imgURL != "" && strings.HasPrefix(text, "[图片") {
+					segType = "image"
+				}
+				result.Segments = append(result.Segments, ReviewSegment{
+					Type:     segType,
+					Content:  text,
+					ImageURL: imgURL,
+				})
+			}
+		}
+	}
+
 	return result, nil
 }
 
