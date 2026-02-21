@@ -2779,9 +2779,9 @@
                 '<td>' + escapeHtml(timeStr) + '</td>' +
                 '<td>';
 
-            // Show review button for video/audio types with success status
-            var videoTypes = ['mp4', 'avi', 'mkv', 'mov', 'webm'];
-            if (videoTypes.indexOf(doc.type) !== -1 && doc.status === 'success') {
+            // Show review button for video/audio and PPT types with success status
+            var reviewTypes = ['mp4', 'avi', 'mkv', 'mov', 'webm', 'ppt'];
+            if (reviewTypes.indexOf(doc.type) !== -1 && doc.status === 'success') {
                 html += '<button class="btn-primary btn-sm" style="margin-right:0.25rem" data-doc-id="' + escapeHtml(doc.id) + '" data-doc-name="' + escapeHtml(doc.name || '') + '" onclick="showReviewDialog(this.dataset.docId, this.dataset.docName)">' + i18n.t('admin_doc_review_btn') + '</button>';
             }
 
@@ -2899,6 +2899,7 @@
         }
 
         var html = '';
+        var slideNum = 0;
         for (var i = 0; i < data.segments.length; i++) {
             var seg = data.segments[i];
             var badgeClass = 'review-badge-transcript';
@@ -2910,13 +2911,17 @@
             } else if (seg.type === 'ocr_description') {
                 badgeClass = 'review-badge-ocr';
                 badgeText = i18n.t('admin_doc_review_ocr');
+            } else if (seg.type === 'slide') {
+                slideNum++;
+                badgeClass = 'review-badge-keyframe';
+                badgeText = (i18n.t('admin_doc_review_slide') || 'Slide') + ' ' + slideNum;
             }
 
             html += '<div class="review-segment">';
             html += '<div class="review-segment-header">';
             html += '<span class="review-segment-badge ' + badgeClass + '">' + escapeHtml(badgeText) + '</span>';
 
-            if (seg.type !== 'ocr_description') {
+            if (seg.type !== 'ocr_description' && seg.type !== 'slide') {
                 var timeStr = formatReviewTime(seg.start_time);
                 if (seg.type === 'transcript' && seg.end_time > seg.start_time) {
                     timeStr += ' - ' + formatReviewTime(seg.end_time);
@@ -2926,7 +2931,7 @@
 
             html += '</div>';
 
-            if (seg.type === 'keyframe' && seg.image_url) {
+            if ((seg.type === 'keyframe' || seg.type === 'slide') && seg.image_url) {
                 html += '<img class="review-keyframe-img" src="' + escapeHtml(seg.image_url) + '" alt="' + escapeHtml(badgeText) + '" loading="lazy" onclick="window.open(this.src, \'_blank\')">';
             }
 

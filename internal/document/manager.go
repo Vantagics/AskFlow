@@ -1485,6 +1485,30 @@ func (dm *DocumentManager) GetDocumentReview(docID string) (*ReviewData, error) 
 		}
 	}
 
+	// For PPT documents: query slide chunks (each slide stored as a chunk with image_url)
+	if docInfo.Type == "ppt" {
+		slideRows, err := dm.db.Query(
+			`SELECT chunk_text, chunk_index, COALESCE(image_url, '') FROM chunks WHERE document_id = ? ORDER BY chunk_index ASC`,
+			docID,
+		)
+		if err == nil {
+			defer slideRows.Close()
+			for slideRows.Next() {
+				var text string
+				var idx int
+				var imgURL string
+				if err := slideRows.Scan(&text, &idx, &imgURL); err != nil {
+					continue
+				}
+				result.Segments = append(result.Segments, ReviewSegment{
+					Type:     "slide",
+					Content:  text,
+					ImageURL: imgURL,
+				})
+			}
+		}
+	}
+
 	return result, nil
 }
 
