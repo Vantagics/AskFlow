@@ -4,6 +4,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -73,6 +74,7 @@ func InitDB(dbPath string) (*DBPair, error) {
 	readDB.SetMaxOpenConns(8)
 	readDB.SetMaxIdleConns(8)
 	readDB.SetConnMaxLifetime(0)
+	readDB.SetConnMaxIdleTime(5 * time.Minute) // Recycle idle connections to prevent stale state
 
 	if err := configureReadPragmas(readDB); err != nil {
 		readDB.Close()

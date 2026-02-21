@@ -519,6 +519,12 @@ func (cm *ConfigManager) applyUpdate(key string, val interface{}) error {
 		if !ok {
 			return errors.New("expected string")
 		}
+		if len(s) < 8 {
+			return errors.New("密码至少8位")
+		}
+		if len(s) > 72 {
+			return errors.New("密码不能超过72位") // bcrypt max input length
+		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(s), bcrypt.DefaultCost)
 		if err != nil {
 			return fmt.Errorf("hash password: %w", err)
@@ -1010,6 +1016,9 @@ func getOrCreateEncryptionKey() ([]byte, error) {
 		if key, err := hex.DecodeString(keyHex); err == nil && len(key) == 32 {
 			// Ensure file permissions are restrictive
 			os.Chmod(keyFile, 0600)
+			if runtime.GOOS != "windows" {
+				fmt.Println("Note: Using file-based encryption key. For production, set " + encryptionKeyEnvVar + " environment variable instead.")
+			}
 			return key, nil
 		}
 		// Key file exists but is invalid — log warning and regenerate

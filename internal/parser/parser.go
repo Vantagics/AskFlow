@@ -44,10 +44,16 @@ func (dp *DocumentParser) Parse(fileData []byte, fileType string) (*ParseResult,
 		return dp.parsePDF(fileData)
 	case "word":
 		return dp.parseWord(fileData)
+	case "word_legacy":
+		return dp.parseWordLegacy(fileData)
 	case "excel":
 		return dp.parseExcel(fileData)
+	case "excel_legacy":
+		return dp.parseXLSLegacy(fileData)
 	case "ppt":
 		return dp.parsePPT(fileData)
+	case "ppt_legacy":
+		return dp.parsePPTLegacy(fileData)
 	case "markdown":
 		return dp.parseMarkdown(fileData)
 	case "html":

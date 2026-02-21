@@ -189,7 +189,7 @@
             // Admin - documents
             'admin_doc_title': '文档管理',
             'admin_doc_drop_text': '拖拽文件到此处，或点击选择文件',
-            'admin_doc_drop_hint': '支持 PDF、Word、Excel、PPTX、Markdown、视频格式',
+            'admin_doc_drop_hint': '支持 PDF、Word、Excel、PPT、Markdown、视频格式',
             'admin_doc_url_placeholder': '输入文档URL地址',
             'admin_doc_url_submit': '提交URL',
             'admin_doc_url_preview': '预览内容',
@@ -827,7 +827,7 @@
             // Admin - documents
             'admin_doc_title': 'Document Management',
             'admin_doc_drop_text': 'Drag files here, or click to select',
-            'admin_doc_drop_hint': 'Supports PDF, Word, Excel, PPTX, Markdown, Video',
+            'admin_doc_drop_hint': 'Supports PDF, Word, Excel, PPT, Markdown, Video',
             'admin_doc_url_placeholder': 'Enter document URL',
             'admin_doc_url_submit': 'Submit URL',
             'admin_doc_url_preview': 'Preview Content',

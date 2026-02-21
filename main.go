@@ -207,7 +207,7 @@ import command:
     --product <product_id>  Specify target product ID. Imported documents will be associated
                             with this product. If not specified, they will be imported to the public library.
 
-  Supported formats: .pdf .doc .docx .xls .xlsx .pptx .md .markdown .html .htm
+  Supported formats: .pdf .doc .docx .xls .xlsx .ppt .pptx .md .markdown .html .htm
 
   Examples:
     askflow import ./docs

@@ -61,6 +61,7 @@ func (dm *DocumentManager) processVideo(docID, docName string, fileData []byte, 
 	vp := video.NewParser(cfg)
 	parseResult, err := vp.Parse(videoPath)
 	if err != nil {
+		errlog.Logf("[Video] parse failed doc=%s file=%q: %v", docID, docName, err)
 		return fmt.Errorf("视频解析失败: %w", err)
 	}
 
@@ -203,6 +204,7 @@ func (dm *DocumentManager) processTranscript(docID, docName, productID string, p
 
 	embeddings, err := dm.embeddingService.EmbedBatch(texts)
 	if err != nil {
+		errlog.Logf("[Video] transcript embedding failed doc=%s file=%q: %v", docID, docName, err)
 		return 0, fmt.Errorf("转录文本嵌入失败: %w", err)
 	}
 
@@ -218,6 +220,7 @@ func (dm *DocumentManager) processTranscript(docID, docName, productID string, p
 		}
 	}
 	if err := dm.vectorStore.Store(docID, vectorChunks); err != nil {
+		errlog.Logf("[Video] transcript store failed doc=%s file=%q: %v", docID, docName, err)
 		return 0, fmt.Errorf("转录向量存储失败: %w", err)
 	}
 
@@ -319,6 +322,7 @@ func (dm *DocumentManager) embedSingleKeyframe(docID, docName, productID string,
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Warning: keyframe %d embedding panic: %v", i, r)
+			errlog.Logf("[Video] keyframe %d embed panic doc=%s file=%q: %v", i, docID, docName, r)
 			ok = false
 		}
 	}()
@@ -348,11 +352,13 @@ func (dm *DocumentManager) embedSingleKeyframe(docID, docName, productID string,
 	case resp := <-ch:
 		if resp.err != nil {
 			log.Printf("Warning: failed to embed keyframe %d (%.1fs): %v", i, kf.Timestamp, resp.err)
+			errlog.Logf("[Video] keyframe %d embed failed doc=%s file=%q: %v", i, docID, docName, resp.err)
 			return false
 		}
 		vec = resp.vec
 	case <-ctx.Done():
 		log.Printf("Warning: keyframe %d embedding timeout (%.1fs)", i, kf.Timestamp)
+		errlog.Logf("[Video] keyframe %d embed timeout doc=%s file=%q", i, docID, docName)
 		return false
 	}
 
@@ -382,6 +388,7 @@ func (dm *DocumentManager) embedSingleKeyframe(docID, docName, productID string,
 	}}
 	if err := dm.vectorStore.Store(docID, frameChunk); err != nil {
 		log.Printf("Warning: failed to store keyframe vector %d: %v", i, err)
+		errlog.Logf("[Video] keyframe %d store failed doc=%s file=%q: %v", i, docID, docName, err)
 		return false
 	}
 
@@ -465,6 +472,7 @@ func (dm *DocumentManager) describeSingleKeyframe(docID string, i int, kf video.
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Warning: keyframe %d LLM描述 panic: %v", i, r)
+			errlog.Logf("[Video OCR] keyframe %d panic for doc=%s: %v", i, docID, r)
 		}
 	}()
 
@@ -542,6 +550,7 @@ func (dm *DocumentManager) storeKeyframeDescriptions(docID, docName, productID s
 	}
 	if storeErr := dm.vectorStore.Store(docID, ocrVectorChunks); storeErr != nil {
 		log.Printf("Warning: OCR vector store failed for doc=%s: %v", docID, storeErr)
+		errlog.Logf("[Video OCR] vector store failed for doc=%s: %v", docID, storeErr)
 	} else {
 		log.Printf("视频关键帧OCR+描述文本已存储: doc=%s, %d 个分块", docID, len(ocrVectorChunks))
 	}

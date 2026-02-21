@@ -38,17 +38,20 @@ import (
 
 // supportedFileTypes lists the file types accepted for upload.
 var supportedFileTypes = map[string]bool{
-	"pdf":      true,
-	"word":     true,
-	"excel":    true,
-	"ppt":      true,
-	"markdown": true,
-	"html":     true,
-	"mp4":      true,
-	"avi":      true,
-	"mkv":      true,
-	"mov":      true,
-	"webm":     true,
+	"pdf":          true,
+	"word":         true,
+	"word_legacy":  true,
+	"excel":        true,
+	"excel_legacy": true,
+	"ppt":          true,
+	"ppt_legacy":   true,
+	"markdown":     true,
+	"html":         true,
+	"mp4":          true,
+	"avi":          true,
+	"mkv":          true,
+	"mov":          true,
+	"webm":         true,
 }
 
 // videoFileTypes identifies which file types are video formats.
@@ -106,9 +109,6 @@ type UploadFileRequest struct {
 
 func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, error) {
 	fileType := strings.ToLower(req.FileType)
-	if fileType == "ppt_legacy" {
-		return nil, fmt.Errorf("不支持旧版 .ppt 格式，请先用 PowerPoint 或 WPS 将文件另存为 .pptx 格式后再上传")
-	}
 	if !supportedFileTypes[fileType] {
 		return nil, fmt.Errorf("不支持的文件格式")
 	}
@@ -134,7 +134,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 	doc := &DocumentInfo{
 		ID:        docID,
 		Name:      req.FileName,
-		Type:      fileType,
+		Type:      normalizeFileType(fileType),
 		Status:    "processing",
 		CreatedAt: time.Now(),
 		ProductID: req.ProductID,
@@ -246,6 +246,26 @@ func NewDocumentManager(
 		db:               db,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					// Resolve DNS and validate the IP before connecting (DNS rebinding protection)
+					host, port, err := net.SplitHostPort(addr)
+					if err != nil {
+						return nil, err
+					}
+					ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+					if err != nil {
+						return nil, err
+					}
+					for _, ip := range ips {
+						if ip.IP.IsLoopback() || ip.IP.IsPrivate() || ip.IP.IsLinkLocalUnicast() || ip.IP.IsUnspecified() {
+							return nil, fmt.Errorf("DNS resolved to blocked IP: %s", ip.IP)
+						}
+					}
+					dialer := &net.Dialer{Timeout: 10 * time.Second}
+					return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+				},
+			},
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 5 {
 					return fmt.Errorf("too many redirects")
@@ -397,6 +417,21 @@ func detectImageMIME(data []byte) string {
 // imageToBase64DataURL converts raw image data to a base64 data URL.
 func imageToBase64DataURL(imgData []byte) string {
 	return fmt.Sprintf("data:%s;base64,%s", detectImageMIME(imgData), base64.StdEncoding.EncodeToString(imgData))
+}
+
+// normalizeFileType maps internal file type names (including legacy variants)
+// to the canonical type stored in the database.
+func normalizeFileType(ft string) string {
+	switch ft {
+	case "word_legacy":
+		return "word"
+	case "excel_legacy":
+		return "excel"
+	case "ppt_legacy":
+		return "ppt"
+	default:
+		return ft
+	}
 }
 
 // generateID creates a random UUID-like hex string.
@@ -610,6 +645,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 	if result.Text == "" && len(result.Images) == 0 {
+		errlog.Logf("[Parse] empty content doc=%s file=%q type=%s", docID, docName, fileType)
 		return nil, fmt.Errorf("文档内容为空")
 	}
 
@@ -708,6 +744,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 					}
 					batch, embErr := dm.embeddingService.EmbedBatch(texts[start:end])
 					if embErr != nil {
+						errlog.Logf("[Embed] scanned PDF embedding failed (batch %d-%d) doc=%s file=%q: %v", start, end, docID, docName, embErr)
 						return nil, fmt.Errorf("scanned PDF embedding error (batch %d-%d): %w", start, end, embErr)
 					}
 					copy(vectors[start:end], batch)
@@ -776,6 +813,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	if result.Text != "" {
 		hash := contentHash(result.Text)
 		if existingID := dm.findDocumentByContentHash(hash); existingID != "" {
+			errlog.Logf("[Parse] duplicate content doc=%s file=%q type=%s (matches doc=%s)", docID, docName, fileType, existingID)
 			return nil, fmt.Errorf("文档内容重复，与已有文档相同")
 		}
 		// Store the content hash for future dedup checks
@@ -832,6 +870,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 			}
 			batch, embErr := dm.embeddingService.EmbedBatch(texts[start:end])
 			if embErr != nil {
+				errlog.Logf("[Embed] PPT slide embedding failed (batch %d-%d) doc=%s file=%q: %v", start, end, docID, docName, embErr)
 				return nil, fmt.Errorf("PPT slide embedding error (batch %d-%d): %w", start, end, embErr)
 			}
 			copy(vectors[start:end], batch)
@@ -1065,21 +1104,25 @@ func (dm *DocumentManager) processURL(docID, url string, productID string) (*Imp
 
 	resp, err := dm.httpClient.Get(url)
 	if err != nil {
+		errlog.Logf("[URL] fetch failed doc=%s url=%q: %v", docID, url, err)
 		return nil, fmt.Errorf("failed to fetch URL: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		errlog.Logf("[URL] HTTP %d doc=%s url=%q", resp.StatusCode, docID, url)
 		return nil, fmt.Errorf("URL returned HTTP %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10MB limit
 	if err != nil {
+		errlog.Logf("[URL] read failed doc=%s url=%q: %v", docID, url, err)
 		return nil, fmt.Errorf("failed to read URL content: %w", err)
 	}
 
 	text := strings.TrimSpace(string(body))
 	if text == "" {
+		errlog.Logf("[URL] empty content doc=%s url=%q", docID, url)
 		return nil, fmt.Errorf("URL内容为空")
 	}
 
@@ -1089,6 +1132,7 @@ func (dm *DocumentManager) processURL(docID, url string, productID string) (*Imp
 	if isHTML {
 		result, err := dm.parser.ParseWithBaseURL(body, "html", url)
 		if err != nil {
+			errlog.Logf("[Parse] HTML parse failed doc=%s url=%q: %v", docID, url, err)
 			return nil, fmt.Errorf("HTML parse error: %w", err)
 		}
 		stats := &ImportStats{
@@ -1257,6 +1301,7 @@ func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string, productI
 	if len(newTexts) > 0 {
 		newEmbeddings, err := dm.embeddingService.EmbedBatch(newTexts)
 		if err != nil {
+			errlog.Logf("[Embed] batch embedding failed doc=%s file=%q: %v", docID, docName, err)
 			return fmt.Errorf("embedding error: %w", err)
 		}
 		for j, idx := range newIndices {
@@ -1283,6 +1328,7 @@ func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string, productI
 	}
 
 	if err := dm.vectorStore.Store(docID, vectorChunks); err != nil {
+		errlog.Logf("[Store] vector store failed doc=%s file=%q: %v", docID, docName, err)
 		return fmt.Errorf("vector store error: %w", err)
 	}
 	return nil

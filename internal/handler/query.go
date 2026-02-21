@@ -38,6 +38,11 @@ func HandleQuery(app *App) http.HandlerFunc {
 			return
 		}
 		req.Question = question
+		// Validate product_id format if provided
+		if req.ProductID != "" && !IsValidOptionalID(req.ProductID) {
+			WriteError(w, http.StatusBadRequest, "invalid product_id")
+			return
+		}
 		// Default to first product if no product_id specified
 		if req.ProductID == "" {
 			firstID, pErr := app.GetFirstProductID()
@@ -51,6 +56,13 @@ func HandleQuery(app *App) http.HandlerFunc {
 			errlog.Logf("[Query] query processing failed: %v", err)
 			WriteError(w, http.StatusInternalServerError, "查询处理失败，请稍后重试")
 			return
+		}
+		// Strip debug info for non-admin users to prevent information leakage
+		if resp.DebugInfo != nil {
+			_, _, adminErr := GetAdminSession(app, r)
+			if adminErr != nil {
+				resp.DebugInfo = nil
+			}
 		}
 		// Check if product allows document download
 		if req.ProductID != "" {

@@ -29,3 +29,10 @@ test.pptx
 test.docx
 test.xlsx
 test2.pptx
+internal/parser/legacy_image_test.go
+internal/parser/legacy_image_property_test.go
+.gitignore
+.gitignore
+.gitignore
+internal/parser/legacy_real_test.go
+.gitignore

@@ -17,9 +17,9 @@ import (
 // SupportedExtensions lists file extensions that can be imported.
 var SupportedExtensions = map[string]string{
 	".pdf":      "pdf",
-	".doc":      "word",
+	".doc":      "word_legacy",
 	".docx":     "word",
-	".xls":      "excel",
+	".xls":      "excel_legacy",
 	".xlsx":     "excel",
 	".ppt":      "ppt_legacy",
 	".pptx":     "ppt",
@@ -112,6 +112,15 @@ func HandleDocumentUpload(app *App) http.HandlerFunc {
 
 		// Determine file type from extension
 		fileType := DetectFileType(header.Filename)
+
+		// Validate video files have correct magic bytes to prevent disguised uploads
+		switch fileType {
+		case "mp4", "avi", "mkv", "mov", "webm":
+			if !IsValidVideoMagicBytes(fileData) {
+				WriteError(w, http.StatusBadRequest, "文件内容与扩展名不匹配")
+				return
+			}
+		}
 
 		req := document.UploadFileRequest{
 			FileName:  header.Filename,
@@ -253,9 +262,16 @@ func HandlePublicDocumentDownload(app *App) http.HandlerFunc {
 			WriteError(w, http.StatusNotFound, "文件未找到")
 			return
 		}
-		// Verify file path stays within expected data directory
+		// Verify file path stays within expected data directory (resolve symlinks to prevent bypass)
 		absPath, _ := filepath.Abs(filePath)
 		absDataDir, _ := filepath.Abs(filepath.Join(".", "data"))
+		// Resolve symlinks to prevent symlink-based path traversal
+		if realPath, err := filepath.EvalSymlinks(absPath); err == nil {
+			absPath = realPath
+		}
+		if realDataDir, err := filepath.EvalSymlinks(absDataDir); err == nil {
+			absDataDir = realDataDir
+		}
 		if !strings.HasPrefix(absPath, absDataDir+string(filepath.Separator)) {
 			WriteError(w, http.StatusForbidden, "forbidden")
 			return
@@ -304,9 +320,15 @@ func HandleDocumentByID(app *App) http.HandlerFunc {
 				WriteError(w, http.StatusNotFound, "文件未找到")
 				return
 			}
-			// Verify file path stays within expected data directory
+			// Verify file path stays within expected data directory (resolve symlinks to prevent bypass)
 			absPath, _ := filepath.Abs(filePath)
 			absDataDir, _ := filepath.Abs(filepath.Join(".", "data"))
+			if realPath, err := filepath.EvalSymlinks(absPath); err == nil {
+				absPath = realPath
+			}
+			if realDataDir, err := filepath.EvalSymlinks(absDataDir); err == nil {
+				absDataDir = realDataDir
+			}
 			if !strings.HasPrefix(absPath, absDataDir+string(filepath.Separator)) {
 				WriteError(w, http.StatusForbidden, "forbidden")
 				return

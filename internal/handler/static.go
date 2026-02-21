@@ -110,6 +110,12 @@ func HandleMediaStream(app *App) http.HandlerFunc {
 		// Verify file path stays within expected data directory
 		absPath, _ := filepath.Abs(filePath)
 		absDataDir, _ := filepath.Abs(filepath.Join(".", "data"))
+		if realPath, err := filepath.EvalSymlinks(absPath); err == nil {
+			absPath = realPath
+		}
+		if realDataDir, err := filepath.EvalSymlinks(absDataDir); err == nil {
+			absDataDir = realDataDir
+		}
 		if !strings.HasPrefix(absPath, absDataDir+string(filepath.Separator)) {
 			WriteError(w, http.StatusForbidden, "forbidden")
 			return

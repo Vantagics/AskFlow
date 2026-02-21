@@ -257,6 +257,11 @@ func (as *AppService) Shutdown(timeout time.Duration) error {
 		}
 	}
 
+	// Stop OAuth client background goroutine
+	if as.oauthClient != nil {
+		as.oauthClient.Stop()
+	}
+
 	// Wait for cleanup goroutine to finish before closing database
 	as.cleanupWg.Wait()
 

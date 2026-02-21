@@ -175,10 +175,14 @@ func DetectFileType(filename string) string {
 	switch {
 	case strings.HasSuffix(lower, ".pdf"):
 		return "pdf"
-	case strings.HasSuffix(lower, ".docx"), strings.HasSuffix(lower, ".doc"):
+	case strings.HasSuffix(lower, ".docx"):
 		return "word"
-	case strings.HasSuffix(lower, ".xlsx"), strings.HasSuffix(lower, ".xls"):
+	case strings.HasSuffix(lower, ".doc"):
+		return "word_legacy"
+	case strings.HasSuffix(lower, ".xlsx"):
 		return "excel"
+	case strings.HasSuffix(lower, ".xls"):
+		return "excel_legacy"
 	case strings.HasSuffix(lower, ".pptx"):
 		return "ppt"
 	case strings.HasSuffix(lower, ".ppt"):

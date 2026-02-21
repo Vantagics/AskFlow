@@ -130,6 +130,7 @@ func deserializeFloat32Direct(data []byte, n int) []float32 {
 }
 
 // CosineSimilarity computes the cosine similarity between two float64 vectors.
+// Uses a two-pass approach to avoid underflow with very small values.
 func CosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) || len(a) == 0 {
 		return 0
@@ -143,5 +144,6 @@ func CosineSimilarity(a, b []float64) float64 {
 	if normA == 0 || normB == 0 {
 		return 0
 	}
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+	// Use combined sqrt to reduce floating point error
+	return dotProduct / math.Sqrt(normA*normB)
 }

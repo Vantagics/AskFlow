@@ -72,7 +72,13 @@ var insertOnlyTables = []string{"documents", "chunks", "video_segments", "admin_
 var mutableTables = []string{"pending_questions", "users", "products", "admin_user_products"}
 
 // allDataTables is the union used for full backup SQL export verification.
-var allDataTables = append(append([]string{}, insertOnlyTables...), mutableTables...)
+// Built via explicit concatenation to avoid mutating insertOnlyTables' underlying array.
+var allDataTables = func() []string {
+	all := make([]string, 0, len(insertOnlyTables)+len(mutableTables))
+	all = append(all, insertOnlyTables...)
+	all = append(all, mutableTables...)
+	return all
+}()
 
 // Run executes a backup.
 func Run(db *sql.DB, opts Options) (*Result, error) {
@@ -535,7 +541,7 @@ func RestoreDelta(db *sql.DB, deltaPath string) error {
 		return fmt.Errorf("读取增量 SQL 失败: %w", err)
 	}
 
-	// Validate delta SQL: only allow INSERT/UPDATE/DELETE statements
+	// Validate delta SQL: only allow safe DML + transaction control statements
 	// to prevent arbitrary SQL execution (e.g., DROP TABLE, ATTACH DATABASE)
 	content := strings.TrimSpace(string(data))
 	if content == "" {
@@ -547,11 +553,17 @@ func RestoreDelta(db *sql.DB, deltaPath string) error {
 		if trimmed == "" {
 			continue
 		}
+		// Skip SQL comments (lines starting with --)
+		if strings.HasPrefix(trimmed, "--") {
+			continue
+		}
 		upper := strings.ToUpper(trimmed)
 		if !strings.HasPrefix(upper, "INSERT ") &&
 			!strings.HasPrefix(upper, "UPDATE ") &&
 			!strings.HasPrefix(upper, "DELETE ") &&
-			!strings.HasPrefix(upper, "REPLACE ") {
+			!strings.HasPrefix(upper, "REPLACE ") &&
+			upper != "BEGIN TRANSACTION" &&
+			upper != "COMMIT" {
 			return fmt.Errorf("增量 SQL 包含不允许的语句类型: %s", truncateForLog(trimmed, 50))
 		}
 	}
