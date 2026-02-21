@@ -331,7 +331,7 @@ func (dm *DocumentManager) embedSingleKeyframe(docID, docName, productID string,
 		return false
 	}
 
-	dataURL := imageToBase64DataURL(kf.Data)
+	dataURL := imageToBase64DataURL(resizeImageForEmbedding(kf.Data))
 
 	// Per-frame timeout for embedding API call
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

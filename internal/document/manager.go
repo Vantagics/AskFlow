@@ -16,6 +16,7 @@ import (
 	_ "image/png"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -393,6 +394,48 @@ func resizeImageForOCR(imgData []byte) []byte {
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
 		return imgData // encode failed → send original
+	}
+	return buf.Bytes()
+}
+
+// resizeImageForEmbedding resizes an image so its total pixel count stays within
+// the embedding API limit (36 million pixels). Uses a safe margin of 35M pixels.
+// Returns the original data unchanged if already within bounds or if decoding fails.
+const embeddingMaxPixels = 35_000_000
+
+func resizeImageForEmbedding(imgData []byte) []byte {
+	src, _, err := image.Decode(bytes.NewReader(imgData))
+	if err != nil {
+		return imgData
+	}
+
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	totalPixels := w * h
+
+	if totalPixels <= embeddingMaxPixels {
+		return imgData
+	}
+
+	// Scale down preserving aspect ratio so total pixels <= embeddingMaxPixels
+	scale := math.Sqrt(float64(embeddingMaxPixels) / float64(totalPixels))
+	newW := int(float64(w) * scale)
+	newH := int(float64(h) * scale)
+	if newW < 1 {
+		newW = 1
+	}
+	if newH < 1 {
+		newH = 1
+	}
+
+	log.Printf("[Embed] resizing image from %dx%d (%d px) to %dx%d for embedding API limit", w, h, totalPixels, newW, newH)
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	draw.BiLinear.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 90}); err != nil {
+		return imgData
 	}
 	return buf.Bytes()
 }
@@ -916,7 +959,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 		// For embedding API: use base64 data URL for embedded images (external API can't access local paths)
 		embedURL := imgURL
 		if embedURL == "" && len(img.Data) > 0 {
-			embedURL = imageToBase64DataURL(img.Data)
+			embedURL = imageToBase64DataURL(resizeImageForEmbedding(img.Data))
 		}
 		if embedURL == "" {
 			continue

@@ -22,6 +22,7 @@ import (
 	"askflow/internal/email"
 	"askflow/internal/embedding"
 	"askflow/internal/errlog"
+	"askflow/internal/fontcheck"
 	"askflow/internal/handler"
 	"askflow/internal/llm"
 	"askflow/internal/parser"
@@ -60,6 +61,9 @@ func (as *AppService) Initialize(dataDir string, overrideBind string, overridePo
 	if err := errlog.Init(); err != nil {
 		log.Printf("Warning: error logger init failed: %v (errors will not be persisted to file)", err)
 	}
+
+	// 0.5 Check CJK fonts (Linux: auto-install if root, otherwise warn)
+	fontcheck.EnsureCJKFonts()
 
 	// 1. Ensure data directory exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
