@@ -1338,7 +1338,7 @@
             for (var vi = 0; vi < docIds.length; vi++) {
                 var vDocId = docIds[vi];
                 var seg = videoSegments[vDocId];
-                var mediaUrl = '/api/media/' + encodeURIComponent(vDocId);
+                var mediaUrl = '/api/media/' + encodeURIComponent(vDocId) + '?token=' + encodeURIComponent(getChatToken());
                 var firstStart = seg.times.length > 0 ? seg.times[0].start : 0;
                 var vExt = (seg.name || '').split('.').pop().toLowerCase();
                 var isAudio = (vExt === 'mp3' || vExt === 'wav' || vExt === 'ogg' || vExt === 'flac');
@@ -1380,7 +1380,7 @@
                 }
                 var srcType = (src.document_type || '').toLowerCase();
                 if (_mediaTypes[srcType] && src.document_id) {
-                    var srcMediaUrl = '/api/media/' + encodeURIComponent(src.document_id);
+                    var srcMediaUrl = '/api/media/' + encodeURIComponent(src.document_id) + '?token=' + encodeURIComponent(getChatToken());
                     var srcExt = (src.document_name || '').split('.').pop().toLowerCase();
                     var srcIsAudio = (srcExt === 'mp3' || srcExt === 'wav' || srcExt === 'ogg' || srcExt === 'flac');
                     var srcStart = src.start_time || 0;
@@ -2920,7 +2920,7 @@
                 badgeClass = 'review-badge-chunk';
                 badgeText = (i18n.t('admin_doc_review_chunk') || '段落') + ' ' + chunkNum;
             } else if (seg.type === 'image') {
-                badgeClass = 'review-badge-keyframe';
+                badgeClass = 'review-badge-image';
                 badgeText = i18n.t('admin_doc_review_image') || '图片';
             }
 

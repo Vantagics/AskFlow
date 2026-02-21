@@ -84,10 +84,26 @@ func SpaHandler(dir string) http.Handler {
 }
 
 // HandleMediaStream serves video/audio files with proper content types and range request support.
+// Requires a valid user session (via Authorization header or ?token= query param).
 func HandleMediaStream(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		// Authenticate: support both Authorization header and ?token= query param
+		// (query param needed for <video> src attributes that can't set headers)
+		authHeader := r.Header.Get("Authorization")
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token == "" || token == authHeader {
+			token = r.URL.Query().Get("token")
+		}
+		if token == "" {
+			WriteError(w, http.StatusUnauthorized, "未登录")
+			return
+		}
+		if _, sErr := app.sessionManager.ValidateSession(token); sErr != nil {
+			WriteError(w, http.StatusUnauthorized, "会话已过期")
 			return
 		}
 		docID := strings.TrimPrefix(r.URL.Path, "/api/media/")

@@ -790,18 +790,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 				return stats, nil
 			}
 
-			// Fallback: if no page results, merge text for standard processing
-			var sb strings.Builder
-			for _, pr := range pageResults {
-				if sb.Len() > 0 {
-					sb.WriteString("\n\n")
-				}
-				sb.WriteString(pr.text)
-			}
-			if sb.Len() > 0 {
-				result.Text = sb.String()
-				log.Printf("OCR识别完成: doc=%s, 提取 %d 字符 (%d/%d 页成功)", docID, len(result.Text), len(pageResults), len(result.Images))
-			}
+			// All OCR pages failed — fall through to standard empty-content handling
 		}
 	}
 
@@ -1524,8 +1513,8 @@ func (dm *DocumentManager) GetDocumentReview(docID string) (*ReviewData, error) 
 		result.Segments = append(result.Segments, seg)
 	}
 
-	// Also query OCR description chunks (chunk_index >= 20000) — only for non-PPT documents
-	if docInfo.Type != "ppt" {
+	// Also query OCR description chunks (chunk_index >= 20000) — only for video documents
+	if videoFileTypes[docInfo.Type] {
 		ocrRows, err := dm.db.Query(
 			`SELECT chunk_text, chunk_index FROM chunks WHERE document_id = ? AND chunk_index >= 20000 ORDER BY chunk_index ASC`,
 			docID,
