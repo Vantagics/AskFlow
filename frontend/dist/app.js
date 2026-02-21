@@ -82,7 +82,7 @@
         var user = getUser();
         var adminSession = getAdminSession();
         var adminUser = getAdminUser();
-        var isAdmin = adminSession && adminUser && adminUser.provider === 'admin';
+        var isAdmin = adminSession && adminUser && (adminUser.provider === 'admin' || adminUser.provider === 'anonymous');
 
         // OAuth callback is handled in init(), skip routing
         if (route === '/oauth/callback') return;
