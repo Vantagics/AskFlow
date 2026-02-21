@@ -5,6 +5,7 @@ package parser
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"image/png"
 	"log"
 	"net/url"
@@ -222,8 +223,8 @@ func (dp *DocumentParser) parseExcel(data []byte) (result *ParseResult, err erro
 }
 
 // parsePPT extracts slide text and renders each slide as an image.
-// Uses GoPPT's SlideToImage to generate per-slide PNG images,
-// with the slide text as accompanying description.
+// Uses GoPPT's SlidesToImages to batch-render all slides as PNG images,
+// with a shared FontCache for consistent font rendering and better performance.
 func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -236,28 +237,47 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 	if err != nil {
 		return nil, fmt.Errorf("ppt解析错误: %w", err)
 	}
+	defer pres.Close()
 
 	slides := pres.Slides()
 	var sb strings.Builder
-	var images []ImageRef
 
-	opts := goppt.DefaultRenderOptions()
-	opts.Width = 1280
-
+	// Extract text from all slides first
+	slideTexts := make([]string, len(slides))
 	for i, slide := range slides {
 		text := slide.ExtractText()
+		slideTexts[i] = text
 		if text != "" {
 			if sb.Len() > 0 {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(fmt.Sprintf("Slide %d:\n%s", i+1, text))
 		}
+	}
 
-		// Render slide to image
-		img, renderErr := pres.SlideToImage(i, opts)
-		if renderErr != nil {
-			log.Printf("Warning: PPT第%d页渲染失败: %v", i+1, renderErr)
-			continue
+	// Batch render all slides with shared FontCache
+	opts := goppt.DefaultRenderOptions()
+	opts.Width = 1280
+	opts.FontCache = goppt.NewFontCache()
+
+	renderedImages, renderErr := pres.SlidesToImages(opts)
+	if renderErr != nil {
+		log.Printf("Warning: PPT批量渲染失败，逐页重试: %v", renderErr)
+	}
+
+	var images []ImageRef
+	for i := range slides {
+		var img image.Image
+		if renderErr == nil && i < len(renderedImages) {
+			img = renderedImages[i]
+		} else {
+			// Fallback: render individual slide
+			singleImg, sErr := pres.SlideToImage(i, opts)
+			if sErr != nil {
+				log.Printf("Warning: PPT第%d页渲染失败: %v", i+1, sErr)
+				continue
+			}
+			img = singleImg
 		}
 
 		var buf bytes.Buffer
@@ -266,6 +286,7 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 			continue
 		}
 
+		text := slideTexts[i]
 		alt := fmt.Sprintf("PPT第%d页", i+1)
 		if text != "" {
 			t := strings.TrimSpace(text)

@@ -2,8 +2,8 @@ github.com/VantageDataChat/GoExcel v0.0.0-20260210221956-22a34d8dea7f h1:1PQui6d
 github.com/VantageDataChat/GoExcel v0.0.0-20260210221956-22a34d8dea7f/go.mod h1:7JSbDlEu3YX6CiGlNMWBgCYiK2xzvVIDPRKKeHwdezw=
 github.com/VantageDataChat/GoPDF2 v0.0.0-20260212143022-4f8ad48dca6e h1:3i4xTKCEU/G6GbGl1JYCGOjHGrYp/B8bXSBF82vBrdE=
 github.com/VantageDataChat/GoPDF2 v0.0.0-20260212143022-4f8ad48dca6e/go.mod h1:CeOlebFomt072IbNsPGa8Ys1WgNiag15q3q9McuKXB8=
-github.com/VantageDataChat/GoPPT v0.0.0-20260221001042-6a7491cbae71 h1:Edql5EaYdU+aYGf2gJ/xtGng8XpXA5ECZAnACnGPpWE=
-github.com/VantageDataChat/GoPPT v0.0.0-20260221001042-6a7491cbae71/go.mod h1:clmfETR4bGOcP22SXTZ9wqwIalTGqnea4rmTiVmkppk=
+github.com/VantageDataChat/GoPPT v0.0.0-20260221221545-3bb6889b1041 h1:qdetcGYVjkK4u7MrH3AB7kkiTLjf7osyngc0DyvFrYg=
+github.com/VantageDataChat/GoPPT v0.0.0-20260221221545-3bb6889b1041/go.mod h1:clmfETR4bGOcP22SXTZ9wqwIalTGqnea4rmTiVmkppk=
 github.com/VantageDataChat/GoWord v0.0.0-20260210220908-40c2b82002d1 h1:PX+mfxYdOpURSlWukyOir8jNhlvpkycCOSmy9+xOpOo=
 github.com/VantageDataChat/GoWord v0.0.0-20260210220908-40c2b82002d1/go.mod h1:jLTMrwq72u951bUzqySqbFSKdBsE9K2ueGtpognaIlE=
 github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 h1:QwWKgMY28TAXaDl+ExRDqGQltzXqN/xypdKP86niVn8=
