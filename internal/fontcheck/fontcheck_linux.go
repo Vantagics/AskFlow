@@ -7,10 +7,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
-// knownCJKFontFamilies are font family names commonly associated with CJK support.
+// knownCJKFontFamilies are font family names commonly found in fc-list output.
 var knownCJKFontFamilies = []string{
 	"Noto Sans CJK",
 	"Noto Serif CJK",
@@ -22,88 +23,82 @@ var knownCJKFontFamilies = []string{
 	"思源宋体",
 	"Droid Sans Fallback",
 	"AR PL",
-	"SimSun",
-	"SimHei",
-	"Microsoft YaHei",
-	"FangSong",
-	"KaiTi",
 }
 
-// distroPackages maps package manager commands to their CJK font package names.
-// Each entry: [installCmd, checkCmd, ...packageNames]
+// pkgManager describes how to install CJK fonts via a specific package manager.
 type pkgManager struct {
 	name       string
-	checkCmd   []string // command to test if this package manager exists
-	installCmd []string // base install command (packages appended)
-	packages   []string // CJK font packages to install
+	binary     string   // binary name to probe via LookPath
+	preInstall []string // optional command to run before install (e.g. apt-get update)
+	installCmd []string // base install command (packages are appended)
+	packages   []string // CJK font package names
 }
 
 var packageManagers = []pkgManager{
 	{
 		name:       "apt",
-		checkCmd:   []string{"apt-get", "--version"},
+		binary:     "apt-get",
+		preInstall: []string{"apt-get", "update", "-qq"},
 		installCmd: []string{"apt-get", "install", "-y"},
 		packages:   []string{"fonts-noto-cjk"},
 	},
 	{
-		name:       "yum",
-		checkCmd:   []string{"yum", "--version"},
-		installCmd: []string{"yum", "install", "-y"},
-		packages:   []string{"google-noto-sans-cjk-ttc-fonts"},
-	},
-	{
 		name:       "dnf",
-		checkCmd:   []string{"dnf", "--version"},
+		binary:     "dnf",
 		installCmd: []string{"dnf", "install", "-y"},
 		packages:   []string{"google-noto-sans-cjk-ttc-fonts"},
 	},
 	{
+		name:       "yum",
+		binary:     "yum",
+		installCmd: []string{"yum", "install", "-y"},
+		packages:   []string{"google-noto-sans-cjk-ttc-fonts"},
+	},
+	{
 		name:       "pacman",
-		checkCmd:   []string{"pacman", "--version"},
+		binary:     "pacman",
 		installCmd: []string{"pacman", "-S", "--noconfirm"},
 		packages:   []string{"noto-fonts-cjk"},
 	},
 	{
 		name:       "zypper",
-		checkCmd:   []string{"zypper", "--version"},
+		binary:     "zypper",
 		installCmd: []string{"zypper", "install", "-y"},
 		packages:   []string{"noto-sans-cjk-fonts-ttc"},
 	},
 	{
 		name:       "apk",
-		checkCmd:   []string{"apk", "--version"},
+		binary:     "apk",
 		installCmd: []string{"apk", "add"},
 		packages:   []string{"font-noto-cjk"},
 	},
 }
 
-// ensureCJKFontsLinux is the Linux-specific implementation.
-func ensureCJKFontsLinux() {
+// EnsureCJKFonts checks for CJK fonts on Linux. If missing, it auto-installs
+// when running as root, or prints manual instructions otherwise.
+func EnsureCJKFonts() {
 	found, families := detectCJKFonts()
 	logFontStatus(found, families)
 	if found {
 		return
 	}
 
-	// Fonts missing — try to help
 	if !isRoot() {
 		printManualInstallInstructions()
 		return
 	}
 
-	// We are root, attempt automatic installation
+	// Running as root — attempt automatic installation
 	if err := autoInstallCJKFonts(); err != nil {
 		log.Printf("字体检查: 自动安装中文字体失败: %v", err)
 		printManualInstallInstructions()
 		return
 	}
 
-	// Refresh font cache
-	if fc, err := exec.LookPath("fc-cache"); err == nil {
-		_ = exec.Command(fc, "-f").Run()
-	}
+	// Refresh font cache after installation
+	refreshFontCache()
 
-	// Verify
+	// Verify installation result
 	found, families = detectCJKFonts()
 	logFontStatus(found, families)
 	if !found {
@@ -112,10 +107,10 @@ func ensureCJKFontsLinux() {
 }
 
 // detectCJKFonts uses fc-list to check for CJK font families.
+// Falls back to scanning font directories if fc-list is unavailable.
 func detectCJKFonts() (bool, []string) {
 	fcList, err := exec.LookPath("fc-list")
 	if err != nil {
-		// fc-list not available, try checking font directories directly
 		return detectCJKFontsByPath()
 	}
 
@@ -129,7 +124,6 @@ func detectCJKFonts() (bool, []string) {
 		return false, nil
 	}
 
-	// Extract matched family names
 	var matched []string
 	for _, kw := range knownCJKFontFamilies {
 		if strings.Contains(output, kw) {
@@ -138,33 +132,47 @@ func detectCJKFonts() (bool, []string) {
 	}
 	if len(matched) == 0 {
 		// fc-list returned results but none matched known families — still counts
-		matched = append(matched, "(other CJK fonts)")
+		matched = append(matched, "other CJK fonts")
 	}
 	return true, matched
 }
 
-// detectCJKFontsByPath checks common font directories for CJK font files.
+// detectCJKFontsByPath recursively scans common font directories for CJK font files.
 func detectCJKFontsByPath() (bool, []string) {
 	fontDirs := []string{
 		"/usr/share/fonts",
 		"/usr/local/share/fonts",
-		"/usr/share/fonts/truetype",
-		"/usr/share/fonts/opentype",
 	}
 	cjkKeywords := []string{"noto", "cjk", "wenquanyi", "wqy", "droid", "source-han", "sourcehansans"}
 
-	for _, dir := range fontDirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
+	for _, root := range fontDirs {
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
 			continue
 		}
-		for _, e := range entries {
-			lower := strings.ToLower(e.Name())
+		found := false
+		var match string
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			lower := strings.ToLower(d.Name())
+			// Only check actual font files
+			if !strings.HasSuffix(lower, ".ttf") && !strings.HasSuffix(lower, ".ttc") &&
+				!strings.HasSuffix(lower, ".otf") {
+				return nil
+			}
 			for _, kw := range cjkKeywords {
 				if strings.Contains(lower, kw) {
-					return true, []string{e.Name()}
+					found = true
+					match = d.Name()
+					return filepath.SkipAll
 				}
 			}
+			return nil
+		})
+		if found {
+			return true, []string{match}
 		}
 	}
 	return false, nil
@@ -175,16 +183,30 @@ func isRoot() bool {
 	return os.Getuid() == 0
 }
 
-// autoInstallCJKFonts detects the package manager and installs CJK fonts.
+// autoInstallCJKFonts detects the system package manager and installs CJK fonts.
 func autoInstallCJKFonts() error {
 	for _, pm := range packageManagers {
-		if _, err := exec.LookPath(pm.checkCmd[0]); err != nil {
+		if _, err := exec.LookPath(pm.binary); err != nil {
 			continue
 		}
 
 		log.Printf("字体检查: 检测到包管理器 %s，正在安装中文字体...", pm.name)
 
-		args := append(pm.installCmd[1:], pm.packages...)
+		// Run pre-install command if defined (e.g. apt-get update)
+		if len(pm.preInstall) > 0 {
+			pre := exec.Command(pm.preInstall[0], pm.preInstall[1:]...)
+			pre.Stdout = os.Stdout
+			pre.Stderr = os.Stderr
+			if err := pre.Run(); err != nil {
+				log.Printf("字体检查: %s pre-install 命令失败 (继续尝试安装): %v", pm.name, err)
+			}
+		}
+
+		// Build install command — copy slice to avoid mutating the global table
+		args := make([]string, 0, len(pm.installCmd)-1+len(pm.packages))
+		args = append(args, pm.installCmd[1:]...)
+		args = append(args, pm.packages...)
+
 		cmd := exec.Command(pm.installCmd[0], args...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -200,10 +222,27 @@ func autoInstallCJKFonts() error {
 	return fmt.Errorf("未找到支持的包管理器 (apt/yum/dnf/pacman/zypper/apk)")
 }
 
+// refreshFontCache runs fc-cache -f if available.
+func refreshFontCache() {
+	if fc, err := exec.LookPath("fc-cache"); err == nil {
+		cmd := exec.Command(fc, "-f")
+		_ = cmd.Run()
+	}
+}
+
+// logFontStatus logs the result of font detection.
+func logFontStatus(found bool, families []string) {
+	if found {
+		log.Printf("字体检查: 已检测到中文字体 (%s)", strings.Join(families, ", "))
+	} else {
+		log.Println("字体检查: 未检测到中文字体，PPT渲染可能显示方框")
+	}
+}
+
 // printManualInstallInstructions prints instructions for non-root users.
 func printManualInstallInstructions() {
 	log.Println("========================================")
-	log.Println("  缺少中文字体 — PPT渲染将显示方框")
+	log.Println("  缺少中文字体 - PPT渲染将显示方框")
 	log.Println("  请使用 root 权限安装中文字体:")
 	log.Println("")
 	log.Println("  Debian/Ubuntu:")
