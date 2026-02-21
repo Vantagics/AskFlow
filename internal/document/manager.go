@@ -151,10 +151,10 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 		errlog.Logf("[Upload] failed to save original file %q (doc=%s): %v", req.FileName, docID, err)
 	}
 
-	// For video files and PDF files, process asynchronously to avoid HTTP timeout.
-	// PDF files (especially scanned PDFs) may require per-page OCR via LLM vision API,
-	// which can take a very long time for multi-page documents.
-	if videoFileTypes[fileType] || fileType == "pdf" {
+	// For video, PDF, and PPT files, process asynchronously to avoid HTTP timeout.
+	// PDF files (especially scanned PDFs) may require per-page OCR via LLM vision API.
+	// PPT files require per-slide rendering which can take 20+ seconds for large decks.
+	if videoFileTypes[fileType] || fileType == "pdf" || fileType == "ppt" {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {

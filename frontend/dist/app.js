@@ -2730,6 +2730,8 @@
         return productId;
     }
 
+    var _docPollTimer = null;
+
     function loadDocumentList() {
         adminFetch('/api/documents')
             .then(function (res) {
@@ -2737,11 +2739,25 @@
                 return res.json();
             })
             .then(function (data) {
-                renderDocumentList(data.documents || data || []);
+                var docs = data.documents || data || [];
+                renderDocumentList(docs);
+                // Auto-poll if any documents are still processing
+                scheduleDocPoll(docs);
             })
             .catch(function () {
                 renderDocumentList([]);
             });
+    }
+
+    function scheduleDocPoll(docs) {
+        if (_docPollTimer) { clearTimeout(_docPollTimer); _docPollTimer = null; }
+        var hasProcessing = false;
+        for (var i = 0; i < docs.length; i++) {
+            if (docs[i].status === 'processing') { hasProcessing = true; break; }
+        }
+        if (hasProcessing) {
+            _docPollTimer = setTimeout(function () { loadDocumentList(); }, 3000);
+        }
     }
 
     function renderDocumentList(docs) {
