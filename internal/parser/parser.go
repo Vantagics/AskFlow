@@ -340,7 +340,21 @@ func (dp *DocumentParser) parseWord(data []byte) (result *ParseResult, err error
 			}
 			if !isImageJPEGOrPNG(imgData) {
 				ext := strings.ToLower(filepath.Ext(f.Name))
-				log.Printf("[Word] skipping %s: unsupported format (ext=%s)", f.Name, ext)
+				// Try EMF/WMF metafile conversion (reuse legacy.go logic)
+				if ext == ".emf" || ext == ".wmf" {
+					converted := convertMetafileImage(imgData, ext)
+					if converted != nil {
+						imgIdx++
+						images = append(images, ImageRef{
+							Alt:  fmt.Sprintf("Word图片%d", imgIdx),
+							Data: converted,
+						})
+					} else {
+						log.Printf("[Word] failed to convert %s", f.Name)
+					}
+				} else {
+					log.Printf("[Word] skipping %s: unsupported format (ext=%s)", f.Name, ext)
+				}
 				continue
 			}
 			imgIdx++
@@ -577,6 +591,23 @@ func isImageJPEGOrPNG(data []byte) bool {
 		return true // PNG
 	}
 	return false
+}
+
+// convertMetafileImage attempts to extract a raster image from EMF/WMF metafile data.
+// Reuses the extraction logic from legacy.go (findEmbeddedRaster, extractDIBFromEMF/WMF).
+func convertMetafileImage(data []byte, ext string) []byte {
+	// Strategy 1: look for embedded JPEG/PNG inside the metafile
+	if img := findEmbeddedRaster(data); img != nil {
+		return img
+	}
+	// Strategy 2: parse EMF/WMF records for DIB data and convert to PNG
+	if ext == ".emf" {
+		return extractDIBFromEMF(data)
+	}
+	if ext == ".wmf" {
+		return extractDIBFromWMF(data)
+	}
+	return nil
 }
 
 // CleanText removes excessive whitespace and meaningless special characters from text.
