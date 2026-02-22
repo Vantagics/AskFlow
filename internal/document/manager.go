@@ -155,7 +155,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 	// For video, PDF, and PPT files, process asynchronously to avoid HTTP timeout.
 	// PDF files (especially scanned PDFs) may require per-page OCR via LLM vision API.
 	// PPT files require per-slide rendering which can take 20+ seconds for large decks.
-	if videoFileTypes[fileType] || fileType == "pdf" || fileType == "ppt" {
+	if videoFileTypes[fileType] || fileType == "pdf" || fileType == "ppt" || fileType == "ppt_legacy" {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
