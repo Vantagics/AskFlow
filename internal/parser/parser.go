@@ -205,7 +205,10 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 }
 
 // rawPixelsToJPEG converts raw decompressed pixel data from a PDF image to JPEG.
-// Much faster than PNG encoding for large images. Uses quality 85.
+// Handles both plain pixel data and PNG-predictor-encoded data (common in FlateDecode
+// streams where the PDF uses Predictor=10..15). PNG predictor adds 1 filter-type byte
+// per row, so total size = height * (width*bytesPerPixel + 1).
+// Uses quality 85.
 func rawPixelsToJPEG(data []byte, width, height int, colorSpace string) []byte {
 	if width <= 0 || height <= 0 {
 		return nil
@@ -217,19 +220,35 @@ func rawPixelsToJPEG(data []byte, width, height int, colorSpace string) []byte {
 		bytesPerPixel = 1
 	}
 
-	expected := width * height * bytesPerPixel
-	if len(data) < expected {
+	rowBytes := width * bytesPerPixel
+	expectedPlain := rowBytes * height
+	expectedPNG := (rowBytes + 1) * height // +1 for PNG filter byte per row
+
+	// Detect PNG predictor: data has exactly 1 extra byte per row
+	hasPNGPredictor := len(data) == expectedPNG && len(data) != expectedPlain
+
+	if !hasPNGPredictor && len(data) < expectedPlain {
 		return nil
 	}
 
-	// For RGB, use NRGBA to avoid per-pixel SetRGBA overhead
+	// If PNG predictor, decode the filter bytes to get raw pixels
+	var pixels []byte
+	if hasPNGPredictor {
+		pixels = decodePNGPredictor(data, width, height, bytesPerPixel)
+		if pixels == nil {
+			return nil
+		}
+	} else {
+		pixels = data
+	}
+
 	img := image.NewNRGBA(image.Rect(0, 0, width, height))
 	if isGray {
 		for y := 0; y < height; y++ {
 			srcOff := y * width
 			dstOff := y * img.Stride
 			for x := 0; x < width; x++ {
-				g := data[srcOff+x]
+				g := pixels[srcOff+x]
 				img.Pix[dstOff] = g
 				img.Pix[dstOff+1] = g
 				img.Pix[dstOff+2] = g
@@ -242,9 +261,9 @@ func rawPixelsToJPEG(data []byte, width, height int, colorSpace string) []byte {
 			srcOff := y * width * 3
 			dstOff := y * img.Stride
 			for x := 0; x < width; x++ {
-				img.Pix[dstOff] = data[srcOff]
-				img.Pix[dstOff+1] = data[srcOff+1]
-				img.Pix[dstOff+2] = data[srcOff+2]
+				img.Pix[dstOff] = pixels[srcOff]
+				img.Pix[dstOff+1] = pixels[srcOff+1]
+				img.Pix[dstOff+2] = pixels[srcOff+2]
 				img.Pix[dstOff+3] = 255
 				srcOff += 3
 				dstOff += 4
@@ -257,6 +276,106 @@ func rawPixelsToJPEG(data []byte, width, height int, colorSpace string) []byte {
 		return nil
 	}
 	return buf.Bytes()
+}
+
+// decodePNGPredictor reverses PNG row filters on FlateDecode data.
+// Each row starts with a filter-type byte (0=None, 1=Sub, 2=Up, 3=Average, 4=Paeth)
+// followed by rowBytes of filtered pixel data.
+// Returns the unfiltered raw pixel data (without filter bytes).
+func decodePNGPredictor(data []byte, width, height, bytesPerPixel int) []byte {
+	rowBytes := width * bytesPerPixel
+	srcStride := rowBytes + 1 // +1 for filter byte
+	out := make([]byte, rowBytes*height)
+
+	for y := 0; y < height; y++ {
+		srcRow := data[y*srcStride : y*srcStride+srcStride]
+		filterType := srcRow[0]
+		filtered := srcRow[1:]
+		dstRow := out[y*rowBytes : y*rowBytes+rowBytes]
+
+		var prevRow []byte
+		if y > 0 {
+			prevRow = out[(y-1)*rowBytes : (y-1)*rowBytes+rowBytes]
+		}
+
+		switch filterType {
+		case 0: // None
+			copy(dstRow, filtered)
+		case 1: // Sub: each byte = filtered + byte at (bytesPerPixel) positions left
+			for i := 0; i < rowBytes; i++ {
+				left := byte(0)
+				if i >= bytesPerPixel {
+					left = dstRow[i-bytesPerPixel]
+				}
+				dstRow[i] = filtered[i] + left
+			}
+		case 2: // Up: each byte = filtered + byte in same position of previous row
+			for i := 0; i < rowBytes; i++ {
+				up := byte(0)
+				if prevRow != nil {
+					up = prevRow[i]
+				}
+				dstRow[i] = filtered[i] + up
+			}
+		case 3: // Average: each byte = filtered + floor((left + up) / 2)
+			for i := 0; i < rowBytes; i++ {
+				left := 0
+				if i >= bytesPerPixel {
+					left = int(dstRow[i-bytesPerPixel])
+				}
+				up := 0
+				if prevRow != nil {
+					up = int(prevRow[i])
+				}
+				dstRow[i] = filtered[i] + byte((left+up)/2)
+			}
+		case 4: // Paeth
+			for i := 0; i < rowBytes; i++ {
+				left := byte(0)
+				if i >= bytesPerPixel {
+					left = dstRow[i-bytesPerPixel]
+				}
+				up := byte(0)
+				if prevRow != nil {
+					up = prevRow[i]
+				}
+				upLeft := byte(0)
+				if prevRow != nil && i >= bytesPerPixel {
+					upLeft = prevRow[i-bytesPerPixel]
+				}
+				dstRow[i] = filtered[i] + paethPredictor(left, up, upLeft)
+			}
+		default:
+			// Unknown filter type — treat as no filter
+			copy(dstRow, filtered)
+		}
+	}
+	return out
+}
+
+// paethPredictor implements the Paeth predictor algorithm used in PNG filtering.
+func paethPredictor(a, b, c byte) byte {
+	ia, ib, ic := int(a), int(b), int(c)
+	p := ia + ib - ic
+	pa := p - ia
+	if pa < 0 {
+		pa = -pa
+	}
+	pb := p - ib
+	if pb < 0 {
+		pb = -pb
+	}
+	pc := p - ic
+	if pc < 0 {
+		pc = -pc
+	}
+	if pa <= pb && pa <= pc {
+		return a
+	}
+	if pb <= pc {
+		return b
+	}
+	return c
 }
 
 
