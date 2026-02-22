@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>软件自助服务平台</title>
-    <link rel="stylesheet" href="/styles.css?v=20260219-2">
+    <link rel="stylesheet" href="/styles.css?v=20260223-1">
     <script src="/i18n.js?v=20260219-3"></script>
 </head>
 <body>
@@ -20,10 +20,10 @@
                                 <path d="M24 14v12M24 30h.01M14 34h20a2 2 0 002-2V16a2 2 0 00-2-2H14a2 2 0 00-2 2v16a2 2 0 002 2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </div>
-                        <h1 data-i18n="setup_title">系统启动准备中</h1>
+                        <h1 data-i18n="setup_title">系统启动准备�?/h1>
                     </div>
-                    <p style="color:#6b7280;margin:1.5rem 0;font-size:1.05rem;line-height:1.7;" data-i18n="setup_message">系统启动准备中，请稍后...</p>
-                    <p style="color:#9ca3af;font-size:0.9rem;" data-i18n="setup_hint">管理员正在配置系统，配置完成后即可正常使用。</p>
+                    <p style="color:#6b7280;margin:1.5rem 0;font-size:1.05rem;line-height:1.7;" data-i18n="setup_message">系统启动准备中，请稍�?..</p>
+                    <p style="color:#9ca3af;font-size:0.9rem;" data-i18n="setup_hint">管理员正在配置系统，配置完成后即可正常使用�?/p>
                     <button class="admin-submit-btn" style="margin-top:1.5rem;" onclick="location.reload()" data-i18n="setup_refresh">刷新页面</button>
                 </div>
             </div>
@@ -32,12 +32,45 @@
         <!-- Login Page -->
         <div id="page-login" class="page hidden">
             <div class="login-container">
+                <div class="login-brand-side">
+                    <div class="login-brand-content">
+                        <div class="login-brand-logo">
+                            <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+                                <rect width="80" height="80" rx="20" fill="rgba(255,255,255,0.15)"/>
+                                <path d="M26 33h28M26 40h22M26 47h24M22 26h36a3 3 0 013 3v22a3 3 0 01-3 3H22a3 3 0 01-3-3V29a3 3 0 013-3z" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <div class="login-brand-title" data-product-name>问渠 AskFlow</div>
+                        <div class="login-brand-subtitle">智能文档问答系统，让知识触手可及</div>
+                        <div class="login-brand-features">
+                            <div class="login-brand-feature">
+                                <div class="login-brand-feature-icon">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                </div>
+                                <span>多格式文档</span>
+                            </div>
+                            <div class="login-brand-feature">
+                                <div class="login-brand-feature-icon">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                </div>
+                                <span>智能检索</span>
+                            </div>
+                            <div class="login-brand-feature">
+                                <div class="login-brand-feature-icon">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                                </div>
+                                <span>AI 问答</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="login-form-side">
                 <div class="login-card">
                     <button id="lang-switch-login" class="lang-switch-btn lang-switch-corner" onclick="i18n.toggleLang(); i18n.applyI18nToPage();">EN</button>
                     <div class="login-header">
                         <div class="login-logo">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                                <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+                                <rect width="48" height="48" rx="12" fill="#2563EB"/>
                                 <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </div>
@@ -50,30 +83,30 @@
 
                         <!-- OAuth Buttons (dynamically populated) -->
                         <div id="oauth-login-buttons" class="oauth-buttons hidden"></div>
-                        <div id="oauth-login-divider" class="login-divider hidden"><span data-i18n="login_divider_or">或</span></div>
+                        <div id="oauth-login-divider" class="login-divider hidden"><span data-i18n="login_divider_or">�?/span></div>
 
                         <div class="input-group">
                             <input type="email" id="user-login-email" data-i18n-placeholder="login_email" placeholder="邮箱" autocomplete="email">
                             <input type="password" id="user-login-password" data-i18n-placeholder="login_password" placeholder="密码" autocomplete="current-password">
                             <div class="captcha-row">
-                                <input type="text" id="user-login-captcha" data-i18n-placeholder="login_captcha" placeholder="验证码答案" autocomplete="off" class="captcha-input">
+                                <input type="text" id="user-login-captcha" data-i18n-placeholder="login_captcha" placeholder="验证码答�? autocomplete="off" class="captcha-input">
                                 <span id="user-login-captcha-question" class="captcha-question" onclick="loadLoginCaptcha()"></span>
                             </div>
                             <button class="admin-submit-btn" onclick="handleUserLogin()" data-i18n="login_btn">登录</button>
                         </div>
                         <p id="user-login-error" class="error-text hidden"></p>
                         <p class="auth-switch"><span data-i18n="login_no_account">还没有账号？</span><a href="javascript:void(0)" onclick="showRegisterForm()" data-i18n="login_register_link">注册</a></p>
-                        <p class="auth-switch"><a href="javascript:void(0)" onclick="showForgotPasswordForm()" data-i18n="login_forgot_password">忘记密码？</a></p>
+                        <p class="auth-switch"><a href="javascript:void(0)" onclick="showForgotPasswordForm()" data-i18n="login_forgot_password">忘记密码�?/a></p>
                         <button id="anonymous-frontend-login-btn" class="admin-submit-btn anonymous-login-btn hidden" onclick="handleAnonymousFrontendLogin()" data-i18n="anonymous_frontend_login_btn">匿名访问</button>
                     </div>
 
                     <!-- Forgot Password Form -->
                     <div id="user-forgot-password-form" class="admin-login-form hidden">
                         <p class="login-subtitle" style="text-align:center;margin-bottom:1rem;" data-i18n="forgot_subtitle">重置密码</p>
-                        <p style="text-align:center;color:#6b7280;font-size:0.9rem;margin-bottom:1rem;" data-i18n="forgot_hint">请输入您的注册邮箱，我们将发送重置链接</p>
+                        <p style="text-align:center;color:#6b7280;font-size:0.9rem;margin-bottom:1rem;" data-i18n="forgot_hint">请输入您的注册邮箱，我们将发送重置链�?/p>
                         <div class="input-group">
                             <input type="email" id="forgot-email" data-i18n-placeholder="forgot_email" placeholder="邮箱" autocomplete="email">
-                            <button class="admin-submit-btn" onclick="handleForgotPassword()" data-i18n="forgot_btn">发送重置链接</button>
+                            <button class="admin-submit-btn" onclick="handleForgotPassword()" data-i18n="forgot_btn">发送重置链�?/button>
                         </div>
                         <p id="forgot-password-error" class="error-text hidden"></p>
                         <p id="forgot-password-success" class="success-text hidden"></p>
@@ -82,23 +115,24 @@
 
                     <!-- Register Form -->
                     <div id="user-register-form" class="admin-login-form hidden">
-                        <p class="login-subtitle" style="text-align:center;margin-bottom:1rem;" data-i18n="register_subtitle">创建新账号</p>
+                        <p class="login-subtitle" style="text-align:center;margin-bottom:1rem;" data-i18n="register_subtitle">创建新账�?/p>
                         <div class="input-group">
                             <input type="text" id="user-register-name" data-i18n-placeholder="register_name" placeholder="昵称" autocomplete="name">
                             <input type="email" id="user-register-email" data-i18n-placeholder="register_email" placeholder="邮箱" autocomplete="email">
-                            <input type="password" id="user-register-password" data-i18n-placeholder="register_password" placeholder="密码（至少8位，需含字母和数字）" autocomplete="new-password">
+                            <input type="password" id="user-register-password" data-i18n-placeholder="register_password" placeholder="密码（至�?位，需含字母和数字�? autocomplete="new-password">
                             <input type="password" id="user-register-password-confirm" data-i18n-placeholder="register_password_confirm" placeholder="确认密码" autocomplete="new-password">
                             <div class="captcha-row">
-                                <input type="text" id="user-register-captcha" data-i18n-placeholder="register_captcha" placeholder="验证码答案" autocomplete="off" class="captcha-input">
+                                <input type="text" id="user-register-captcha" data-i18n-placeholder="register_captcha" placeholder="验证码答�? autocomplete="off" class="captcha-input">
                                 <span id="user-register-captcha-question" class="captcha-question" onclick="loadRegisterCaptcha()"></span>
                             </div>
                             <button class="admin-submit-btn" onclick="handleUserRegister()" data-i18n="register_btn">注册</button>
                         </div>
                         <p id="user-register-error" class="error-text hidden"></p>
                         <p id="user-register-success" class="success-text hidden"></p>
-                        <p class="auth-switch"><span data-i18n="register_has_account">已有账号？</span><a href="javascript:void(0)" onclick="showLoginForm()" data-i18n="register_login_link">登录</a></p>
+                        <p class="auth-switch"><span data-i18n="register_has_account">已有账号�?/span><a href="javascript:void(0)" onclick="showLoginForm()" data-i18n="register_login_link">登录</a></p>
                     </div>
                 </div>
+                </div><!-- /login-form-side -->
 
                 <div id="login-toast" class="toast hidden"></div>
             </div>
@@ -111,7 +145,7 @@
                     <div class="login-header">
                         <div class="login-logo">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                                <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+                                <rect width="48" height="48" rx="12" fill="#2563EB"/>
                                 <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </div>
@@ -132,16 +166,16 @@
                     <div class="login-header">
                         <div class="login-logo">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                                <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+                                <rect width="48" height="48" rx="12" fill="#2563EB"/>
                                 <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </div>
-                        <h1 data-i18n="reset_title">设置新密码</h1>
+                        <h1 data-i18n="reset_title">设置新密�?/h1>
                     </div>
                     <div id="reset-password-form" class="admin-login-form">
                         <div class="input-group">
-                            <input type="password" id="reset-new-password" data-i18n-placeholder="reset_new_password" placeholder="新密码（至少8位，需含字母和数字）" autocomplete="new-password">
-                            <input type="password" id="reset-confirm-password" data-i18n-placeholder="reset_confirm_password" placeholder="确认新密码" autocomplete="new-password">
+                            <input type="password" id="reset-new-password" data-i18n-placeholder="reset_new_password" placeholder="新密码（至少8位，需含字母和数字�? autocomplete="new-password">
+                            <input type="password" id="reset-confirm-password" data-i18n-placeholder="reset_confirm_password" placeholder="确认新密�? autocomplete="new-password">
                             <button class="admin-submit-btn" onclick="handleResetPassword()" data-i18n="reset_btn">重置密码</button>
                         </div>
                         <p id="reset-password-error" class="error-text hidden"></p>
@@ -159,19 +193,19 @@
                     <div class="login-header">
                         <div class="login-logo">
                             <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                                <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+                                <rect width="48" height="48" rx="12" fill="#2563EB"/>
                                 <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </div>
-                        <h1 data-i18n="admin_login_title">管理员登录</h1>
+                        <h1 data-i18n="admin_login_title">管理员登�?/h1>
                     </div>
 
                     <div id="admin-login-form" class="admin-login-form hidden">
                         <div class="input-group">
                             <input type="text" id="admin-username" data-i18n-placeholder="admin_username" placeholder="管理员用户名" autocomplete="username">
-                            <input type="password" id="admin-password" data-i18n-placeholder="admin_password" placeholder="管理员密码" autocomplete="current-password">
+                            <input type="password" id="admin-password" data-i18n-placeholder="admin_password" placeholder="管理员密�? autocomplete="current-password">
                             <div class="captcha-row">
-                                <input type="text" id="admin-login-captcha" data-i18n-placeholder="admin_captcha" placeholder="验证码" autocomplete="off" class="captcha-input">
+                                <input type="text" id="admin-login-captcha" data-i18n-placeholder="admin_captcha" placeholder="验证�? autocomplete="off" class="captcha-input">
                                 <img id="admin-login-captcha-img" class="captcha-img" alt="captcha" onclick="loadAdminCaptcha()" title="点击刷新">
                             </div>
                             <button class="admin-submit-btn" onclick="handleAdminLogin()" data-i18n="admin_login_btn">登录</button>
@@ -180,12 +214,12 @@
                         <p id="admin-login-error" class="error-text hidden"></p>
                     </div>
                     <div id="admin-setup-form" class="admin-login-form hidden">
-                        <p class="setup-hint" data-i18n="admin_setup_hint">首次使用，请设置管理员账号</p>
+                        <p class="setup-hint" data-i18n="admin_setup_hint">首次使用，请设置管理员账�?/p>
                         <div class="input-group">
                             <input type="text" id="admin-setup-username" data-i18n-placeholder="admin_setup_username" placeholder="设置管理员用户名" autocomplete="username">
-                            <input type="password" id="admin-setup-password" data-i18n-placeholder="admin_setup_password" placeholder="设置管理员密码" autocomplete="new-password">
+                            <input type="password" id="admin-setup-password" data-i18n-placeholder="admin_setup_password" placeholder="设置管理员密�? autocomplete="new-password">
                             <input type="password" id="admin-setup-password-confirm" data-i18n-placeholder="admin_setup_password_confirm" placeholder="确认密码" autocomplete="new-password">
-                            <button class="admin-submit-btn" onclick="handleAdminSetup()" data-i18n="admin_setup_btn">创建管理员</button>
+                            <button class="admin-submit-btn" onclick="handleAdminSetup()" data-i18n="admin_setup_btn">创建管理�?/button>
                         </div>
                         <p id="admin-setup-error" class="error-text hidden"></p>
                     </div>
@@ -200,7 +234,7 @@
                 <div class="chat-header">
                     <div class="chat-header-left">
                         <svg width="28" height="28" viewBox="0 0 48 48" fill="none">
-                            <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+                            <rect width="48" height="48" rx="12" fill="rgba(255,255,255,0.2)"/>
                             <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                         <span class="chat-header-title" data-i18n="chat_title" data-product-name>软件自助服务平台</span>
@@ -215,27 +249,27 @@
                                 <div class="dropdown-section">
                                     <label class="dropdown-label" data-i18n="chat_default_product">默认产品</label>
                                     <select id="chat-default-product" class="dropdown-product-select" onchange="saveDefaultProduct()">
-                                        <option value="" data-i18n="chat_no_default_product">不设置</option>
+                                        <option value="" data-i18n="chat_no_default_product">不设�?/option>
                                     </select>
                                 </div>
                                 <div class="dropdown-divider"></div>
-                                <button class="dropdown-btn" onclick="logout()" data-i18n="chat_logout_btn">退出登录</button>
+                                <button class="dropdown-btn" onclick="logout()" data-i18n="chat_logout_btn">退出登�?/button>
                             </div>
                         </div>
                         <button id="chat-login-btn" class="chat-logout-btn hidden" onclick="navigate('/login')" data-i18n="chat_login_btn">登录</button>
-                        <button id="chat-logout-btn" class="chat-logout-btn hidden" onclick="logout()" data-i18n="chat_logout_btn">退出登录</button>
+                        <button id="chat-logout-btn" class="chat-logout-btn hidden" onclick="logout()" data-i18n="chat_logout_btn">退出登�?/button>
                     </div>
                 </div>
 
                 <!-- Chat Messages Area -->
                 <div id="chat-messages" class="chat-messages">
                     <div class="chat-welcome">
-                        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                            <rect width="48" height="48" rx="12" fill="#4F46E5" opacity="0.1"/>
-                            <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                            <rect width="64" height="64" rx="16" fill="#2563EB" opacity="0.1"/>
+                            <path d="M21 27h22M21 32h17M21 37h19M18 21h28a3 3 0 013 3v16a3 3 0 01-3 3H18a3 3 0 01-3-3V24a3 3 0 013-3z" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                         <h3 data-i18n="chat_welcome_title" data-product-name-welcome>欢迎使用软件自助服务平台</h3>
-                        <p data-i18n="chat_welcome_desc">请输入您的问题，我将为您查找相关资料并提供解答。</p>
+                        <p data-i18n="chat_welcome_desc">请输入您的问题，我将为您查找相关资料并提供解答�?/p>
                     </div>
                 </div>
 
@@ -274,7 +308,7 @@
                 <aside class="admin-sidebar">
                     <div class="admin-sidebar-header">
                         <svg width="28" height="28" viewBox="0 0 48 48" fill="none">
-                            <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+                            <rect width="48" height="48" rx="12" fill="#2563EB"/>
                             <path d="M16 20h16M16 24h12M16 28h14M14 16h20a2 2 0 012 2v12a2 2 0 01-2 2H14a2 2 0 01-2-2V18a2 2 0 012-2z" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                         <span data-i18n="admin_panel_title">管理面板</span>
@@ -298,7 +332,7 @@
                         </button>
                         <button class="admin-nav-item" data-tab="multimodal" onclick="switchAdminTab('multimodal')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-                            <span data-i18n="admin_nav_multimodal">多模态</span>
+                            <span data-i18n="admin_nav_multimodal">多模�?/span>
                         </button>
                         <button class="admin-nav-item" data-tab="batchimport" onclick="switchAdminTab('batchimport')">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -330,7 +364,7 @@
                         <button class="lang-switch-btn" style="margin-bottom:8px;width:100%;" onclick="i18n.toggleLang(); i18n.applyI18nToPage();">EN</button>
                         <button class="admin-logout-btn" onclick="adminLogout()">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                            <span data-i18n="admin_sidebar_logout">退出登录</span>
+                            <span data-i18n="admin_sidebar_logout">退出登�?/span>
                         </button>
                     </div>
                 </aside>
@@ -345,9 +379,9 @@
                         <div class="admin-tab-body">
                             <!-- Product Selector for Documents -->
                             <div class="admin-product-selector" style="margin-bottom:1rem;">
-                                <label data-i18n="admin_doc_product_label" style="font-weight:500;margin-right:0.5rem;">目标产品：</label>
+                                <label data-i18n="admin_doc_product_label" style="font-weight:500;margin-right:0.5rem;">目标产品�?/label>
                                 <select id="doc-product-select" class="login-product-select" style="width:auto;min-width:200px;display:inline-block;">
-                                    <option value="" data-i18n="admin_doc_product_public">公共库</option>
+                                    <option value="" data-i18n="admin_doc_product_public">公共�?/option>
                                 </select>
                             </div>
                             <!-- Upload Area -->
@@ -356,7 +390,7 @@
                                 <div id="admin-drop-zone" class="admin-drop-zone">
                                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                     <p data-i18n="admin_doc_drop_text">拖拽文件到此处，或点击选择文件</p>
-                                    <span class="admin-drop-hint" data-i18n="admin_doc_drop_hint">支持 PDF、Word、Excel、PPT、Markdown、视频格式</span>
+                                    <span class="admin-drop-hint" data-i18n="admin_doc_drop_hint">支持 PDF、Word、Excel、PPT、Markdown、视频格�?/span>
                                 </div>
                                 <div class="admin-url-input">
                                     <input type="text" id="admin-url-field" data-i18n-placeholder="admin_doc_url_placeholder" placeholder="输入文档URL地址">
@@ -382,9 +416,9 @@
                                         <thead>
                                             <tr>
                                                 <th data-i18n="admin_doc_th_name">文档名称</th>
-                                                <th data-i18n="admin_doc_th_product">所属产品</th>
+                                                <th data-i18n="admin_doc_th_product">所属产�?/th>
                                                 <th data-i18n="admin_doc_th_type">文件类型</th>
-                                                <th data-i18n="admin_doc_th_status">处理状态</th>
+                                                <th data-i18n="admin_doc_th_status">处理状�?/th>
                                                 <th data-i18n="admin_doc_th_time">上传时间</th>
                                                 <th data-i18n="admin_doc_th_action">操作</th>
                                             </tr>
@@ -404,8 +438,8 @@
                             <h2 data-i18n="admin_pending_title">问题管理</h2>
                             <div class="admin-filter-group">
                                 <button class="admin-filter-btn active" data-status="" onclick="filterPendingQuestions('')" data-i18n="admin_pending_filter_all">全部</button>
-                                <button class="admin-filter-btn" data-status="pending" onclick="filterPendingQuestions('pending')" data-i18n="admin_pending_filter_pending">待回答</button>
-                                <button class="admin-filter-btn" data-status="answered" onclick="filterPendingQuestions('answered')" data-i18n="admin_pending_filter_answered">已回答</button>
+                                <button class="admin-filter-btn" data-status="pending" onclick="filterPendingQuestions('pending')" data-i18n="admin_pending_filter_pending">待回�?/button>
+                                <button class="admin-filter-btn" data-status="answered" onclick="filterPendingQuestions('answered')" data-i18n="admin_pending_filter_answered">已回�?/button>
                             </div>
                         </div>
                         <div class="admin-tab-body">
@@ -472,11 +506,11 @@
                                 </fieldset>
 
                                 <fieldset class="admin-fieldset">
-                                    <legend data-i18n="admin_settings_admin">管理员设置</legend>
+                                    <legend data-i18n="admin_settings_admin">管理员设�?/legend>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_settings_login_route">管理员登录路由</label>
+                                        <label data-i18n="admin_settings_login_route">管理员登录路�?/label>
                                         <input type="text" id="cfg-admin-login-route" placeholder="/admin">
-                                        <span class="admin-form-hint" data-i18n="admin_settings_login_route_hint">访问此隐藏路由可进入管理员登录页面</span>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_login_route_hint">访问此隐藏路由可进入管理员登录页�?/span>
                                     </div>
                                 </fieldset>
 
@@ -494,16 +528,16 @@
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_settings_product_intro_label">欢迎信息</label>
                                         <textarea id="cfg-product-intro" rows="4" data-i18n-placeholder="admin_settings_product_intro_placeholder" placeholder="输入产品简介，用户登录后将作为欢迎信息显示"></textarea>
-                                        <span class="admin-form-hint" data-i18n="admin_settings_product_intro_hint">用户登录后在聊天页面显示此信息</span>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_product_intro_hint">用户登录后在聊天页面显示此信�?/span>
                                     </div>
                                 </fieldset>
 
                                 <fieldset class="admin-fieldset">
-                                    <legend data-i18n="admin_settings_auth_server">认证服务器</legend>
+                                    <legend data-i18n="admin_settings_auth_server">认证服务�?/legend>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_settings_auth_server_label">认证服务器地址</label>
                                         <input type="text" id="cfg-auth-server" placeholder="license.vantagedata.chat">
-                                        <span class="admin-form-hint" data-i18n="admin_settings_auth_server_hint">License 认证服务器主机名，用于 SN 登录验证（如 license.vantagedata.chat）</span>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_auth_server_hint">License 认证服务器主机名，用�?SN 登录验证（如 license.vantagedata.chat�?/span>
                                     </div>
                                 </fieldset>
 
@@ -536,7 +570,7 @@
                                             <input type="number" id="cfg-llm-temperature" step="0.1" min="0" max="2" placeholder="0.3">
                                         </div>
                                         <div>
-                                            <label data-i18n="admin_settings_max_tokens">最大 Token</label>
+                                            <label data-i18n="admin_settings_max_tokens">最�?Token</label>
                                             <input type="number" id="cfg-llm-maxtokens" min="1" placeholder="2048">
                                         </div>
                                     </div>
@@ -565,10 +599,10 @@
                                         </div>
                                     </div>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_settings_emb_multimodal">多模态嵌入</label>
+                                        <label data-i18n="admin_settings_emb_multimodal">多模态嵌�?/label>
                                         <select id="cfg-emb-multimodal">
-                                            <option value="false" data-i18n="admin_settings_emb_multimodal_no">否（标准 /embeddings）</option>
-                                            <option value="true" data-i18n="admin_settings_emb_multimodal_yes">是（/embeddings/multimodal）</option>
+                                            <option value="false" data-i18n="admin_settings_emb_multimodal_no">否（标准 /embeddings�?/option>
+                                            <option value="true" data-i18n="admin_settings_emb_multimodal_yes">是（/embeddings/multimodal�?/option>
                                         </select>
                                         <span class="admin-form-hint" data-i18n="admin_settings_emb_multimodal_hint">豆包视觉嵌入模型需开启此选项</span>
                                     </div>
@@ -606,12 +640,12 @@
                                             <input type="number" id="cfg-vec-topk" min="1" placeholder="5">
                                         </div>
                                         <div>
-                                            <label data-i18n="admin_settings_threshold">相似度阈值</label>
+                                            <label data-i18n="admin_settings_threshold">相似度阈�?/label>
                                             <input type="number" id="cfg-vec-threshold" step="0.01" min="0" max="1" placeholder="0.7">
                                         </div>
                                     </div>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_settings_content_priority">内容优先级</label>
+                                        <label data-i18n="admin_settings_content_priority">内容优先�?/label>
                                         <select id="cfg-vec-content-priority">
                                             <option value="image_text" data-i18n="admin_settings_priority_image">优先图文（有图片的结果优先）</option>
                                             <option value="text_only" data-i18n="admin_settings_priority_text">优先纯文字（纯文本结果优先）</option>
@@ -621,18 +655,18 @@
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_settings_text_match">三级文本匹配</label>
                                         <select id="cfg-vec-text-match">
-                                            <option value="true" data-i18n="admin_settings_text_match_on">开启（优先文本匹配，节省 API 费用）</option>
-                                            <option value="false" data-i18n="admin_settings_text_match_off">关闭（始终使用完整 RAG 流程）</option>
+                                            <option value="true" data-i18n="admin_settings_text_match_on">开启（优先文本匹配，节�?API 费用�?/option>
+                                            <option value="false" data-i18n="admin_settings_text_match_off">关闭（始终使用完�?RAG 流程�?/option>
                                         </select>
-                                        <span class="admin-form-hint" data-i18n="admin_settings_text_match_hint">开启后查询按3级处理：1级纯文本匹配（免费）→ 2级向量确认+缓存复用（仅嵌入费用）→ 3级完整RAG（嵌入+LLM费用）</span>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_text_match_hint">开启后查询�?级处理：1级纯文本匹配（免费）�?2级向量确�?缓存复用（仅嵌入费用）→ 3级完整RAG（嵌�?LLM费用�?/span>
                                     </div>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_settings_debug_mode">调试模式</label>
                                         <select id="cfg-vec-debug-mode">
                                             <option value="false" data-i18n="admin_settings_debug_off">关闭</option>
-                                            <option value="true" data-i18n="admin_settings_debug_on">开启（查询结果附带诊断信息）</option>
+                                            <option value="true" data-i18n="admin_settings_debug_on">开启（查询结果附带诊断信息�?/option>
                                         </select>
-                                        <span class="admin-form-hint" data-i18n="admin_settings_debug_hint">开启后聊天回复会显示三级搜索的详细过程，方便排查问题</span>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_debug_hint">开启后聊天回复会显示三级搜索的详细过程，方便排查问�?/span>
                                     </div>
                                 </fieldset>
 
@@ -647,7 +681,7 @@
                             <div class="admin-settings-form">
                                 <!-- Common SMTP Presets -->
                                 <div class="smtp-presets-section">
-                                    <label data-i18n="admin_settings_smtp_preset">快速填充常见邮件服务器配置：</label>
+                                    <label data-i18n="admin_settings_smtp_preset">快速填充常见邮件服务器配置�?/label>
                                     <div class="smtp-presets-grid">
                                         <button type="button" class="smtp-preset-btn" onclick="applySmtpPreset('qq')">
                                             <span class="smtp-preset-name">QQ 邮箱</span>
@@ -670,7 +704,7 @@
                                             <span class="smtp-preset-host">smtp.qiye.aliyun.com:465</span>
                                         </button>
                                         <button type="button" class="smtp-preset-btn" onclick="applySmtpPreset('exmail')">
-                                            <span class="smtp-preset-name">腾讯企业邮</span>
+                                            <span class="smtp-preset-name">腾讯企业�?/span>
                                             <span class="smtp-preset-host">smtp.exmail.qq.com:465</span>
                                         </button>
                                     </div>
@@ -678,9 +712,9 @@
                                 </div>
 
                                 <fieldset class="admin-fieldset">
-                                    <legend data-i18n="admin_settings_smtp">邮件服务器 (SMTP)</legend>
+                                    <legend data-i18n="admin_settings_smtp">邮件服务�?(SMTP)</legend>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_settings_smtp_host">SMTP 服务器</label>
+                                        <label data-i18n="admin_settings_smtp_host">SMTP 服务�?/label>
                                         <input type="text" id="cfg-smtp-host" placeholder="smtp.example.com">
                                     </div>
                                     <div class="admin-form-row admin-form-row-half">
@@ -691,8 +725,8 @@
                                         <div>
                                             <label data-i18n="admin_settings_smtp_tls">使用 TLS</label>
                                             <select id="cfg-smtp-tls">
-                                                <option value="true" data-i18n="admin_settings_smtp_tls_yes">是</option>
-                                                <option value="false" data-i18n="admin_settings_smtp_tls_no">否</option>
+                                                <option value="true" data-i18n="admin_settings_smtp_tls_yes">�?/option>
+                                                <option value="false" data-i18n="admin_settings_smtp_tls_no">�?/option>
                                             </select>
                                         </div>
                                         <div>
@@ -701,12 +735,12 @@
                                                 <option value="" data-i18n="admin_settings_smtp_auth_auto">自动 (默认)</option>
                                                 <option value="PLAIN" data-i18n="admin_settings_smtp_auth_plain">PLAIN</option>
                                                 <option value="LOGIN" data-i18n="admin_settings_smtp_auth_login">LOGIN</option>
-                                                <option value="NONE" data-i18n="admin_settings_smtp_auth_none">无认证</option>
+                                                <option value="NONE" data-i18n="admin_settings_smtp_auth_none">无认�?/option>
                                             </select>
                                         </div>
                                     </div>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_settings_smtp_username">用户名</label>
+                                        <label data-i18n="admin_settings_smtp_username">用户�?/label>
                                         <input type="text" id="cfg-smtp-username" placeholder="user@example.com">
                                     </div>
                                     <div class="admin-form-row">
@@ -719,15 +753,15 @@
                                             <input type="text" id="cfg-smtp-from-addr" placeholder="noreply@example.com">
                                         </div>
                                         <div>
-                                            <label data-i18n="admin_settings_smtp_from_name">发件人名称</label>
+                                            <label data-i18n="admin_settings_smtp_from_name">发件人名�?/label>
                                             <input type="text" id="cfg-smtp-from-name" placeholder="软件自助服务平台">
                                         </div>
                                     </div>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_settings_smtp_test">测试发送</label>
+                                        <label data-i18n="admin_settings_smtp_test">测试发�?/label>
                                         <div style="display:flex;gap:0.5rem;">
-                                            <input type="email" id="cfg-smtp-test-email" data-i18n-placeholder="admin_settings_smtp_test_placeholder" placeholder="收件人邮箱" style="flex:1;">
-                                            <button type="button" class="btn-secondary" id="smtp-test-btn" onclick="testSmtpEmail()" data-i18n="admin_settings_smtp_test_btn">发送测试邮件</button>
+                                            <input type="email" id="cfg-smtp-test-email" data-i18n-placeholder="admin_settings_smtp_test_placeholder" placeholder="收件人邮�? style="flex:1;">
+                                            <button type="button" class="btn-secondary" id="smtp-test-btn" onclick="testSmtpEmail()" data-i18n="admin_settings_smtp_test_btn">发送测试邮�?/button>
                                         </div>
                                         <p id="smtp-test-result" class="hidden" style="margin-top:0.5rem;font-size:0.85rem;"></p>
                                     </div>
@@ -780,17 +814,17 @@
                                             <button type="button" class="btn-primary" onclick="saveLogRotation()" data-i18n="admin_settings_logs_save_rotation">保存</button>
                                             <button type="button" class="btn-secondary" onclick="downloadLogs()" data-i18n="admin_settings_logs_download">打包下载日志</button>
                                         </div>
-                                        <span class="admin-form-hint" data-i18n="admin_settings_logs_rotation_hint">日志文件达到此大小后自动轮转压缩，默认 100MB</span>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_logs_rotation_hint">日志文件达到此大小后自动轮转压缩，默�?100MB</span>
                                     </div>
                                 </fieldset>
                                 <fieldset class="admin-fieldset" style="margin-top:1rem;">
-                                    <legend data-i18n="admin_settings_logs_recent">最新日志 (最近50条)</legend>
+                                    <legend data-i18n="admin_settings_logs_recent">最新日�?(最�?0�?</legend>
                                     <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;gap:0.5rem;">
                                         <button type="button" class="btn-secondary btn-sm" onclick="loadRecentLogs()" data-i18n="admin_settings_logs_refresh">刷新</button>
                                         <button type="button" class="btn-danger btn-sm" onclick="confirmClearLogs()" data-i18n="admin_settings_logs_clear">清空日志</button>
                                     </div>
                                     <div id="log-viewer" class="log-viewer">
-                                        <pre id="log-viewer-content" class="log-viewer-content">加载中...</pre>
+                                        <pre id="log-viewer-content" class="log-viewer-content">加载�?..</pre>
                                     </div>
                                 </fieldset>
                             </div>
@@ -805,7 +839,7 @@
                                         <label data-i18n="admin_settings_anonymous_mode">匿名参观模式</label>
                                         <select id="cfg-anon-backend">
                                             <option value="false" data-i18n="admin_settings_anonymous_off">关闭</option>
-                                            <option value="true" data-i18n="admin_settings_anonymous_on">开启</option>
+                                            <option value="true" data-i18n="admin_settings_anonymous_on">开�?/option>
                                         </select>
                                         <span class="admin-form-hint" data-i18n="admin_settings_anonymous_backend_hint">开启后，管理员登录页将显示"匿名参观"按钮，匿名用户可查看所有管理选项，但一切更改都不会生效</span>
                                     </div>
@@ -816,9 +850,9 @@
                                         <label data-i18n="admin_settings_anonymous_frontend_label">前端匿名访问</label>
                                         <select id="cfg-anon-frontend">
                                             <option value="false" data-i18n="admin_settings_anonymous_off">关闭</option>
-                                            <option value="true" data-i18n="admin_settings_anonymous_on">开启</option>
+                                            <option value="true" data-i18n="admin_settings_anonymous_on">开�?/option>
                                         </select>
-                                        <span class="admin-form-hint" data-i18n="admin_settings_anonymous_frontend_hint">开启后，用户登录页将显示"匿名访问"按钮，无需注册即可使用聊天功能</span>
+                                        <span class="admin-form-hint" data-i18n="admin_settings_anonymous_frontend_hint">开启后，用户登录页将显�?匿名访问"按钮，无需注册即可使用聊天功能</span>
                                     </div>
                                 </fieldset>
                                 <div class="admin-form-actions">
@@ -842,7 +876,7 @@
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_knowledge_product_label">目标产品</label>
                                         <select id="knowledge-product-select" class="login-product-select" style="width:100%;">
-                                            <option value="" data-i18n="admin_doc_product_public">公共库</option>
+                                            <option value="" data-i18n="admin_doc_product_public">公共�?/option>
                                         </select>
                                     </div>
                                     <div class="admin-form-row">
@@ -903,7 +937,7 @@
                                             <label data-i18n="admin_products_type">产品类型</label>
                                             <select id="product-new-type">
                                                 <option value="service" data-i18n="admin_products_type_service">产品服务</option>
-                                                <option value="knowledge_base" data-i18n="admin_products_type_knowledge">知识库</option>
+                                                <option value="knowledge_base" data-i18n="admin_products_type_knowledge">知识�?/option>
                                             </select>
                                         </div>
                                     </div>
@@ -918,8 +952,8 @@
                                     <div class="product-form-footer">
                                         <label class="product-checkbox-label">
                                             <input type="checkbox" id="product-new-allow-download">
-                                            <span id="product-allow-download-label" data-i18n="admin_products_allow_download">允许下载参考文档</span>
-                                            <small id="product-allow-download-hint" data-i18n="admin_products_allow_download_hint">启用后，用户可在聊天中下载 PDF/Word/Excel/PPT/视频 等参考文档</small>
+                                            <span id="product-allow-download-label" data-i18n="admin_products_allow_download">允许下载参考文�?/span>
+                                            <small id="product-allow-download-hint" data-i18n="admin_products_allow_download_hint">启用后，用户可在聊天中下�?PDF/Word/Excel/PPT/视频 等参考文�?/small>
                                         </label>
                                         <button type="button" class="btn-primary" onclick="createProduct()" data-i18n="admin_products_add_btn">添加产品</button>
                                     </div>
@@ -974,7 +1008,7 @@
                                         <div class="admin-form-group product-edit-checkbox-row">
                                             <label class="admin-checkbox-label">
                                                 <input type="checkbox" id="product-edit-allow-download">
-                                                <span data-i18n="admin_products_allow_download">允许下载参考文档</span>
+                                                <span data-i18n="admin_products_allow_download">允许下载参考文�?/span>
                                             </label>
                                         </div>
                                         <div class="product-edit-modal-footer">
@@ -990,28 +1024,28 @@
                     <!-- Multimodal Tab (Video/Audio Processing) -->
                     <div id="admin-tab-multimodal" class="admin-tab hidden">
                         <div class="admin-tab-header">
-                            <h2 data-i18n="admin_multimodal_title">多模态配置</h2>
+                            <h2 data-i18n="admin_multimodal_title">多模态配�?/h2>
                         </div>
                         <div class="admin-tab-body">
                             <div id="admin-multimodal-form" class="admin-settings-form">
                                 <fieldset class="admin-fieldset">
-                                    <legend data-i18n="admin_multimodal_dep_status">依赖状态</legend>
+                                    <legend data-i18n="admin_multimodal_dep_status">依赖状�?/legend>
                                     <div id="multimodal-dep-status" class="admin-dep-status">
                                         <div class="admin-dep-item">
-                                            <span class="admin-dep-icon" id="dep-ffmpeg-icon">⏳</span>
+                                            <span class="admin-dep-icon" id="dep-ffmpeg-icon">�?/span>
                                             <span>FFmpeg</span>
                                             <span class="admin-dep-label" id="dep-ffmpeg-label" data-i18n="admin_multimodal_checking">检测中...</span>
                                         </div>
                                         <div class="admin-dep-detail" id="dep-ffmpeg-detail" style="display:none;color:#e53e3e;font-size:0.85em;padding:2px 0 4px 28px;"></div>
                                         <div class="admin-dep-item">
-                                            <span class="admin-dep-icon" id="dep-rapidspeech-icon">⏳</span>
+                                            <span class="admin-dep-icon" id="dep-rapidspeech-icon">�?/span>
                                             <span>RapidSpeech</span>
                                             <span class="admin-dep-label" id="dep-rapidspeech-label" data-i18n="admin_multimodal_checking">检测中...</span>
                                         </div>
                                         <div class="admin-dep-detail" id="dep-rapidspeech-detail" style="display:none;color:#e53e3e;font-size:0.85em;padding:2px 0 4px 28px;"></div>
                                     </div>
                                     <div class="admin-form-row" style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;">
-                                        <button type="button" class="btn-secondary btn-sm" onclick="checkMultimodalDeps()" data-i18n="admin_multimodal_recheck">重新检测</button>
+                                        <button type="button" class="btn-secondary btn-sm" onclick="checkMultimodalDeps()" data-i18n="admin_multimodal_recheck">重新检�?/button>
                                         <button type="button" class="btn-primary btn-sm" id="btn-auto-setup" onclick="startAutoSetup()" data-i18n="admin_multimodal_auto_setup">🔧 自动配置</button>
                                     </div>
                                 </fieldset>
@@ -1021,22 +1055,22 @@
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_multimodal_ffmpeg_path">FFmpeg 路径</label>
                                         <input type="text" id="cfg-video-ffmpeg-path" placeholder="ffmpeg">
-                                        <span class="admin-form-hint" data-i18n="admin_multimodal_ffmpeg_path_hint">留空则使用系统 PATH 中的 ffmpeg，也可填写完整路径如 /usr/bin/ffmpeg</span>
+                                        <span class="admin-form-hint" data-i18n="admin_multimodal_ffmpeg_path_hint">留空则使用系�?PATH 中的 ffmpeg，也可填写完整路径如 /usr/bin/ffmpeg</span>
                                     </div>
                                     <div class="admin-install-guide">
                                         <details>
                                             <summary data-i18n="admin_multimodal_ffmpeg_install">📦 FFmpeg 安装指南</summary>
                                             <div class="admin-install-content">
-                                                <p data-i18n="admin_multimodal_ffmpeg_desc">FFmpeg 用于从视频中提取音频和关键帧图像。</p>
+                                                <p data-i18n="admin_multimodal_ffmpeg_desc">FFmpeg 用于从视频中提取音频和关键帧图像�?/p>
                                                 <div class="admin-install-os">
                                                     <h4>Windows</h4>
                                                     <ol>
                                                         <li data-i18n-html="admin_multimodal_ffmpeg_win1">访问 <a href="https://www.gyan.dev/ffmpeg/builds/" target="_blank" rel="noopener">gyan.dev/ffmpeg</a> 下载 release full 版本</li>
-                                                        <li data-i18n-html="admin_multimodal_ffmpeg_win2">解压到任意目录，如 <code>C:\ffmpeg</code></li>
-                                                        <li data-i18n-html="admin_multimodal_ffmpeg_win3">将 <code>C:\ffmpeg\bin</code> 添加到系统环境变量 PATH 中</li>
-                                                        <li data-i18n-html="admin_multimodal_ffmpeg_win4">或直接在上方填写完整路径：<code>C:\ffmpeg\bin\ffmpeg.exe</code></li>
+                                                        <li data-i18n-html="admin_multimodal_ffmpeg_win2">解压到任意目录，�?<code>C:\ffmpeg</code></li>
+                                                        <li data-i18n-html="admin_multimodal_ffmpeg_win3">�?<code>C:\ffmpeg\bin</code> 添加到系统环境变�?PATH �?/li>
+                                                        <li data-i18n-html="admin_multimodal_ffmpeg_win4">或直接在上方填写完整路径�?code>C:\ffmpeg\bin\ffmpeg.exe</code></li>
                                                     </ol>
-                                                    <p data-i18n-html="admin_multimodal_ffmpeg_win_alt">也可使用包管理器：<code>winget install ffmpeg</code> 或 <code>choco install ffmpeg</code></p>
+                                                    <p data-i18n-html="admin_multimodal_ffmpeg_win_alt">也可使用包管理器�?code>winget install ffmpeg</code> �?<code>choco install ffmpeg</code></p>
                                                 </div>
                                                 <div class="admin-install-os">
                                                     <h4>macOS</h4>
@@ -1050,7 +1084,7 @@
                                                     <h4>Linux (CentOS/RHEL)</h4>
                                                     <code class="admin-install-cmd">sudo yum install ffmpeg</code>
                                                 </div>
-                                                <p data-i18n-html="admin_multimodal_ffmpeg_verify">安装后可在终端运行 <code>ffmpeg -version</code> 验证是否安装成功。</p>
+                                                <p data-i18n-html="admin_multimodal_ffmpeg_verify">安装后可在终端运�?<code>ffmpeg -version</code> 验证是否安装成功�?/p>
                                             </div>
                                         </details>
                                     </div>
@@ -1059,9 +1093,9 @@
                                 <fieldset class="admin-fieldset">
                                     <legend data-i18n="admin_multimodal_rapidspeech">RapidSpeech 配置</legend>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_multimodal_rapidspeech_path">RapidSpeech 可执行文件路径</label>
+                                        <label data-i18n="admin_multimodal_rapidspeech_path">RapidSpeech 可执行文件路�?/label>
                                         <input type="text" id="cfg-video-rapidspeech-path" placeholder="/usr/local/bin/rs-asr-offline">
-                                        <span class="admin-form-hint" data-i18n="admin_multimodal_rapidspeech_path_hint">填写 rs-asr-offline 的完整路径</span>
+                                        <span class="admin-form-hint" data-i18n="admin_multimodal_rapidspeech_path_hint">填写 rs-asr-offline 的完整路�?/span>
                                     </div>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_multimodal_rapidspeech_model">RapidSpeech 模型文件路径</label>
@@ -1072,27 +1106,27 @@
                                         <details>
                                             <summary data-i18n="admin_multimodal_rapidspeech_install">📦 RapidSpeech.cpp 安装指南</summary>
                                             <div class="admin-install-content">
-                                                <p data-i18n="admin_multimodal_rapidspeech_desc">RapidSpeech.cpp 是基于 ggml 的 C++ 语音识别框架</p>
+                                                <p data-i18n="admin_multimodal_rapidspeech_desc">RapidSpeech.cpp 是基�?ggml �?C++ 语音识别框架</p>
                                                 <div class="admin-install-os">
-                                                    <h4 data-i18n="admin_multimodal_rapidspeech_step1_title">步骤 1：编译程序</h4>
-                                                    <p data-i18n-html="admin_multimodal_rapidspeech_step1_desc">克隆仓库并编译</p>
+                                                    <h4 data-i18n="admin_multimodal_rapidspeech_step1_title">步骤 1：编译程�?/h4>
+                                                    <p data-i18n-html="admin_multimodal_rapidspeech_step1_desc">克隆仓库并编�?/p>
                                                     <p data-i18n-html="admin_multimodal_rapidspeech_step1_note">编译后可执行文件位于 build/rs-asr-offline</p>
                                                 </div>
                                                 <div class="admin-install-os">
-                                                    <h4 data-i18n="admin_multimodal_rapidspeech_step2_title">步骤 2：下载模型文件</h4>
-                                                    <p data-i18n-html="admin_multimodal_rapidspeech_step2_desc">从 Hugging Face 或 ModelScope 下载 GGUF 格式模型文件</p>
-                                                    <p data-i18n="admin_multimodal_rapidspeech_step2_note">支持多种量化版本，推荐 Q5</p>
+                                                    <h4 data-i18n="admin_multimodal_rapidspeech_step2_title">步骤 2：下载模型文�?/h4>
+                                                    <p data-i18n-html="admin_multimodal_rapidspeech_step2_desc">�?Hugging Face �?ModelScope 下载 GGUF 格式模型文件</p>
+                                                    <p data-i18n="admin_multimodal_rapidspeech_step2_note">支持多种量化版本，推�?Q5</p>
                                                 </div>
                                                 <div class="admin-install-os">
-                                                    <h4 data-i18n="admin_multimodal_rapidspeech_step3_title">步骤 3：配置路径</h4>
+                                                    <h4 data-i18n="admin_multimodal_rapidspeech_step3_title">步骤 3：配置路�?/h4>
                                                     <p data-i18n="admin_multimodal_rapidspeech_step3_desc">在上方填写可执行文件和模型文件的完整路径即可</p>
                                                 </div>
                                                 <div class="admin-install-os">
                                                     <h4 data-i18n="admin_multimodal_rapidspeech_note_title">⚠️ 注意事项</h4>
                                                     <ul>
                                                         <li data-i18n="admin_multimodal_rapidspeech_note1">RapidSpeech 依赖 FFmpeg 提取音频</li>
-                                                        <li data-i18n="admin_multimodal_rapidspeech_note2">C++ 实现，支持 CPU/GPU/NPU 加速</li>
-                                                        <li data-i18n="admin_multimodal_rapidspeech_note3">单一二进制文件，零依赖</li>
+                                                        <li data-i18n="admin_multimodal_rapidspeech_note2">C++ 实现，支�?CPU/GPU/NPU 加�?/li>
+                                                        <li data-i18n="admin_multimodal_rapidspeech_note3">单一二进制文件，零依�?/li>
                                                     </ul>
                                                 </div>
                                             </div>
@@ -1105,10 +1139,10 @@
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_multimodal_keyframe_interval">关键帧抽取间隔（秒）</label>
                                         <input type="number" id="cfg-video-keyframe-interval" min="1" max="300" placeholder="10">
-                                        <span class="admin-form-hint" data-i18n="admin_multimodal_keyframe_hint">每隔多少秒从视频中提取一帧图像用于图像检索，默认 10 秒</span>
+                                        <span class="admin-form-hint" data-i18n="admin_multimodal_keyframe_hint">每隔多少秒从视频中提取一帧图像用于图像检索，默认 10 �?/span>
                                     </div>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_multimodal_max_upload_size">文件上传大小限制（MB）</label>
+                                        <label data-i18n="admin_multimodal_max_upload_size">文件上传大小限制（MB�?/label>
                                         <input type="number" id="cfg-video-max-upload-size" min="1" max="10240" placeholder="500">
                                         <span class="admin-form-hint" data-i18n="admin_multimodal_max_upload_hint">视频和文档上传的最大文件大小，默认 500MB</span>
                                     </div>
@@ -1120,13 +1154,13 @@
                                 </fieldset>
 
                                 <fieldset class="admin-fieldset">
-                                    <legend data-i18n="admin_multimodal_supported">支持的视频格式</legend>
+                                    <legend data-i18n="admin_multimodal_supported">支持的视频格�?/legend>
                                     <p class="admin-form-hint" style="margin:0;" data-i18n="admin_multimodal_formats">MP4、AVI、MKV、MOV、WebM</p>
-                                    <p class="admin-form-hint" style="margin-top:0.5rem;" data-i18n="admin_multimodal_workflow">上传视频后，系统将自动：1) 使用 FFmpeg 提取音频和关键帧 → 2) 使用 Whisper 将语音转为文字 → 3) 对文字和图像分别生成向量嵌入 → 4) 存入知识库供检索</p>
+                                    <p class="admin-form-hint" style="margin-top:0.5rem;" data-i18n="admin_multimodal_workflow">上传视频后，系统将自动：1) 使用 FFmpeg 提取音频和关键帧 �?2) 使用 Whisper 将语音转为文�?�?3) 对文字和图像分别生成向量嵌入 �?4) 存入知识库供检�?/p>
                                 </fieldset>
 
                                 <div class="admin-form-actions">
-                                    <button type="button" class="btn-primary" onclick="saveMultimodalSettings()" data-i18n="admin_multimodal_save">保存多模态设置</button>
+                                    <button type="button" class="btn-primary" onclick="saveMultimodalSettings()" data-i18n="admin_multimodal_save">保存多模态设�?/button>
                                 </div>
                             </div>
                         </div>
@@ -1140,29 +1174,29 @@
                         <div class="admin-tab-body">
                             <div class="admin-settings-form">
                                 <fieldset class="admin-fieldset">
-                                    <legend data-i18n="admin_users_add_legend">添加管理员账号</legend>
+                                    <legend data-i18n="admin_users_add_legend">添加管理员账�?/legend>
                                     <div class="admin-form-row">
-                                        <label data-i18n="admin_users_username">用户名</label>
-                                        <input type="text" id="admin-new-username" data-i18n-placeholder="admin_users_username" placeholder="用户名">
+                                        <label data-i18n="admin_users_username">用户�?/label>
+                                        <input type="text" id="admin-new-username" data-i18n-placeholder="admin_users_username" placeholder="用户�?>
                                     </div>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_settings_smtp_password">密码</label>
-                                        <input type="password" id="admin-new-password" data-i18n-placeholder="admin_users_password" placeholder="密码（至少6位）">
+                                        <input type="password" id="admin-new-password" data-i18n-placeholder="admin_users_password" placeholder="密码（至�?位）">
                                     </div>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_users_role">角色</label>
                                         <select id="admin-new-role">
-                                            <option value="editor" data-i18n="admin_users_role_editor">编辑员（内容管理/问题回答）</option>
-                                            <option value="super_admin" data-i18n="admin_users_role_super">超级管理员（全部权限）</option>
+                                            <option value="editor" data-i18n="admin_users_role_editor">编辑员（内容管理/问题回答�?/option>
+                                            <option value="super_admin" data-i18n="admin_users_role_super">超级管理员（全部权限�?/option>
                                         </select>
                                         <span class="admin-form-hint" data-i18n="admin_users_role_hint">编辑员仅可管理文档、回答问题和录入知识，不能修改系统设置和管理用户</span>
                                     </div>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_users_products">关联产品</label>
                                         <div id="admin-new-products-checkboxes" class="admin-checkbox-group">
-                                            <span class="admin-form-hint" data-i18n="admin_users_products_loading">加载中...</span>
+                                            <span class="admin-form-hint" data-i18n="admin_users_products_loading">加载�?..</span>
                                         </div>
-                                        <span class="admin-form-hint" data-i18n="admin_users_products_hint">选择该用户可管理的产品，不选则可管理所有产品</span>
+                                        <span class="admin-form-hint" data-i18n="admin_users_products_hint">选择该用户可管理的产品，不选则可管理所有产�?/span>
                                     </div>
                                     <div class="admin-form-row">
                                         <label data-i18n="admin_users_permissions">功能权限</label>
@@ -1172,19 +1206,19 @@
                                                 <span data-i18n="admin_users_perm_batch_import">批量导入</span>
                                             </label>
                                         </div>
-                                        <span class="admin-form-hint" data-i18n="admin_users_permissions_hint">选择该编辑员可使用的功能（超级管理员默认拥有全部权限）</span>
+                                        <span class="admin-form-hint" data-i18n="admin_users_permissions_hint">选择该编辑员可使用的功能（超级管理员默认拥有全部权限�?/span>
                                     </div>
                                     <div class="admin-form-actions">
                                         <button type="button" class="btn-primary" onclick="createAdminUser()" data-i18n="admin_users_add_btn">添加用户</button>
                                     </div>
                                 </fieldset>
                                 <fieldset class="admin-fieldset">
-                                    <legend data-i18n="admin_users_list_legend">管理员账号列表</legend>
+                                    <legend data-i18n="admin_users_list_legend">管理员账号列�?/legend>
                                     <div id="admin-users-table-wrap">
                                         <table class="admin-table">
                                             <thead>
                                                 <tr>
-                                                    <th data-i18n="admin_users_th_username">用户名</th>
+                                                    <th data-i18n="admin_users_th_username">用户�?/th>
                                                     <th data-i18n="admin_users_th_role">角色</th>
                                                     <th data-i18n="admin_users_th_products">关联产品</th>
                                                     <th data-i18n="admin_users_th_permissions">功能权限</th>
@@ -1193,7 +1227,7 @@
                                                 </tr>
                                             </thead>
                                             <tbody id="admin-users-tbody">
-                                                <tr><td colspan="6" class="admin-table-empty" data-i18n="admin_users_empty">暂无子账号</td></tr>
+                                                <tr><td colspan="6" class="admin-table-empty" data-i18n="admin_users_empty">暂无子账�?/td></tr>
                                             </tbody>
                                         </table>
                                     </div>
@@ -1214,7 +1248,7 @@
                                     <div class="admin-form-row admin-form-row-half">
                                         <div>
                                             <label data-i18n="admin_bans_username">用户名（可选）</label>
-                                            <input type="text" id="ban-new-username" data-i18n-placeholder="admin_bans_username_placeholder" placeholder="要封禁的用户名">
+                                            <input type="text" id="ban-new-username" data-i18n-placeholder="admin_bans_username_placeholder" placeholder="要封禁的用户�?>
                                         </div>
                                         <div>
                                             <label data-i18n="admin_bans_ip">IP 地址（可选）</label>
@@ -1267,11 +1301,11 @@
                             <!-- Stats -->
                             <div id="admin-customers-stats" style="display:flex;gap:1.5rem;margin-bottom:1rem;">
                                 <span style="font-size:0.95rem;color:#555;"><span data-i18n="admin_customers_total">总客户数</span>: <strong id="admin-customers-total-count">0</strong></span>
-                                <span style="font-size:0.95rem;color:#555;"><span data-i18n="admin_customers_banned_count">已禁用</span>: <strong id="admin-customers-banned-count" style="color:#e53e3e;">0</strong></span>
+                                <span style="font-size:0.95rem;color:#555;"><span data-i18n="admin_customers_banned_count">已禁�?/span>: <strong id="admin-customers-banned-count" style="color:#e53e3e;">0</strong></span>
                             </div>
                             <!-- Search -->
                             <div style="margin-bottom:1rem;display:flex;gap:0.5rem;align-items:center;">
-                                <input type="text" id="admin-customers-search" data-i18n-placeholder="admin_customers_search_placeholder" placeholder="按邮箱搜索..." onkeydown="if(event.key==='Enter')searchCustomers()" style="padding:0.4rem 0.7rem;border:1px solid #d1d5db;border-radius:6px;width:260px;font-size:0.9rem;">
+                                <input type="text" id="admin-customers-search" data-i18n-placeholder="admin_customers_search_placeholder" placeholder="按邮箱搜�?.." onkeydown="if(event.key==='Enter')searchCustomers()" style="padding:0.4rem 0.7rem;border:1px solid #d1d5db;border-radius:6px;width:260px;font-size:0.9rem;">
                                 <button class="btn-secondary" onclick="searchCustomers()" data-i18n="admin_customers_search_btn" style="padding:0.4rem 1rem;">搜索</button>
                                 <button class="btn-secondary" onclick="clearCustomerSearch()" data-i18n="admin_customers_search_clear" style="padding:0.4rem 1rem;">清除</button>
                             </div>
@@ -1283,9 +1317,9 @@
                                             <tr>
                                                 <th data-i18n="admin_customers_th_name">名称</th>
                                                 <th data-i18n="admin_customers_th_email">邮箱</th>
-                                                <th data-i18n="admin_customers_th_status">状态</th>
+                                                <th data-i18n="admin_customers_th_status">状�?/th>
                                                 <th data-i18n="admin_customers_th_time">注册时间</th>
-                                                <th data-i18n="admin_customers_th_login">最后登录</th>
+                                                <th data-i18n="admin_customers_th_login">最后登�?/th>
                                                 <th data-i18n="admin_customers_th_action">操作</th>
                                             </tr>
                                         </thead>
@@ -1307,9 +1341,9 @@
                         </div>
                         <div class="admin-tab-body">
                             <div class="admin-product-selector" style="margin-bottom:1rem;">
-                                <label style="font-weight:500;margin-right:0.5rem;">目标产品：</label>
+                                <label style="font-weight:500;margin-right:0.5rem;">目标产品�?/label>
                                 <select id="batch-product-select" class="login-product-select" style="width:auto;min-width:200px;display:inline-block;">
-                                    <option value="">公共库</option>
+                                    <option value="">公共�?/option>
                                 </select>
                             </div>
                             <fieldset class="admin-fieldset">
@@ -1317,10 +1351,10 @@
                                 <div class="admin-form-row">
                                     <label>服务器端文件/目录路径</label>
                                     <div style="display:flex;gap:0.5rem;align-items:center;">
-                                        <input type="text" id="batch-import-path" placeholder="例如: /data/docs 或 C:\Documents\knowledge" style="flex:1;">
-                                        <button class="btn-primary" id="batch-import-btn" onclick="startBatchImport()">开始导入</button>
+                                        <input type="text" id="batch-import-path" placeholder="例如: /data/docs �?C:\Documents\knowledge" style="flex:1;">
+                                        <button class="btn-primary" id="batch-import-btn" onclick="startBatchImport()">开始导�?/button>
                                     </div>
-                                    <p style="font-size:0.8rem;color:#9ca3af;margin-top:0.3rem;">请输入服务器上的绝对路径，系统将递归扫描目录中所有支持的文件（PDF、Word、Excel、PPT、Markdown、HTML）</p>
+                                    <p style="font-size:0.8rem;color:#9ca3af;margin-top:0.3rem;">请输入服务器上的绝对路径，系统将递归扫描目录中所有支持的文件（PDF、Word、Excel、PPT、Markdown、HTML�?/p>
                                 </div>
                             </fieldset>
 
@@ -1330,7 +1364,7 @@
                                     <legend>导入进度</legend>
                                     <div style="margin-bottom:0.75rem;">
                                         <div style="display:flex;justify-content:space-between;font-size:0.85rem;color:#6b7280;margin-bottom:0.3rem;">
-                                            <span id="batch-progress-text">准备中...</span>
+                                            <span id="batch-progress-text">准备�?..</span>
                                             <span id="batch-progress-percent">0%</span>
                                         </div>
                                         <div class="batch-progress-bar">
@@ -1365,7 +1399,7 @@
                     <p id="admin-customer-ban-msg"></p>
                     <div class="admin-form-row">
                         <label data-i18n="admin_bans_reason">封禁原因</label>
-                        <input type="text" id="admin-customer-ban-reason" data-i18n-placeholder="admin_bans_reason_placeholder" placeholder="请输入封禁原因">
+                        <input type="text" id="admin-customer-ban-reason" data-i18n-placeholder="admin_bans_reason_placeholder" placeholder="请输入封禁原�?>
                     </div>
                     <div class="admin-form-row">
                         <label data-i18n="admin_bans_days">封禁天数</label>
@@ -1382,7 +1416,7 @@
             <div id="admin-confirm-dialog" class="admin-dialog-overlay hidden">
                 <div class="admin-dialog">
                     <h3 data-i18n="admin_delete_title">确认删除</h3>
-                    <p id="admin-confirm-msg" data-i18n="admin_delete_default_msg">确定要删除该文档吗？此操作不可撤销。</p>
+                    <p id="admin-confirm-msg" data-i18n="admin_delete_default_msg">确定要删除该文档吗？此操作不可撤销�?/p>
                     <div class="admin-dialog-actions">
                         <button type="button" class="btn-secondary" onclick="closeAdminDialog()" data-i18n="admin_delete_cancel">取消</button>
                         <button type="button" class="btn-danger" id="admin-confirm-btn" onclick="confirmAdminDelete()" data-i18n="admin_delete_confirm">删除</button>
@@ -1416,10 +1450,10 @@
                         <textarea id="admin-answer-text" rows="4" data-i18n-placeholder="admin_answer_text_placeholder" placeholder="输入回答内容"></textarea>
                     </div>
                     <div class="admin-form-row">
-                        <label data-i18n="admin_answer_image_label">图片（可选，支持粘贴/拖拽/点击上传）</label>
+                        <label data-i18n="admin_answer_image_label">图片（可选，支持粘贴/拖拽/点击上传�?/label>
                         <div id="answer-image-upload-area" class="upload-area upload-area-sm">
                             <input type="file" id="answer-image-input" accept="image/*" multiple hidden>
-                            <span data-i18n="admin_answer_image_upload">点击选择图片，或拖拽/粘贴图片到此处</span>
+                            <span data-i18n="admin_answer_image_upload">点击选择图片，或拖拽/粘贴图片到此�?/span>
                         </div>
                         <div id="answer-image-preview" class="knowledge-image-preview"></div>
                     </div>
@@ -1437,8 +1471,8 @@
             <!-- Auto Setup Modal -->
             <div id="auto-setup-modal" class="admin-dialog-overlay hidden">
                 <div class="admin-dialog admin-dialog-wide" style="max-width:680px;">
-                    <h3 data-i18n="admin_multimodal_auto_setup_title">🔧 多模态自动配置</h3>
-                    <p class="admin-form-hint" data-i18n="admin_multimodal_auto_setup_desc" style="margin:0 0 1rem;">自动安装系统依赖、FFmpeg、编译 RapidSpeech.cpp 并下载模型文件（仅支持 Linux）</p>
+                    <h3 data-i18n="admin_multimodal_auto_setup_title">🔧 多模态自动配�?/h3>
+                    <p class="admin-form-hint" data-i18n="admin_multimodal_auto_setup_desc" style="margin:0 0 1rem;">自动安装系统依赖、FFmpeg、编�?RapidSpeech.cpp 并下载模型文件（仅支�?Linux�?/p>
                     <div class="auto-setup-progress-wrap">
                         <div class="auto-setup-progress-bar">
                             <div class="auto-setup-progress-fill" id="auto-setup-progress-fill" style="width:0%"></div>
@@ -1449,7 +1483,7 @@
                     <div class="auto-setup-log" id="auto-setup-log"></div>
                     <div class="admin-dialog-actions">
                         <button type="button" class="btn-secondary" id="auto-setup-close-btn" onclick="closeAutoSetup()" data-i18n="admin_multimodal_auto_setup_close">关闭</button>
-                        <button type="button" class="btn-primary" id="auto-setup-start-btn" onclick="confirmAutoSetup()" data-i18n="admin_multimodal_auto_setup_start">开始安装</button>
+                        <button type="button" class="btn-primary" id="auto-setup-start-btn" onclick="confirmAutoSetup()" data-i18n="admin_multimodal_auto_setup_start">开始安�?/button>
                     </div>
                 </div>
             </div>
