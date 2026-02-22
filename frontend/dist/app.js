@@ -2517,13 +2517,11 @@
             if (files.length > 0) uploadFile(files[0]);
         });
 
-        // Handle click to open file picker (moved from inline onclick to avoid
-        // race condition where inline handler fires before the capture guard)
+        // Handle click to open file picker
         zone.addEventListener('click', function (e) {
             if (dropJustHappened) return;
-            // Don't open picker if clicking on the file input itself
-            if (e.target && e.target.id === 'admin-file-input') return;
-            document.getElementById('admin-file-input').click();
+            var fileInput = document.getElementById('admin-file-input');
+            if (fileInput) fileInput.click();
         });
     }
 

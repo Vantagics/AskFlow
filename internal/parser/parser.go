@@ -3,13 +3,18 @@
 package parser
 
 import (
+	"archive/zip"
 	"bytes"
+	"crypto/md5"
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
+	"io"
 	"log"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -126,21 +131,42 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 			totalFound += len(imgs)
 		}
 		log.Printf("[PDF] found %d raw images across %d pages", totalFound, len(imgMap))
+
+		// Deduplicate images by content hash (PPT-to-PDF often duplicates layers per page)
+		seen := make(map[[16]byte]bool)
+		skippedSmall, skippedDup := 0, 0
+		const maxImagesPerPage = 5 // limit per page to avoid layer explosion
+
 		var imgPageIndices []int
 		for idx := range imgMap {
 			imgPageIndices = append(imgPageIndices, idx)
 		}
 		sort.Ints(imgPageIndices)
 		for _, pageIdx := range imgPageIndices {
-			for j, img := range imgMap[pageIdx] {
-				if len(img.Data) == 0 || img.Width < 10 || img.Height < 10 {
+			pageKept := 0
+			for _, img := range imgMap[pageIdx] {
+				// Skip tiny images (icons, decorations, bullets)
+				if len(img.Data) == 0 || img.Width < 50 || img.Height < 50 {
+					skippedSmall++
 					continue
 				}
+				// Per-page limit
+				if pageKept >= maxImagesPerPage {
+					break
+				}
+				// Dedup by content hash
+				hash := md5.Sum(img.Data)
+				if seen[hash] {
+					skippedDup++
+					continue
+				}
+				seen[hash] = true
+
 				imgData := img.Data
-				// For FlateDecode images, Data is raw pixel bytes — convert to PNG.
+				// For FlateDecode images, Data is raw pixel bytes — encode to JPEG.
 				// DCTDecode (JPEG) and JPXDecode (JP2) are already valid image formats.
 				if img.Filter == "FlateDecode" {
-					encoded := rawPixelsToPNG(img.Data, img.Width, img.Height, img.ColorSpace)
+					encoded := rawPixelsToJPEG(img.Data, img.Width, img.Height, img.ColorSpace)
 					if encoded == nil {
 						continue
 					}
@@ -150,20 +176,22 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 					if isImageJPEGOrPNG(img.Data) {
 						// Already encoded, use as-is
 					} else {
-						// Try interpreting as raw pixels
-						encoded := rawPixelsToPNG(img.Data, img.Width, img.Height, img.ColorSpace)
+						encoded := rawPixelsToJPEG(img.Data, img.Width, img.Height, img.ColorSpace)
 						if encoded == nil {
 							continue
 						}
 						imgData = encoded
 					}
 				}
+				pageKept++
 				images = append(images, ImageRef{
-					Alt:  fmt.Sprintf("PDF第%d页图片%d", pageIdx+1, j+1),
+					Alt:  fmt.Sprintf("PDF第%d页图片%d", pageIdx+1, pageKept),
 					Data: imgData,
 				})
 			}
 		}
+		log.Printf("[PDF] image extraction done: %d kept, %d skipped (small), %d skipped (dup)",
+			len(images), skippedSmall, skippedDup)
 	}()
 
 	return &ParseResult{
@@ -217,8 +245,64 @@ func rawPixelsToPNG(data []byte, width, height int, colorSpace string) []byte {
 	return buf.Bytes()
 }
 
+// rawPixelsToJPEG converts raw decompressed pixel data from a PDF image to JPEG.
+// Much faster than PNG encoding for large images. Uses quality 85.
+func rawPixelsToJPEG(data []byte, width, height int, colorSpace string) []byte {
+	if width <= 0 || height <= 0 {
+		return nil
+	}
 
-// parseWord extracts text from Word data using goword, preserving headings and paragraphs.
+	isGray := strings.Contains(colorSpace, "Gray")
+	bytesPerPixel := 3 // DeviceRGB
+	if isGray {
+		bytesPerPixel = 1
+	}
+
+	expected := width * height * bytesPerPixel
+	if len(data) < expected {
+		return nil
+	}
+
+	// For RGB, use NRGBA to avoid per-pixel SetRGBA overhead
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	if isGray {
+		for y := 0; y < height; y++ {
+			srcOff := y * width
+			dstOff := y * img.Stride
+			for x := 0; x < width; x++ {
+				g := data[srcOff+x]
+				img.Pix[dstOff] = g
+				img.Pix[dstOff+1] = g
+				img.Pix[dstOff+2] = g
+				img.Pix[dstOff+3] = 255
+				dstOff += 4
+			}
+		}
+	} else {
+		for y := 0; y < height; y++ {
+			srcOff := y * width * 3
+			dstOff := y * img.Stride
+			for x := 0; x < width; x++ {
+				img.Pix[dstOff] = data[srcOff]
+				img.Pix[dstOff+1] = data[srcOff+1]
+				img.Pix[dstOff+2] = data[srcOff+2]
+				img.Pix[dstOff+3] = 255
+				srcOff += 3
+				dstOff += 4
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); err != nil {
+		return nil
+	}
+	return buf.Bytes()
+}
+
+
+// parseWord extracts text and images from Word (.docx) data.
+// Text is extracted via goword; images are extracted directly from the DOCX ZIP (word/media/).
 func (dp *DocumentParser) parseWord(data []byte) (result *ParseResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -234,21 +318,37 @@ func (dp *DocumentParser) parseWord(data []byte) (result *ParseResult, err error
 
 	text := doc.ExtractText()
 
-	// Extract embedded images
+	// Extract embedded images from DOCX ZIP (word/media/*)
+	// GoWord's reader doesn't populate Images(), so we read the ZIP directly.
 	var images []ImageRef
-	for i, img := range doc.Images() {
-		if len(img.Data) == 0 {
-			continue
+	zr, zipErr := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if zipErr == nil {
+		imgIdx := 0
+		for _, f := range zr.File {
+			// Images are stored under word/media/ (e.g. word/media/image1.png)
+			if !strings.HasPrefix(f.Name, "word/media/") {
+				continue
+			}
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			imgData, err := io.ReadAll(io.LimitReader(rc, 20<<20)) // 20MB max per image
+			rc.Close()
+			if err != nil || len(imgData) == 0 {
+				continue
+			}
+			if !isImageJPEGOrPNG(imgData) {
+				ext := strings.ToLower(filepath.Ext(f.Name))
+				log.Printf("[Word] skipping %s: unsupported format (ext=%s)", f.Name, ext)
+				continue
+			}
+			imgIdx++
+			images = append(images, ImageRef{
+				Alt:  fmt.Sprintf("Word图片%d", imgIdx),
+				Data: imgData,
+			})
 		}
-		// DOCX images are typically already JPEG/PNG; skip non-standard formats
-		if !isImageJPEGOrPNG(img.Data) {
-			log.Printf("[Word] skipping image %d (%s): unsupported format", i+1, img.Name)
-			continue
-		}
-		images = append(images, ImageRef{
-			Alt:  fmt.Sprintf("Word图片%d", i+1),
-			Data: img.Data,
-		})
 	}
 	log.Printf("[Word] extracted %d images", len(images))
 
