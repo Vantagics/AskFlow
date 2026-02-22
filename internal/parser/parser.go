@@ -139,12 +139,24 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 				imgData := img.Data
 				// For FlateDecode images, Data is raw pixel bytes — convert to PNG.
 				// DCTDecode (JPEG) and JPXDecode (JP2) are already valid image formats.
-				if img.Filter == "FlateDecode" || img.Filter == "" {
+				if img.Filter == "FlateDecode" {
 					encoded := rawPixelsToPNG(img.Data, img.Width, img.Height, img.ColorSpace)
 					if encoded == nil {
 						continue
 					}
 					imgData = encoded
+				} else if img.Filter == "" {
+					// Unknown filter: check if data is already a valid image format
+					if isImageJPEGOrPNG(img.Data) {
+						// Already encoded, use as-is
+					} else {
+						// Try interpreting as raw pixels
+						encoded := rawPixelsToPNG(img.Data, img.Width, img.Height, img.ColorSpace)
+						if encoded == nil {
+							continue
+						}
+						imgData = encoded
+					}
 				}
 				images = append(images, ImageRef{
 					Alt:  fmt.Sprintf("PDF第%d页图片%d", pageIdx+1, j+1),
