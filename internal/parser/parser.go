@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"log"
 	"net/url"
@@ -110,24 +111,45 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 	// Extract images (best-effort, non-fatal)
 	var images []ImageRef
 	func() {
-		defer func() { recover() }()
-		imgMap, imgErr := gopdf.ExtractImagesFromAllPages(data)
-		if imgErr == nil {
-			var imgPageIndices []int
-			for idx := range imgMap {
-				imgPageIndices = append(imgPageIndices, idx)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PDF] image extraction panic: %v", r)
 			}
-			sort.Ints(imgPageIndices)
-			for _, pageIdx := range imgPageIndices {
-				for j, img := range imgMap[pageIdx] {
-					if len(img.Data) == 0 || img.Width < 10 || img.Height < 10 {
+		}()
+		imgMap, imgErr := gopdf.ExtractImagesFromAllPages(data)
+		if imgErr != nil {
+			log.Printf("[PDF] image extraction error: %v", imgErr)
+			return
+		}
+		totalFound := 0
+		for _, imgs := range imgMap {
+			totalFound += len(imgs)
+		}
+		log.Printf("[PDF] found %d raw images across %d pages", totalFound, len(imgMap))
+		var imgPageIndices []int
+		for idx := range imgMap {
+			imgPageIndices = append(imgPageIndices, idx)
+		}
+		sort.Ints(imgPageIndices)
+		for _, pageIdx := range imgPageIndices {
+			for j, img := range imgMap[pageIdx] {
+				if len(img.Data) == 0 || img.Width < 10 || img.Height < 10 {
+					continue
+				}
+				imgData := img.Data
+				// For FlateDecode images, Data is raw pixel bytes — convert to PNG.
+				// DCTDecode (JPEG) and JPXDecode (JP2) are already valid image formats.
+				if img.Filter == "FlateDecode" || img.Filter == "" {
+					encoded := rawPixelsToPNG(img.Data, img.Width, img.Height, img.ColorSpace)
+					if encoded == nil {
 						continue
 					}
-					images = append(images, ImageRef{
-						Alt:  fmt.Sprintf("PDF第%d页图片%d", pageIdx+1, j+1),
-						Data: img.Data,
-					})
+					imgData = encoded
 				}
+				images = append(images, ImageRef{
+					Alt:  fmt.Sprintf("PDF第%d页图片%d", pageIdx+1, j+1),
+					Data: imgData,
+				})
 			}
 		}
 	}()
@@ -141,6 +163,46 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 		},
 		Images: images,
 	}, nil
+}
+
+// rawPixelsToPNG converts raw decompressed pixel data from a PDF image to PNG.
+// Supports DeviceRGB (3 bytes/pixel) and DeviceGray (1 byte/pixel).
+func rawPixelsToPNG(data []byte, width, height int, colorSpace string) []byte {
+	if width <= 0 || height <= 0 {
+		return nil
+	}
+
+	isGray := strings.Contains(colorSpace, "Gray")
+	bytesPerPixel := 3 // DeviceRGB
+	if isGray {
+		bytesPerPixel = 1
+	}
+
+	expected := width * height * bytesPerPixel
+	if len(data) < expected {
+		return nil
+	}
+
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			offset := (y*width + x) * bytesPerPixel
+			var c color.RGBA
+			if isGray {
+				g := data[offset]
+				c = color.RGBA{R: g, G: g, B: g, A: 255}
+			} else {
+				c = color.RGBA{R: data[offset], G: data[offset+1], B: data[offset+2], A: 255}
+			}
+			img.SetRGBA(x, y, c)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil
+	}
+	return buf.Bytes()
 }
 
 
