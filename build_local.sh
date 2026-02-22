@@ -8,12 +8,18 @@ echo " Askflow Local Build"
 echo "============================================"
 echo
 
-echo "[1/2] Building ${BINARY_NAME}..."
+echo "[1/3] Updating GoPPT package..."
+go get -u github.com/VantageDataChat/GoPPT
+go mod tidy
+echo "       Update OK"
+echo
+
+echo "[2/3] Building ${BINARY_NAME}..."
 go build -o "${BINARY_NAME}" .
 echo "       Build OK"
 echo
 
-echo "[2/2] Build info:"
+echo "[3/3] Build info:"
 echo "       Binary: $(pwd)/${BINARY_NAME}"
 echo "       Size:   $(du -h "${BINARY_NAME}" | cut -f1)"
 echo

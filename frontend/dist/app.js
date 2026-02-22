@@ -2497,6 +2497,9 @@
         if (zone._dropZoneInitialized) return;
         zone._dropZoneInitialized = true;
 
+        // Track whether a drop just happened to suppress the click that follows
+        var dropJustHappened = false;
+
         zone.addEventListener('dragover', function (e) {
             e.preventDefault();
             zone.classList.add('dragover');
@@ -2506,9 +2509,21 @@
         });
         zone.addEventListener('drop', function (e) {
             e.preventDefault();
+            e.stopPropagation();
             zone.classList.remove('dragover');
+            dropJustHappened = true;
+            setTimeout(function () { dropJustHappened = false; }, 1000);
             var files = e.dataTransfer.files;
             if (files.length > 0) uploadFile(files[0]);
+        });
+
+        // Handle click to open file picker (moved from inline onclick to avoid
+        // race condition where inline handler fires before the capture guard)
+        zone.addEventListener('click', function (e) {
+            if (dropJustHappened) return;
+            // Don't open picker if clicking on the file input itself
+            if (e.target && e.target.id === 'admin-file-input') return;
+            document.getElementById('admin-file-input').click();
         });
     }
 
@@ -2519,7 +2534,26 @@
         }
     };
 
+    // Client-side dedup: track last uploaded file to prevent double uploads
+    var _lastUploadKey = '';
+    var _lastUploadTime = 0;
+
     function uploadFile(file) {
+        // Prevent duplicate upload of the same file within a short window
+        var uploadKey = file.name + '_' + file.size + '_' + file.lastModified;
+        var now = Date.now();
+        if (uploadKey === _lastUploadKey && (now - _lastUploadTime) < 5000) {
+            return;
+        }
+        _lastUploadKey = uploadKey;
+        _lastUploadTime = now;
+
+        // Prevent concurrent uploads
+        var zone = document.getElementById('admin-drop-zone');
+        if (zone && zone.classList.contains('uploading')) {
+            showAdminToast(i18n.t('admin_doc_uploading', { name: '' }).replace(/\s*$/, '') + ' ' + i18n.t('admin_doc_drop_hint'), 'info');
+            return;
+        }
         // Check file size against configured max upload size
         if (file.size > maxUploadSizeMB * 1024 * 1024) {
             showAdminToast(i18n.t('admin_doc_upload_failed') + ' - ' + i18n.t('video_size_error', { size: maxUploadSizeMB }), 'error');
@@ -2532,7 +2566,6 @@
         showAdminToast(i18n.t('admin_doc_uploading', { name: file.name }), 'info');
 
         // Show progress bar on drop zone and set uploading state
-        var zone = document.getElementById('admin-drop-zone');
         var progressBar = null;
         if (zone) {
             removeProgressOverlay(zone);
