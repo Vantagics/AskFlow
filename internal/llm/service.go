@@ -145,7 +145,7 @@ func (s *APILLMService) callAPIWithRetry(messages []chatMessage) (string, error)
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(attempt) * 5 * time.Second
-			log.Printf("[LLM] retry %d/%d after %v", attempt+1, maxRetries, backoff)
+			log.Printf("[LLM] retrying (attempt %d/%d) after %v", attempt+1, maxRetries, backoff)
 			time.Sleep(backoff)
 		}
 
@@ -155,12 +155,12 @@ func (s *APILLMService) callAPIWithRetry(messages []chatMessage) (string, error)
 		}
 		lastErr = err
 		if !retryable {
-			break
+			return "", err
 		}
 		log.Printf("[LLM] attempt %d/%d failed (retryable): %v", attempt+1, maxRetries, err)
 	}
 
-	errlog.Logf("[LLM] API failed after retries: %v", lastErr)
+	errlog.Logf("[LLM] API failed after %d retries: %v", maxRetries, lastErr)
 	return "", lastErr
 }
 
@@ -190,29 +190,24 @@ func (s *APILLMService) callAPI(messages []chatMessage) (string, error, bool) {
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		errlog.Logf("[LLM] API request failed: %v", err)
 		return "", fmt.Errorf("LLM API request failed: %w", err), true // network error, retryable
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10MB max response
 	if err != nil {
-		errlog.Logf("[LLM] failed to read response body: %v", err)
 		return "", fmt.Errorf("failed to read response body: %w", err), true
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-		errlog.Logf("[LLM] API server error (HTTP %d): %s", resp.StatusCode, string(respBody))
 		return "", fmt.Errorf("LLM API error (HTTP %d): %s", resp.StatusCode, string(respBody)), true
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		var errResp chatResponse
 		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != nil {
-			errlog.Logf("[LLM] API error (HTTP %d): %s", resp.StatusCode, errResp.Error.Message)
 			return "", fmt.Errorf("LLM API error (HTTP %d): %s", resp.StatusCode, errResp.Error.Message), false
 		}
-		errlog.Logf("[LLM] API error (HTTP %d): %s", resp.StatusCode, string(respBody))
 		return "", fmt.Errorf("LLM API error (HTTP %d): %s", resp.StatusCode, string(respBody)), false
 	}
 

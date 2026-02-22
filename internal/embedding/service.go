@@ -186,7 +186,6 @@ func (s *APIEmbeddingService) callAPI(input interface{}) ([]embeddingData, error
 		resp, err := s.client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("embedding API request failed: %w", err)
-			errlog.Logf("[Embed] text embedding API request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
 			continue
 		}
 
@@ -194,13 +193,11 @@ func (s *APIEmbeddingService) callAPI(input interface{}) ([]embeddingData, error
 		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response body: %w", err)
-			errlog.Logf("[Embed] failed to read text embedding response (attempt %d/%d): %v", attempt+1, maxRetries, err)
 			continue
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("embedding API error (HTTP %d): %s", resp.StatusCode, string(respBody))
-			errlog.Logf("[Embed] text embedding API server error (attempt %d/%d, HTTP %d): %s", attempt+1, maxRetries, resp.StatusCode, string(respBody))
 			continue
 		}
 
@@ -225,6 +222,7 @@ func (s *APIEmbeddingService) callAPI(input interface{}) ([]embeddingData, error
 		return result.Data, nil
 	}
 
+	errlog.Logf("[Embed] text embedding API failed after %d retries: %v", maxRetries, lastErr)
 	return nil, lastErr
 }
 
@@ -309,7 +307,6 @@ func (s *APIEmbeddingService) callMultimodalAPI(input []multimodalInputItem) ([]
 		resp, err := s.mmClient.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("multimodal embedding API request failed: %w", err)
-			errlog.Logf("[Embed] multimodal API request failed (attempt %d/%d): %v", attempt+1, maxRetries, err)
 			continue
 		}
 
@@ -317,13 +314,11 @@ func (s *APIEmbeddingService) callMultimodalAPI(input []multimodalInputItem) ([]
 		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("failed to read response body: %w", err)
-			errlog.Logf("[Embed] failed to read multimodal response (attempt %d/%d): %v", attempt+1, maxRetries, err)
 			continue
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("embedding API error (HTTP %d): %s", resp.StatusCode, string(respBody))
-			errlog.Logf("[Embed] multimodal API server error (attempt %d/%d, HTTP %d): %s", attempt+1, maxRetries, resp.StatusCode, string(respBody))
 			continue
 		}
 
@@ -343,5 +338,6 @@ func (s *APIEmbeddingService) callMultimodalAPI(input []multimodalInputItem) ([]
 		return result.Data.Embedding, nil
 	}
 
+	errlog.Logf("[Embed] multimodal API failed after %d retries: %v", maxRetries, lastErr)
 	return nil, lastErr
 }
