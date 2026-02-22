@@ -222,14 +222,35 @@ func (dp *DocumentParser) parseWord(data []byte) (result *ParseResult, err error
 
 	text := doc.ExtractText()
 
+	// Extract embedded images
+	var images []ImageRef
+	for i, img := range doc.Images() {
+		if len(img.Data) == 0 {
+			continue
+		}
+		// DOCX images are typically already JPEG/PNG; skip non-standard formats
+		if !isImageJPEGOrPNG(img.Data) {
+			log.Printf("[Word] skipping image %d (%s): unsupported format", i+1, img.Name)
+			continue
+		}
+		images = append(images, ImageRef{
+			Alt:  fmt.Sprintf("Word图片%d", i+1),
+			Data: img.Data,
+		})
+	}
+	log.Printf("[Word] extracted %d images", len(images))
+
 	return &ParseResult{
 		Text: CleanText(text),
 		Metadata: map[string]string{
-			"type":  "word",
-			"title": doc.Properties.Title,
+			"type":        "word",
+			"title":       doc.Properties.Title,
+			"image_count": fmt.Sprintf("%d", len(images)),
 		},
+		Images: images,
 	}, nil
 }
+
 
 // parseExcel extracts cell content from Excel data using goexcel,
 // organized per sheet in "SheetName-Row,Col" format.
@@ -433,6 +454,17 @@ func init() {
 		blockOpenRe[tag] = regexp.MustCompile(`(?i)<` + tag + `[^>]*>`)
 		blockCloseRe[tag] = regexp.MustCompile(`(?i)</` + tag + `\s*>`)
 	}
+}
+
+// isImageJPEGOrPNG checks if the data starts with JPEG or PNG magic bytes.
+func isImageJPEGOrPNG(data []byte) bool {
+	if len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF {
+		return true // JPEG
+	}
+	if len(data) >= 4 && string(data[:4]) == "\x89PNG" {
+		return true // PNG
+	}
+	return false
 }
 
 // CleanText removes excessive whitespace and meaningless special characters from text.
