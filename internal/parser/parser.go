@@ -233,13 +233,17 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 		}
 	}()
 
+	log.Printf("[PPT] Starting PPT parsing, data size: %d bytes", len(data))
+
 	pres, err := goppt.ReadFrom(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
+		log.Printf("[PPT] Failed to read PPT: %v", err)
 		return nil, fmt.Errorf("ppt解析错误: %w", err)
 	}
 	defer pres.Close()
 
 	slides := pres.Slides()
+	log.Printf("[PPT] Found %d slides", len(slides))
 	var sb strings.Builder
 
 	// Extract text from all slides first
@@ -254,15 +258,19 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 			sb.WriteString(fmt.Sprintf("Slide %d:\n%s", i+1, text))
 		}
 	}
+	log.Printf("[PPT] Text extraction completed")
 
 	// Batch render all slides with shared FontCache
 	opts := goppt.DefaultRenderOptions()
 	opts.Width = 1280
 	opts.FontCache = goppt.NewFontCache()
 
+	log.Printf("[PPT] Starting batch slide rendering...")
 	renderedImages, renderErr := pres.SlidesToImages(opts)
 	if renderErr != nil {
 		log.Printf("Warning: PPT批量渲染失败，逐页重试: %v", renderErr)
+	} else {
+		log.Printf("[PPT] Batch rendering completed, got %d images", len(renderedImages))
 	}
 
 	var images []ImageRef
@@ -272,6 +280,7 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 			img = renderedImages[i]
 		} else {
 			// Fallback: render individual slide
+			log.Printf("[PPT] Rendering slide %d individually...", i+1)
 			singleImg, sErr := pres.SlideToImage(i, opts)
 			if sErr != nil {
 				log.Printf("Warning: PPT第%d页渲染失败: %v", i+1, sErr)
@@ -302,6 +311,8 @@ func (dp *DocumentParser) parsePPT(data []byte) (result *ParseResult, err error)
 			SlideText: strings.TrimSpace(text),
 		})
 	}
+
+	log.Printf("[PPT] PPT parsing completed: %d slides, %d images", len(slides), len(images))
 
 	return &ParseResult{
 		Text: CleanText(sb.String()),

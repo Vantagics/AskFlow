@@ -166,8 +166,11 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 				if r := recover(); r != nil {
 					dm.updateDocumentStatus(docID, "failed", fmt.Sprintf("panic: %v", r))
 					log.Printf("Async processing panic for %s: %v", docID, r)
+					errlog.Logf("[Async] panic in outer goroutine for doc=%s file=%q: %v", docID, req.FileName, r)
 				}
 			}()
+
+			log.Printf("[Async] Starting async processing for doc=%s file=%q type=%s", docID, req.FileName, fileType)
 
 			// Use configurable timeout for async processing
 			dm.mu.RLock()
@@ -183,13 +186,18 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
+						log.Printf("[Async] panic in inner goroutine for doc=%s: %v", docID, r)
+						errlog.Logf("[Async] panic in inner goroutine for doc=%s file=%q: %v", docID, req.FileName, r)
 						done <- fmt.Errorf("panic in async processing: %v", r)
 					}
 				}()
 				if videoFileTypes[fileType] {
+					log.Printf("[Async] Processing video for doc=%s", docID)
 					done <- dm.processVideo(docID, req.FileName, req.FileData, req.ProductID)
 				} else {
+					log.Printf("[Async] Processing file (PDF/PPT) for doc=%s", docID)
 					_, processErr := dm.processFile(docID, req.FileName, req.FileData, fileType, req.ProductID)
+					log.Printf("[Async] processFile completed for doc=%s, err=%v", docID, processErr)
 					done <- processErr
 				}
 			}()
@@ -891,6 +899,8 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	// For PPT: store each slide as a text chunk with its rendered image.
 	// This links slide text directly to the slide image so queries show the right slide.
 	if fileType == "ppt" && len(result.Images) > 0 {
+		log.Printf("[PPT] Processing %d slide images for doc=%s", len(result.Images), docID)
+		
 		// Phase 1: Save all slide images and collect texts
 		type slideInfo struct {
 			text     string
@@ -921,8 +931,11 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 		}
 
 		if len(slides) == 0 {
+			log.Printf("[PPT] No slides with text found for doc=%s", docID)
 			return stats, nil
 		}
+
+		log.Printf("[PPT] Phase 1 complete: %d slides with text for doc=%s", len(slides), docID)
 
 		// Phase 2: Batch embed all slide texts (respecting API batch size limit)
 		texts := make([]string, len(slides))
@@ -931,20 +944,25 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 		}
 		const batchSize = 64
 		vectors := make([][]float64, len(texts))
+		log.Printf("[PPT] Phase 2: Starting embedding for %d slides, doc=%s", len(texts), docID)
 		for start := 0; start < len(texts); start += batchSize {
 			end := start + batchSize
 			if end > len(texts) {
 				end = len(texts)
 			}
+			log.Printf("[PPT] Embedding batch %d-%d for doc=%s", start, end, docID)
 			batch, embErr := dm.embeddingService.EmbedBatch(texts[start:end])
 			if embErr != nil {
+				log.Printf("[PPT] Embedding failed for batch %d-%d, doc=%s: %v", start, end, docID, embErr)
 				errlog.Logf("[Embed] PPT slide embedding failed (batch %d-%d) doc=%s file=%q: %v", start, end, docID, docName, embErr)
 				return nil, fmt.Errorf("PPT slide embedding error (batch %d-%d): %w", start, end, embErr)
 			}
 			copy(vectors[start:end], batch)
 		}
+		log.Printf("[PPT] Phase 2 complete: embedding done for doc=%s", docID)
 
 		// Phase 3: Store each slide chunk with its image URL
+		log.Printf("[PPT] Phase 3: Storing %d slide chunks for doc=%s", len(slides), docID)
 		imageCount := 0
 		for i, s := range slides {
 			slideChunk := []vectorstore.VectorChunk{{
@@ -964,6 +982,7 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 			}
 		}
 		stats.ImageCount = imageCount
+		log.Printf("[PPT] Phase 3 complete: stored %d slides for doc=%s", imageCount, docID)
 		return stats, nil
 	}
 
