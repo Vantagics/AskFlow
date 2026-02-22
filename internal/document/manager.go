@@ -994,48 +994,79 @@ func (dm *DocumentManager) processFile(docID, docName string, fileData []byte, f
 	}
 
 	// Store image embeddings (for non-PPT documents)
+	// Strategy: save each image to disk first, then try multimodal embedding.
+	// If multimodal embedding fails, fall back to text embedding of the alt text
+	// so the image is still stored in the vector DB and visible in document review.
 	imageCount := 0
 	for i, img := range result.Images {
 		imgURL := img.URL
 
-		// For embedded images (e.g. from PDF), save to disk for UI display
+		// For embedded images (e.g. from PDF/DOCX), save to disk for UI display
 		var savedLocalURL string
 		if imgURL == "" && len(img.Data) > 0 {
 			savedURL, saveErr := dm.saveExtractedImage(img.Data)
 			if saveErr != nil {
 				log.Printf("Warning: failed to save extracted image %d: %v", i, saveErr)
 				errlog.Logf("[Extract] failed to save extracted image %d for doc=%s file=%q: %v", i, docID, docName, saveErr)
-				// Continue — we can still embed the image even if disk save fails
 			} else {
 				savedLocalURL = savedURL
 			}
 		}
 
-		// For embedding API: use base64 data URL for embedded images (external API can't access local paths)
-		embedURL := imgURL
-		if embedURL == "" && len(img.Data) > 0 {
-			resized := resizeImageForEmbedding(img.Data)
-			if resized == nil {
-				log.Printf("Warning: skipping unsupported image format %d (%s)", i, img.Alt)
-				continue
-			}
-			embedURL = imageToBase64DataURL(resized)
-		}
-		if embedURL == "" {
-			continue
-		}
-
-		vec, err := dm.embeddingService.EmbedImageURL(embedURL)
-		if err != nil {
-			log.Printf("Warning: failed to embed image %d (%s): %v", i, img.Alt, err)
-			errlog.Logf("[Embed] failed to embed image %d (%s) for doc=%s file=%q: %v", i, img.Alt, docID, docName, err)
-			continue
-		}
-
-		// For storage, prefer external URL > local serving URL
+		// Determine the storage URL (for UI display)
 		storeURL := imgURL
 		if storeURL == "" {
 			storeURL = savedLocalURL
+		}
+		// If we couldn't save the image and there's no external URL, skip entirely
+		if storeURL == "" && len(img.Data) == 0 {
+			continue
+		}
+
+		// Try multimodal image embedding first
+		var vec []float64
+		embedURL := imgURL
+		if embedURL == "" && len(img.Data) > 0 {
+			resized := resizeImageForEmbedding(img.Data)
+			if resized != nil {
+				embedURL = imageToBase64DataURL(resized)
+			}
+		}
+		if embedURL != "" {
+			vec, err = dm.embeddingService.EmbedImageURL(embedURL)
+			if err != nil {
+				log.Printf("Warning: multimodal embed failed for image %d (%s): %v, falling back to text embedding", i, img.Alt, err)
+			}
+		}
+
+		// Fallback: use text embedding of the alt/description text
+		if vec == nil {
+			altText := img.Alt
+			if altText == "" {
+				altText = fmt.Sprintf("文档图片%d", i+1)
+			}
+			vec, err = dm.embeddingService.Embed(altText)
+			if err != nil {
+				log.Printf("Warning: text embed fallback also failed for image %d (%s): %v", i, img.Alt, err)
+				errlog.Logf("[Embed] image embed failed (both multimodal and text fallback) for image %d (%s) doc=%s file=%q: %v", i, img.Alt, docID, docName, err)
+				// Still store without vector if we have a URL, so image shows in review
+				if storeURL != "" {
+					imgChunk := []vectorstore.VectorChunk{{
+						ChunkText:    fmt.Sprintf("[图片: %s]", img.Alt),
+						ChunkIndex:   1000 + i,
+						DocumentID:   docID,
+						DocumentName: docName,
+						ImageURL:     storeURL,
+						ProductID:    productID,
+					}}
+					if storeErr := dm.vectorStore.Store(docID, imgChunk); storeErr != nil {
+						log.Printf("Warning: failed to store image record %d: %v", i, storeErr)
+					} else {
+						imageCount++
+					}
+				}
+				continue
+			}
 		}
 
 		imgChunk := []vectorstore.VectorChunk{{
