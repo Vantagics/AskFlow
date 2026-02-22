@@ -126,6 +126,12 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 		return nil, fmt.Errorf("文件内容为空")
 	}
 
+	// File-level dedup: check if identical file content already exists (any status except failed)
+	fileHash := contentHash(string(req.FileData))
+	if existingID := dm.findDocumentByContentHash(fileHash); existingID != "" {
+		return nil, fmt.Errorf("文档内容重复，与已有文档相同")
+	}
+
 	docID, err := generateID()
 	if err != nil {
 		return nil, err
@@ -140,7 +146,7 @@ func (dm *DocumentManager) UploadFile(req UploadFileRequest) (*DocumentInfo, err
 		ProductID: req.ProductID,
 	}
 
-	if err := dm.insertDocument(doc); err != nil {
+	if err := dm.insertDocument(doc, fileHash); err != nil {
 		return nil, fmt.Errorf("failed to insert document record: %w", err)
 	}
 
@@ -519,7 +525,7 @@ func contentHash(text string) string {
 func (dm *DocumentManager) findDocumentByContentHash(hash string) string {
 	var docID string
 	err := dm.db.QueryRow(
-		`SELECT id FROM documents WHERE content_hash = ? AND status = 'success' LIMIT 1`, hash,
+		`SELECT id FROM documents WHERE content_hash = ? AND status != 'failed' LIMIT 1`, hash,
 	).Scan(&docID)
 	if err != nil {
 		return ""
@@ -600,7 +606,7 @@ func (dm *DocumentManager) UploadURL(req UploadURLRequest) (*DocumentInfo, error
 		ProductID: req.ProductID,
 	}
 
-	if err := dm.insertDocument(doc); err != nil {
+	if err := dm.insertDocument(doc, ""); err != nil {
 		return nil, fmt.Errorf("failed to insert document record: %w", err)
 	}
 
@@ -1394,10 +1400,10 @@ func (dm *DocumentManager) chunkEmbedStore(docID, docName, text string, productI
 }
 
 // insertDocument inserts a new document record into the documents table.
-func (dm *DocumentManager) insertDocument(doc *DocumentInfo) error {
+func (dm *DocumentManager) insertDocument(doc *DocumentInfo, contentHash string) error {
 	_, err := dm.db.Exec(
-		`INSERT INTO documents (id, name, type, status, error, created_at, product_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		doc.ID, doc.Name, doc.Type, doc.Status, doc.Error, doc.CreatedAt, doc.ProductID,
+		`INSERT INTO documents (id, name, type, status, error, created_at, product_id, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		doc.ID, doc.Name, doc.Type, doc.Status, doc.Error, doc.CreatedAt, doc.ProductID, contentHash,
 	)
 	return err
 }

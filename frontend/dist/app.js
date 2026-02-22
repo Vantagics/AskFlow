@@ -2471,15 +2471,18 @@
     }
 
     function showAnonymousBanner() {
-        var adminPage = document.getElementById('page-admin');
-        if (!adminPage || document.getElementById('anonymous-banner')) return;
+        if (document.getElementById('anonymous-banner')) return;
+        var footer = document.querySelector('.admin-sidebar-footer');
+        if (!footer) return;
         var banner = document.createElement('div');
         banner.id = 'anonymous-banner';
-        banner.style.cssText = 'background:#fef3c7;color:#92400e;padding:8px 16px;text-align:center;font-size:14px;border-bottom:1px solid #fcd34d;';
+        banner.style.cssText = 'background:#fef2f2;color:#dc2626;padding:6px 10px;text-align:center;font-size:12px;font-weight:600;border:2px solid #dc2626;border-radius:6px;margin-bottom:6px;';
         banner.textContent = i18n.t('anonymous_readonly_banner');
-        var adminContent = adminPage.querySelector('.admin-content') || adminPage.firstElementChild;
-        if (adminContent) {
-            adminContent.insertBefore(banner, adminContent.firstChild);
+        var versionInfo = footer.querySelector('.admin-version-info');
+        if (versionInfo) {
+            footer.insertBefore(banner, versionInfo);
+        } else {
+            footer.insertBefore(banner, footer.firstChild);
         }
     }
 

@@ -48,7 +48,7 @@ echo.
 
 REM --- Step 4: Remote extract, build, and restart ---
 echo [3/4] Building on remote server...
-%SSHPASS% -p %PASS% ssh -o StrictHostKeyChecking=accept-new %USER%@%SERVER% "cd %REMOTE_DIR% && tar -xzf deploy.tar.gz && rm -f deploy.tar.gz && go build -o %BINARY_NAME% . 2>&1"
+%SSHPASS% -p %PASS% ssh -o StrictHostKeyChecking=accept-new %USER%@%SERVER% "cd %REMOTE_DIR% && tar -xzf deploy.tar.gz && rm -f deploy.tar.gz && go get -u github.com/VantageDataChat/GoPPT && go mod tidy && go build -o %BINARY_NAME% . 2>&1"
 if %errorlevel% neq 0 (
     echo [ERROR] Remote build failed!
     exit /b 1
