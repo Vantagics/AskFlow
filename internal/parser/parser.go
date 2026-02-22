@@ -8,7 +8,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"image"
-	"image/color"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -203,46 +202,6 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 		},
 		Images: images,
 	}, nil
-}
-
-// rawPixelsToPNG converts raw decompressed pixel data from a PDF image to PNG.
-// Supports DeviceRGB (3 bytes/pixel) and DeviceGray (1 byte/pixel).
-func rawPixelsToPNG(data []byte, width, height int, colorSpace string) []byte {
-	if width <= 0 || height <= 0 {
-		return nil
-	}
-
-	isGray := strings.Contains(colorSpace, "Gray")
-	bytesPerPixel := 3 // DeviceRGB
-	if isGray {
-		bytesPerPixel = 1
-	}
-
-	expected := width * height * bytesPerPixel
-	if len(data) < expected {
-		return nil
-	}
-
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			offset := (y*width + x) * bytesPerPixel
-			var c color.RGBA
-			if isGray {
-				g := data[offset]
-				c = color.RGBA{R: g, G: g, B: g, A: 255}
-			} else {
-				c = color.RGBA{R: data[offset], G: data[offset+1], B: data[offset+2], A: 255}
-			}
-			img.SetRGBA(x, y, c)
-		}
-	}
-
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return nil
-	}
-	return buf.Bytes()
 }
 
 // rawPixelsToJPEG converts raw decompressed pixel data from a PDF image to JPEG.
