@@ -752,6 +752,7 @@ body {
     width: 100%;
     height: 100vh;
     background: linear-gradient(180deg, #F0F5FF 0%, #F8FAFF 100%);
+    position: relative;
 }
 
 /* Chat Header */
@@ -1367,16 +1368,21 @@ a.chat-source-download:hover {
     display: flex;
     width: 100%;
     height: 100vh;
+    background: linear-gradient(135deg, #EBF2FF 0%, #F0F5FF 50%, #F5F8FF 100%);
 }
 
 /* Sidebar */
 .admin-sidebar {
-    width: 220px;
-    background: linear-gradient(180deg, #1E3A8A 0%, #1E40AF 100%);
-    color: #BFDBFE;
+    width: 240px;
+    background: linear-gradient(180deg, #E8F0FE 0%, #DBEAFE 100%);
+    color: #1E3A8A;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
+    border-right: 1px solid rgba(37,99,235,0.1);
+    border-radius: 0 24px 24px 0;
+    margin: 12px 0 12px 0;
+    box-shadow: 2px 0 16px rgba(37,99,235,0.06);
 }
 
 .admin-sidebar-header {
@@ -1384,10 +1390,10 @@ a.chat-source-download:hover {
     align-items: center;
     gap: 0.625rem;
     padding: 1.25rem 1rem;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #fff;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1E40AF;
+    border-bottom: 1px solid rgba(37,99,235,0.1);
 }
 
 .admin-nav {
@@ -1407,7 +1413,7 @@ a.chat-source-download:hover {
     background: none;
     border: none;
     border-radius: var(--radius);
-    color: #93C5FD;
+    color: #3B6FC0;
     font-size: 0.875rem;
     cursor: pointer;
     transition: all 0.15s;
@@ -1415,19 +1421,20 @@ a.chat-source-download:hover {
 }
 
 .admin-nav-item:hover {
-    background: rgba(255,255,255,0.08);
-    color: #BFDBFE;
+    background: rgba(37,99,235,0.08);
+    color: #1E40AF;
 }
 
 .admin-nav-item.active {
-    background: rgba(255,255,255,0.15);
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
     color: #fff;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 8px rgba(37,99,235,0.25);
+    font-weight: 600;
 }
 
 .admin-sidebar-footer {
     padding: 0.75rem;
-    border-top: 1px solid rgba(255,255,255,0.1);
+    border-top: 1px solid rgba(37,99,235,0.1);
 }
 
 .admin-user-info {
@@ -1436,15 +1443,15 @@ a.chat-source-download:hover {
     gap: 0.5rem;
     padding: 0.5rem 0.75rem;
     margin-bottom: 0.5rem;
-    background: rgba(59,130,246,0.15);
+    background: rgba(37,99,235,0.08);
     border-radius: var(--radius);
-    color: #BFDBFE;
+    color: #1E40AF;
     font-size: 0.8125rem;
 }
 
 .admin-user-info svg {
     flex-shrink: 0;
-    color: #60A5FA;
+    color: #2563EB;
 }
 
 .admin-username {
@@ -1462,22 +1469,23 @@ a.chat-source-download:hover {
     background: none;
     border: none;
     border-radius: var(--radius);
-    color: #93C5FD;
+    color: #3B6FC0;
     font-size: 0.8125rem;
     cursor: pointer;
     transition: all 0.15s;
 }
 
 .admin-logout-btn:hover {
-    background: rgba(239,68,68,0.15);
-    color: #FCA5A5;
+    background: rgba(239,68,68,0.08);
+    color: #DC2626;
 }
 
 /* Main Content */
 .admin-main {
     flex: 1;
     overflow-y: auto;
-    background: var(--color-bg);
+    background: transparent;
+    padding: 12px 12px 12px 0;
 }
 
 .admin-tab.hidden { display: none; }
@@ -1486,18 +1494,25 @@ a.chat-source-download:hover {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1.25rem 1.5rem;
-    background: var(--color-card);
-    border-bottom: 1px solid var(--color-border);
+    padding: 1rem 1.5rem;
+    background: linear-gradient(135deg, #1E40AF 0%, #2563EB 100%);
+    border-bottom: none;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.12);
 }
 
 .admin-tab-header h2 {
     font-size: 1.125rem;
     font-weight: 600;
+    color: #fff;
 }
 
 .admin-tab-body {
     padding: 1.5rem;
+    background: rgba(255,255,255,0.7);
+    backdrop-filter: blur(8px);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    min-height: calc(100vh - 100px);
 }
 
 /* Upload Section */
@@ -1512,9 +1527,9 @@ a.chat-source-download:hover {
     justify-content: center;
     gap: 0.5rem;
     padding: 2rem;
-    border: 2px dashed var(--color-border);
+    border: 2px dashed #93C5FD;
     border-radius: var(--radius-lg);
-    background: var(--color-card);
+    background: rgba(239,246,255,0.6);
     cursor: pointer;
     transition: all 0.2s;
     text-align: center;
@@ -1523,7 +1538,8 @@ a.chat-source-download:hover {
 .admin-drop-zone:hover,
 .admin-drop-zone.dragover {
     border-color: var(--color-primary);
-    background: rgba(37,99,235,0.04);
+    background: rgba(37,99,235,0.06);
+    box-shadow: 0 0 0 4px rgba(37,99,235,0.06);
 }
 
 .admin-drop-zone.uploading {
@@ -1552,16 +1568,18 @@ a.chat-source-download:hover {
 .admin-url-input input {
     flex: 1;
     padding: 0.625rem 0.875rem;
-    border: 1px solid var(--color-border);
+    border: 1.5px solid #DBEAFE;
     border-radius: var(--radius);
     font-size: 0.875rem;
     outline: none;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    background: #F8FAFF;
 }
 
 .admin-url-input input:focus {
     border-color: var(--color-primary);
     box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    background: #fff;
 }
 
 /* Buttons */
@@ -1603,9 +1621,9 @@ a.chat-source-download:hover {
 
 .btn-secondary {
     padding: 0.625rem 1.25rem;
-    background: var(--color-card);
-    color: var(--color-text);
-    border: 1px solid var(--color-border);
+    background: #fff;
+    color: #1E40AF;
+    border: 1.5px solid #DBEAFE;
     border-radius: var(--radius);
     font-size: 0.875rem;
     font-weight: 500;
@@ -1613,7 +1631,7 @@ a.chat-source-download:hover {
     transition: all 0.2s;
 }
 
-.btn-secondary:hover { background: #F3F4F6; }
+.btn-secondary:hover { background: #EFF6FF; border-color: #93C5FD; }
 
 .btn-danger {
     padding: 0.625rem 1.25rem;
@@ -1645,9 +1663,10 @@ a.chat-source-download:hover {
     width: 100%;
     border-collapse: collapse;
     background: var(--color-card);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     overflow: hidden;
-    box-shadow: var(--shadow);
+    box-shadow: 0 1px 6px rgba(37,99,235,0.06);
+    border: 1px solid rgba(37,99,235,0.08);
 }
 
 .admin-table th,
@@ -1655,13 +1674,13 @@ a.chat-source-download:hover {
     padding: 0.75rem 1rem;
     text-align: left;
     font-size: 0.875rem;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: 1px solid #EFF6FF;
 }
 
 .admin-table th {
-    background: #F9FAFB;
+    background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);
     font-weight: 600;
-    color: var(--color-text-secondary);
+    color: #1E40AF;
     font-size: 0.8125rem;
     text-transform: none;
 }
@@ -1691,7 +1710,7 @@ a.chat-source-download:hover {
 .admin-filter-group {
     display: flex;
     gap: 0.25rem;
-    background: #F3F4F6;
+    background: rgba(255,255,255,0.5);
     border-radius: var(--radius);
     padding: 0.2rem;
 }
@@ -1702,17 +1721,18 @@ a.chat-source-download:hover {
     border: none;
     border-radius: 6px;
     font-size: 0.8125rem;
-    color: var(--color-text-secondary);
+    color: rgba(255,255,255,0.75);
     cursor: pointer;
     transition: all 0.15s;
 }
 
-.admin-filter-btn:hover { color: var(--color-text); }
+.admin-filter-btn:hover { color: #fff; }
 
 .admin-filter-btn.active {
-    background: var(--color-card);
-    color: var(--color-text);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    background: #fff;
+    color: #1E40AF;
+    box-shadow: 0 1px 4px rgba(37,99,235,0.15);
+    font-weight: 600;
 }
 
 /* Pending Questions List */
@@ -1724,13 +1744,13 @@ a.chat-source-download:hover {
 
 .admin-pending-card {
     background: var(--color-card);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
+    border: 1px solid rgba(37,99,235,0.08);
+    border-radius: var(--radius-lg);
     padding: 1rem 1.25rem;
-    transition: box-shadow 0.15s;
+    transition: all 0.2s;
 }
 
-.admin-pending-card:hover { box-shadow: var(--shadow); }
+.admin-pending-card:hover { box-shadow: 0 4px 16px rgba(37,99,235,0.08); transform: translateY(-1px); }
 
 .admin-pending-card-header {
     display: flex;
@@ -1757,10 +1777,11 @@ a.chat-source-download:hover {
 .admin-pending-answer-preview {
     font-size: 0.8125rem;
     color: var(--color-text-secondary);
-    background: #F9FAFB;
+    background: #EFF6FF;
     padding: 0.5rem 0.75rem;
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     margin-bottom: 0.5rem;
+    border: 1px solid #DBEAFE;
 }
 
 /* Settings Form */
@@ -1769,11 +1790,12 @@ a.chat-source-download:hover {
 }
 
 .admin-fieldset {
-    border: none;
+    border: 1px solid rgba(37,99,235,0.08);
     border-radius: var(--radius-lg);
     padding: 1.5rem;
     margin-bottom: 1.25rem;
-    background: var(--color-bg);
+    background: rgba(255,255,255,0.8);
+    backdrop-filter: blur(4px);
 }
 
 .admin-fieldset legend {
@@ -1809,18 +1831,20 @@ a.chat-source-download:hover {
 .admin-form-row textarea {
     width: 100%;
     padding: 0.625rem 0.875rem;
-    border: 1px solid var(--color-border);
+    border: 1.5px solid #DBEAFE;
     border-radius: var(--radius);
     font-size: 0.875rem;
     font-family: inherit;
     outline: none;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    background: #F8FAFF;
 }
 
 .admin-form-row input:focus,
 .admin-form-row textarea:focus {
     border-color: var(--color-primary);
     box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    background: #fff;
 }
 
 .admin-form-row textarea { resize: vertical; }
@@ -1882,14 +1906,14 @@ a.chat-source-download:hover {
 .product-form-grid select {
     width: 100%;
     padding: 0.625rem 0.875rem;
-    border: 1px solid var(--color-border);
+    border: 1.5px solid #DBEAFE;
     border-radius: var(--radius);
     font-size: 0.875rem;
     font-family: inherit;
     outline: none;
-    background: var(--color-card);
+    background: #F8FAFF;
     color: inherit;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, box-shadow 0.2s;
     appearance: none;
     -webkit-appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
@@ -1957,13 +1981,13 @@ a.chat-source-download:hover {
 }
 .product-edit-modal-content {
     background: #fff;
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     padding: 0;
     width: 520px;
     max-width: 92vw;
     max-height: 85vh;
     overflow-y: auto;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+    box-shadow: 0 20px 60px rgba(37,99,235,0.15);
     animation: modalFadeIn 0.18s ease-out;
 }
 @keyframes modalFadeIn {
@@ -2042,9 +2066,9 @@ a.chat-source-download:hover {
     gap: 0.625rem;
     margin-top: 1.25rem;
     padding: 1rem 1.5rem;
-    border-top: 1px solid var(--color-border);
-    background: #fafafa;
-    border-radius: 0 0 10px 10px;
+    border-top: 1px solid #DBEAFE;
+    background: #F8FAFF;
+    border-radius: 0 0 24px 24px;
 }
 @media (max-width: 500px) {
     .product-edit-row-2col {
@@ -2067,8 +2091,8 @@ a.chat-source-download:hover {
 
 .admin-dialog {
     background: var(--color-card);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 20px 60px rgba(37,99,235,0.15);
     padding: 1.5rem;
     width: 100%;
     max-width: 420px;
@@ -2119,10 +2143,11 @@ a.chat-source-download:hover {
 }
 
 .review-segment {
-    border: 1px solid #E5E7EB;
-    border-radius: var(--radius);
+    border: 1px solid #DBEAFE;
+    border-radius: var(--radius-lg);
     padding: 0.75rem;
     margin-bottom: 0.75rem;
+    background: rgba(255,255,255,0.6);
 }
 
 .review-segment-header {
@@ -2213,19 +2238,20 @@ a.chat-source-download:hover {
 }
 
 .admin-answer-question {
-    background: #F3F4F6;
+    background: #EFF6FF;
     padding: 0.75rem 1rem;
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     font-size: 0.875rem;
     line-height: 1.5;
     margin-bottom: 1rem;
     color: var(--color-text);
+    border: 1px solid #DBEAFE;
 }
 
 /* Responsive Admin - Tablet */
 @media (min-width: 769px) and (max-width: 1024px) {
     .admin-sidebar {
-        width: 180px;
+        width: 200px;
     }
 
     .admin-tab-body {
@@ -2241,6 +2267,8 @@ a.chat-source-download:hover {
 @media (max-width: 768px) {
     .admin-sidebar {
         width: 56px;
+        border-radius: 0 16px 16px 0;
+        margin: 8px 0 8px 0;
     }
 
     .admin-sidebar-header span,
@@ -2267,6 +2295,7 @@ a.chat-source-download:hover {
         flex-direction: column;
         align-items: flex-start;
         gap: 0.75rem;
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
 
     .admin-url-input {
@@ -2285,6 +2314,10 @@ a.chat-source-download:hover {
     .admin-table th,
     .admin-table td {
         padding: 0.5rem 0.625rem;
+    }
+
+    .admin-main {
+        padding: 8px 8px 8px 0;
     }
 }
 
@@ -2736,7 +2769,7 @@ a.chat-source-download:hover {
 .settings-tabs {
     display: flex;
     gap: 0.25rem;
-    border-bottom: 2px solid var(--color-border);
+    border-bottom: 2px solid #DBEAFE;
     margin-bottom: 1.25rem;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -2756,19 +2789,20 @@ a.chat-source-download:hover {
     margin-bottom: -2px;
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--color-text-secondary);
+    color: #6B8EC0;
     cursor: pointer;
     white-space: nowrap;
     transition: color 0.15s, border-color 0.15s;
 }
 
 .settings-tab-btn:hover {
-    color: var(--color-text);
+    color: #1E40AF;
 }
 
 .settings-tab-btn.active {
-    color: var(--color-primary);
-    border-bottom-color: var(--color-primary);
+    color: #2563EB;
+    border-bottom-color: #2563EB;
+    font-weight: 600;
 }
 
 .settings-tab-btn svg {
@@ -3193,13 +3227,13 @@ a.chat-source-download:hover {
 
 .about-dialog {
     background: #fff;
-    border-radius: 16px;
+    border-radius: var(--radius-xl);
     padding: 2.5rem 2rem 2rem;
     width: 360px;
     max-width: 90vw;
     text-align: center;
     position: relative;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    box-shadow: 0 20px 60px rgba(37,99,235,0.15);
     animation: modalFadeIn 0.2s ease-out;
 }
 
@@ -3246,10 +3280,11 @@ a.chat-source-download:hover {
 }
 
 .about-dialog-quote {
-    background: #f9fafb;
-    border-radius: 10px;
+    background: #EFF6FF;
+    border-radius: var(--radius-lg);
     padding: 1rem 1.25rem;
     margin-bottom: 1.25rem;
+    border: 1px solid #DBEAFE;
 }
 
 .about-dialog-poem {
@@ -3291,4 +3326,195 @@ a.chat-source-download:hover {
 }
 .admin-version-info:hover {
     color: #2563EB !important;
+}
+
+/* ── FAQ Header Button ── */
+.faq-header-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    background: rgba(255,255,255,0.18);
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+    white-space: nowrap;
+}
+.faq-header-btn:hover {
+    background: rgba(255,255,255,0.28);
+    border-color: rgba(255,255,255,0.5);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.12);
+}
+.faq-header-btn svg {
+    flex-shrink: 0;
+}
+
+/* ── FAQ Slide-in Panel (Chat) ── */
+.faq-panel {
+    position: absolute;
+    top: 56px;
+    right: 0;
+    bottom: 0;
+    width: 340px;
+    max-width: 90vw;
+    background: #fff;
+    border-left: 1px solid #e5e7eb;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.08);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    animation: faqSlideIn 0.22s ease;
+}
+.faq-panel.hidden {
+    display: none;
+}
+@keyframes faqSlideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+}
+.faq-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+}
+.faq-panel-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1f2937;
+}
+.faq-panel-close {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+}
+.faq-panel-close:hover {
+    color: #111827;
+}
+.faq-panel-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+.faq-empty {
+    text-align: center;
+    color: #9ca3af;
+    padding: 2rem 1rem;
+    font-size: 0.9rem;
+}
+
+/* FAQ item button */
+.faq-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    background: #f3f4f6;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 0.88rem;
+    color: #374151;
+    transition: background 0.15s, border-color 0.15s;
+    line-height: 1.45;
+}
+.faq-item:hover {
+    background: #e0e7ff;
+    border-color: #818cf8;
+    color: #1e40af;
+}
+.faq-item-num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #2563eb;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+}
+.faq-item-text {
+    flex: 1;
+}
+
+/* ── FAQ Admin List ── */
+.faq-admin-list {
+    min-height: 60px;
+}
+.faq-admin-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    transition: box-shadow 0.15s, background 0.15s;
+    cursor: grab;
+}
+.faq-admin-item:hover {
+    background: #f3f4f6;
+}
+.faq-admin-item.faq-dragging {
+    opacity: 0.5;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+.faq-admin-drag {
+    color: #9ca3af;
+    cursor: grab;
+    font-size: 1.1rem;
+    user-select: none;
+}
+.faq-admin-order {
+    flex-shrink: 0;
+    width: 24px;
+    text-align: center;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #6b7280;
+}
+.faq-admin-question {
+    flex: 1;
+    font-size: 0.9rem;
+    color: #1f2937;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.faq-admin-weight {
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    color: #9ca3af;
+    margin-right: 4px;
+}
+
+/* Mobile responsive */
+@media (max-width: 640px) {
+    .faq-panel {
+        width: 100%;
+        max-width: 100vw;
+        top: 56px;
+    }
+    .faq-header-btn span {
+        display: none;
+    }
 }
