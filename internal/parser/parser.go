@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	gopdf "github.com/VantageDataChat/GoPDF2"
 	goexcel "github.com/VantageDataChat/GoExcel"
@@ -132,14 +133,17 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 		log.Printf("[PDF] found %d raw images across %d pages", totalFound, len(imgMap))
 
 		// Detect PPT-to-PDF layer pattern: many pages each with many same-size
-		// FlateDecode images that are compositing layers, not real pictures.
-		// These layers are mostly transparent (black) and useless when extracted individually.
+		// FlateDecode images that are compositing layers.
+		// Instead of extracting individual (useless) layers, composite all layers
+		// per page into a single complete slide image.
 		if isPPTLayerPDF(imgMap, pageCount) {
-			log.Printf("[PDF] detected PPT-to-PDF layer pattern (%d images across %d pages), skipping image extraction", totalFound, pageCount)
+			log.Printf("[PDF] detected PPT-to-PDF layer pattern (%d images across %d pages), compositing layers per page", totalFound, pageCount)
+			images = compositePDFLayers(imgMap, pageCount)
+			log.Printf("[PDF] layer compositing done: %d page images", len(images))
 			return
 		}
 
-		// Deduplicate images by content hash
+		// Normal PDF: deduplicate and extract individual images
 		seen := make(map[[16]byte]bool)
 		skippedSmall, skippedDup := 0, 0
 		const maxImagesPerPage = 5
@@ -718,6 +722,177 @@ func isPPTLayerPDF(imgMap map[int][]gopdf.ExtractedImage, pageCount int) bool {
 
 	// If >50% of pages match the layer pattern, it's a PPT-to-PDF
 	return layerPages > len(imgMap)/2
+}
+
+// compositePDFLayers composites all FlateDecode image layers on each page into
+// a single complete image per page. PPT-to-PDF conversions store each slide as
+// multiple compositing layers (background, charts, text, decorations, etc.) that
+// must be overlaid to reconstruct the full slide.
+//
+// Strategy: decode each layer's raw pixels, then paint non-black pixels on top
+// of the canvas. Black (0,0,0) is treated as transparent since these layers use
+// black as the "empty" color. Pages are processed concurrently for performance.
+func compositePDFLayers(imgMap map[int][]gopdf.ExtractedImage, pageCount int) []ImageRef {
+	var pageIndices []int
+	for idx := range imgMap {
+		pageIndices = append(pageIndices, idx)
+	}
+	sort.Ints(pageIndices)
+
+	type pageResult struct {
+		index int
+		ref   ImageRef
+	}
+
+	resultCh := make(chan pageResult, len(pageIndices))
+	var wg sync.WaitGroup
+
+	// Process pages concurrently (limit to 4 workers to control memory usage,
+	// each page canvas is ~14MB for 2400x1500 NRGBA)
+	sem := make(chan struct{}, 4)
+
+	for _, pageIdx := range pageIndices {
+		wg.Add(1)
+		go func(pIdx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ref := compositeOnePage(imgMap[pIdx], pIdx)
+			if ref != nil {
+				resultCh <- pageResult{index: pIdx, ref: *ref}
+			}
+		}(pageIdx)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Collect and sort by page index
+	var collected []pageResult
+	for pr := range resultCh {
+		collected = append(collected, pr)
+	}
+	sort.Slice(collected, func(i, j int) bool {
+		return collected[i].index < collected[j].index
+	})
+
+	results := make([]ImageRef, len(collected))
+	for i, c := range collected {
+		results[i] = c.ref
+	}
+	return results
+}
+
+// compositeOnePage composites all layers of a single PDF page into one image.
+func compositeOnePage(imgs []gopdf.ExtractedImage, pageIdx int) *ImageRef {
+	if len(imgs) == 0 {
+		return nil
+	}
+
+	// Find the reference dimensions
+	var refW, refH int
+	for _, img := range imgs {
+		if img.Width > 0 && img.Height > 0 && len(img.Data) > 0 {
+			refW, refH = img.Width, img.Height
+			break
+		}
+	}
+	if refW == 0 || refH == 0 {
+		return nil
+	}
+
+	// Canvas: NRGBA initialized to white
+	canvas := image.NewNRGBA(image.Rect(0, 0, refW, refH))
+	pix := canvas.Pix
+	for i := 0; i < len(pix); i += 4 {
+		pix[i] = 255
+		pix[i+1] = 255
+		pix[i+2] = 255
+		pix[i+3] = 255
+	}
+
+	layersComposited := 0
+	stride := canvas.Stride
+
+	for _, img := range imgs {
+		if img.Width != refW || img.Height != refH || len(img.Data) == 0 || img.Filter != "FlateDecode" {
+			continue
+		}
+
+		isGray := strings.Contains(img.ColorSpace, "Gray")
+		bpp := 3
+		if isGray {
+			bpp = 1
+		}
+		rowBytes := refW * bpp
+		expectedPNG := (rowBytes + 1) * refH
+		expectedPlain := rowBytes * refH
+		hasPNG := len(img.Data) == expectedPNG && len(img.Data) != expectedPlain
+
+		var pixels []byte
+		if hasPNG {
+			pixels = decodePNGPredictor(img.Data, refW, refH, bpp)
+			if pixels == nil {
+				continue
+			}
+		} else if len(img.Data) >= expectedPlain {
+			pixels = img.Data
+		} else {
+			continue
+		}
+
+		// Composite: paint non-black pixels onto canvas
+		const blackThreshold = 10
+		if isGray {
+			for y := 0; y < refH; y++ {
+				srcOff := y * refW
+				dstOff := y * stride
+				for x := 0; x < refW; x++ {
+					g := pixels[srcOff+x]
+					if g > blackThreshold {
+						pix[dstOff] = g
+						pix[dstOff+1] = g
+						pix[dstOff+2] = g
+					}
+					dstOff += 4
+				}
+			}
+		} else {
+			for y := 0; y < refH; y++ {
+				srcOff := y * refW * 3
+				dstOff := y * stride
+				for x := 0; x < refW; x++ {
+					r, g, b := pixels[srcOff], pixels[srcOff+1], pixels[srcOff+2]
+					if r > blackThreshold || g > blackThreshold || b > blackThreshold {
+						pix[dstOff] = r
+						pix[dstOff+1] = g
+						pix[dstOff+2] = b
+					}
+					srcOff += 3
+					dstOff += 4
+				}
+			}
+		}
+		layersComposited++
+	}
+
+	if layersComposited == 0 {
+		return nil
+	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, canvas, &jpeg.Options{Quality: 85}); err != nil {
+		log.Printf("[PDF] failed to encode composited page %d: %v", pageIdx+1, err)
+		return nil
+	}
+
+	return &ImageRef{
+		Alt:  fmt.Sprintf("PDF第%d页", pageIdx+1),
+		Data: buf.Bytes(),
+	}
 }
 
 // convertMetafileImage attempts to extract a raster image from EMF/WMF metafile data.
