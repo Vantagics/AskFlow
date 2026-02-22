@@ -131,10 +131,18 @@ func (dp *DocumentParser) parsePDF(data []byte) (result *ParseResult, err error)
 		}
 		log.Printf("[PDF] found %d raw images across %d pages", totalFound, len(imgMap))
 
-		// Deduplicate images by content hash (PPT-to-PDF often duplicates layers per page)
+		// Detect PPT-to-PDF layer pattern: many pages each with many same-size
+		// FlateDecode images that are compositing layers, not real pictures.
+		// These layers are mostly transparent (black) and useless when extracted individually.
+		if isPPTLayerPDF(imgMap, pageCount) {
+			log.Printf("[PDF] detected PPT-to-PDF layer pattern (%d images across %d pages), skipping image extraction", totalFound, pageCount)
+			return
+		}
+
+		// Deduplicate images by content hash
 		seen := make(map[[16]byte]bool)
 		skippedSmall, skippedDup := 0, 0
-		const maxImagesPerPage = 5 // limit per page to avoid layer explosion
+		const maxImagesPerPage = 5
 
 		var imgPageIndices []int
 		for idx := range imgMap {
@@ -669,6 +677,47 @@ func isImageJPEGOrPNG(data []byte) bool {
 		return true // PNG
 	}
 	return false
+}
+
+// isPPTLayerPDF detects PDFs generated from PPT/Keynote where each page contains
+// many same-size FlateDecode image layers (compositing layers). These layers are
+// mostly transparent and useless when extracted individually — they produce
+// black-background images with only partial content (text layer, chart layer, etc.).
+//
+// Detection heuristic: if most pages have 10+ images that are all the same
+// dimensions and all FlateDecode, it's almost certainly a PPT-to-PDF conversion.
+func isPPTLayerPDF(imgMap map[int][]gopdf.ExtractedImage, pageCount int) bool {
+	if pageCount < 2 || len(imgMap) < 2 {
+		return false
+	}
+
+	// Count pages that have many same-size FlateDecode images
+	layerPages := 0
+	for _, imgs := range imgMap {
+		if len(imgs) < 10 {
+			continue
+		}
+		// Check if all large images on this page share the same dimensions
+		var refW, refH int
+		sameSize := 0
+		for _, img := range imgs {
+			if img.Width < 50 || img.Height < 50 || len(img.Data) == 0 {
+				continue
+			}
+			if refW == 0 {
+				refW, refH = img.Width, img.Height
+			}
+			if img.Width == refW && img.Height == refH && img.Filter == "FlateDecode" {
+				sameSize++
+			}
+		}
+		if sameSize >= 10 {
+			layerPages++
+		}
+	}
+
+	// If >50% of pages match the layer pattern, it's a PPT-to-PDF
+	return layerPages > len(imgMap)/2
 }
 
 // convertMetafileImage attempts to extract a raster image from EMF/WMF metafile data.
